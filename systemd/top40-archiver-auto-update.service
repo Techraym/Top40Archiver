@@ -1,0 +1,13 @@
+[Unit]
+Description=Controleer en installeer Top40Archiver-update vanaf GitHub
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/opt/top40-archiver/auto-update.sh
+
+[Service]
+Type=oneshot
+ExecStart=/opt/top40-archiver/auto-update.sh
+TimeoutStartSec=30min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
