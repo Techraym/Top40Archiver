@@ -32,6 +32,8 @@ Een nummer dat eerst in de Tipparade staat en later in de Top 40 komt, wordt nie
 - YouTube-download via yt-dlp en FFmpeg;
 - live FastAPI-dashboard op poort `8040`;
 - systemd-services en timers;
+- automatische GitHub-updates bij opstarten en iedere 24 uur;
+- commit-SHA-vergelijking en SHA-256-registratie van updatearchieven;
 - externe USB-C-opslag als Windows-netwerkschijf via Samba;
 - opslag als `Genre/beginletter/Artiest - Titel.mp3`.
 
@@ -62,7 +64,7 @@ Voorbeeld:
 ```bash
 git clone https://github.com/Techraym/Top40Archiver.git
 cd Top40Archiver
-chmod +x install.sh update-existing.sh update-from-github.sh setup-network-share.sh update-timer.sh
+chmod +x install.sh update-existing.sh update-from-github.sh auto-update.sh setup-network-share.sh update-timer.sh
 su -c ./install.sh
 ```
 
@@ -84,6 +86,51 @@ chmod +x /tmp/update-top40-archiver.sh
 ```
 
 De bestaande database, instellingen, historische voortgang en downloadstatussen blijven behouden.
+
+## Automatische updates en SHA-controle
+
+Na de eerste installatie of update wordt automatisch gecontroleerd:
+
+- twee minuten na iedere systeemstart;
+- vervolgens iedere 24 uur;
+- na een gemiste uitvoering zodra de machine weer actief is.
+
+De updater vergelijkt:
+
+```text
+lokaal geïnstalleerde commit-SHA
+↔ actuele commit-SHA van GitHub main
+```
+
+Alleen wanneer deze verschillen, wordt de ZIP van de exacte GitHub-commit gedownload. Van het archief wordt daarnaast een SHA-256-controlesom berekend en opgeslagen. De lokaal geïnstalleerde SHA wordt pas bijgewerkt nadat de volledige installatie is geslaagd.
+
+Status bekijken:
+
+```bash
+systemctl status top40-archiver-auto-update.timer --no-pager
+systemctl list-timers --all | grep top40-archiver-auto-update
+journalctl -u top40-archiver-auto-update.service -n 100 --no-pager
+```
+
+Handmatig controleren:
+
+```bash
+systemctl start top40-archiver-auto-update.service
+```
+
+Geforceerd de actuele GitHub-commit opnieuw installeren:
+
+```bash
+/opt/top40-archiver/auto-update.sh --force
+```
+
+Updategegevens staan in:
+
+```text
+/var/lib/top40-archiver/update-state/
+```
+
+Zie [de volledige update- en Samba-instructie](docs/UPDATE_AND_SMB.md).
 
 ## Spotify als controle instellen
 
@@ -125,7 +172,7 @@ of:
 \\<IP-VAN-DE-NUC>\Top40Music
 ```
 
-Gebruik Linux-/Samba-gebruiker `top40`. Zie [de volledige update- en Samba-instructie](docs/UPDATE_AND_SMB.md).
+Gebruik Linux-/Samba-gebruiker `top40`.
 
 ## Diensten en logs
 
@@ -133,6 +180,7 @@ Gebruik Linux-/Samba-gebruiker `top40`. Zie [de volledige update- en Samba-instr
 systemctl status top40-archiver-web.service --no-pager
 systemctl status top40-archiver-check.timer --no-pager
 systemctl status top40-archiver-history.timer --no-pager
+systemctl status top40-archiver-auto-update.timer --no-pager
 systemctl status smbd.service --no-pager
 ```
 
