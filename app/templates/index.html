@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Top 40 Archiver</title>
+  <link rel="stylesheet" href="/static/style.css?v=17">
+  <script src="/static/live.js?v=17" defer></script>
+</head>
+<body>
+<main class="shell">
+  <header class="page-header">
+    <div class="brand-block">
+      <div class="logo">TOP<br><b>40</b></div>
+      <div>
+        <div class="title-line">
+          <h1>Top 40 Archiver</h1>
+          <span id="live-connection" class="live-pill connecting"><span class="live-dot"></span>Verbinden…</span>
+        </div>
+        <p>Top 40 en Tipparade archiveren; alleen unieke nieuwe nummers worden één keer gedownload.</p>
+        <small>Live bijgewerkt: <span id="live-updated-at">{{ rendered_at }}</span> · zonder paginaverversing</small>
+      </div>
+    </div>
+    <div class="actions">
+      <form method="post" action="/check"><button>Nu controleren</button></form>
+      <form method="post" action="/retry"><button class="secondary">Mislukte downloads opnieuw proberen</button></form>
+    </div>
+  </header>
+
+  <section class="metric-grid" aria-label="Kerncijfers">
+    <article class="metric-card">
+      <span>Huidige Top 40</span>
+      <strong id="metric-latest-edition">{{ latest_top40.edition_key if latest_top40 else '—' }}</strong>
+      <small>40 noteringen</small>
+    </article>
+    <article class="metric-card">
+      <span>Huidige Tipparade</span>
+      <strong id="metric-latest-tipparade">{{ latest_tipparade.edition_key if latest_tipparade else '—' }}</strong>
+      <small>Nieuwe tips tellen mee</small>
+    </article>
+    <article class="metric-card">
+      <span>Unieke nummers</span>
+      <strong id="metric-total-tracks">{{ total }}</strong>
+      <small>Top 40 en Tipparade samen</small>
+    </article>
+    <article class="metric-card success-card">
+      <span>Ooit gedownload</span>
+      <strong id="metric-downloaded-count">{{ status_counts.downloaded }}</strong>
+      <small id="metric-downloaded-percent">{{ download_chart.downloaded_percent }}% geregistreerd</small>
+    </article>
+    <article class="metric-card warning-card">
+      <span>In wachtrij</span>
+      <strong id="metric-queue-count">{{ status_counts.pending + status_counts.downloading }}</strong>
+      <small id="metric-queue-summary">{{ status_counts.pending }} wachtend · {{ status_counts.downloading }} bezig</small>
+    </article>
+    <article class="metric-card danger-card">
+      <span>Mislukt</span>
+      <strong id="metric-failed-count">{{ status_counts.failed }}</strong>
+      <small>Handmatig of later opnieuw</small>
+    </article>
+  </section>
+
+  <section class="archive-card {% if history_progress.is_current %}is-current{% endif %}" id="archive-card">
+    <div class="archive-main">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Archiefstatus</span>
+          <h2 id="archive-title">{{ history_progress.title }}</h2>
+          <p id="archive-subtitle">{{ history_progress.subtitle }}</p>
+        </div>
+        <span id="history-status-badge" class="status-badge history-{{ history_progress.status }}">{{ history_progress.status_label }}</span>
+      </div>
+
+      <div class="progress"><span id="history-progress-bar" style="width:{{ history_progress.percent }}%"></span></div>
+      <div class="archive-numbers">
+        <div><strong id="history-percent">{{ history_progress.percent }}%</strong><span>totaal</span></div>
+        <div><strong id="history-top40-percent">{{ history_progress.top40.percent }}%</strong><span>Top 40</span></div>
+        <div><strong id="history-tipparade-percent">{{ history_progress.tipparade.percent }}%</strong><span>Tipparade</span></div>
+        <div><strong id="history-next-label">{{ history_progress.next_label }}</strong><span id="history-next-caption">{{ history_progress.next_caption }}</span></div>
+      </div>
+
+      <p id="history-last-edition" class="note">Top 40 laatst: {{ settings.history_last_edition or '—' }} · Tipparade laatst: {{ settings.tip_history_last_edition or '—' }}</p>
+      <p id="history-completed-at" class="note" {% if not history_progress.completed_at %}hidden{% endif %}>Archief voltooid: {{ history_progress.completed_at }}</p>
+      <div id="history-last-error" class="error-box" {% if not settings.history_last_error and not settings.tip_history_last_error %}hidden{% endif %}>{{ settings.history_last_error or settings.tip_history_last_error }}</div>
+
+      <div id="history-controls" class="actions" {% if history_progress.is_current %}hidden{% endif %}>
+        <form method="post" action="/history/start"><button>Start / hervat</button></form>
+        <form method="post" action="/history/batch"><button class="secondary">Nu één batch</button></form>
+        <form method="post" action="/history/pause"><button class="secondary">Pauzeren</button></form>
+      </div>
+      <div id="current-controls" class="current-handoff" {% if not history_progress.is_current %}hidden{% endif %}>
+        <span class="handoff-icon">✓</span>
+        <div><b>Historische opbouw afgerond</b><small>De wekelijkse Top 40- en Tipparadecontrole is nu actief.</small></div>
+        <form method="post" action="/check"><button>Huidige lijsten controleren</button></form>
+      </div>
+    </div>
+
+    <aside class="storage-card">
+      <span class="eyebrow">Systeemcontrole</span>
+      <div id="storage-state" class="storage-state {% if storage.exists and storage.writable %}ok{% else %}bad{% endif %}">
+        <span id="storage-icon">{% if storage.exists and storage.writable %}✓{% else %}!{% endif %}</span>
+        <div><b id="storage-title">{% if storage.exists and storage.writable %}USB-C schrijfbaar{% elif not storage.exists %}USB-C niet gevonden{% else %}USB-C niet schrijfbaar{% endif %}</b><small id="storage-path">{{ storage.path }}</small></div>
+      </div>
+      <div class="progress storage"><span id="storage-progress-bar" style="width:{{ storage.used_percent }}%"></span></div>
+      <div class="storage-numbers"><b id="storage-free">{{ storage.free_gb }} GB vrij</b><span id="storage-used">{{ storage.used_percent }}% gebruikt</span></div>
+      <div id="spotify-state" class="storage-state {% if spotify_configured %}ok{% else %}bad{% endif %}">
+        <span id="spotify-icon">{% if spotify_configured %}✓{% else %}!{% endif %}</span>
+        <div><b id="spotify-title">Spotify-controle {% if spotify_configured %}actief{% else %}niet ingesteld{% endif %}</b><small>Alleen metadata-validatie; audio komt nooit van Spotify.</small></div>
+      </div>
+      <div class="storage-state ok">
+        <span>↔</span>
+        <div><b>Windows-netwerkschijf</b><small><code>{{ network_share_unc }}</code></small></div>
+      </div>
+      <p class="note">Bestanden mogen via Windows worden weggehaald. De SQLite-status blijft <b>gedownload</b>, zodat een ontbrekende MP3 nooit automatisch opnieuw wordt opgehaald.</p>
+    </aside>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading compact">
+      <div><span class="eyebrow">Actuele lijst</span><h2 id="latest-chart-title">Top 40 {% if latest_top40 %}— {{ latest_top40.edition_key }}{% endif %}</h2></div>
+      <a id="latest-source-link" class="text-link" href="{{ latest_top40.source_url if latest_top40 else '#' }}" target="_blank" rel="noopener" {% if not latest_top40 %}hidden{% endif %}>Bron openen</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Artiest</th><th>Titel</th><th>Status</th></tr></thead>
+        <tbody id="latest-chart-body">
+          {% for x in top40_entries %}
+          <tr class="{% if x.is_new %}new{% endif %}"><td><span class="position">{{ x.position }}</span></td><td><b>{{ x.artist }}</b></td><td>{{ x.title }} {% if x.is_new %}<span class="new-label">NIEUW VOOR ARCHIEF</span>{% endif %}</td><td><span class="status-badge status-{{ x.download_status }}">{{ status_labels.get(x.download_status, x.download_status) }}</span></td></tr>
+          {% else %}<tr><td colspan="4" class="empty">Nog geen Top 40-editie verwerkt.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading compact">
+      <div><span class="eyebrow">Actuele lijst</span><h2 id="tipparade-chart-title">Tipparade {% if latest_tipparade %}— {{ latest_tipparade.edition_key }}{% endif %}</h2></div>
+      <a id="tipparade-source-link" class="text-link" href="{{ latest_tipparade.source_url if latest_tipparade else '#' }}" target="_blank" rel="noopener" {% if not latest_tipparade %}hidden{% endif %}>Bron openen</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Artiest</th><th>Titel</th><th>Status</th></tr></thead>
+        <tbody id="tipparade-chart-body">
+          {% for x in tipparade_entries %}
+          <tr class="{% if x.is_new %}new{% endif %}"><td><span class="position">{{ x.position }}</span></td><td><b>{{ x.artist }}</b></td><td>{{ x.title }} {% if x.is_new %}<span class="new-label">NIEUW VOOR ARCHIEF</span>{% endif %}</td><td><span class="status-badge status-{{ x.download_status }}">{{ status_labels.get(x.download_status, x.download_status) }}</span></td></tr>
+          {% else %}<tr><td colspan="4" class="empty">Nog geen Tipparade-editie verwerkt.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="two-column">
+    <section class="panel">
+      <div class="section-heading compact"><div><span class="eyebrow">Downloads</span><h2>Wachtrij</h2></div><span id="queue-count" class="count-chip">{{ status_counts.pending + status_counts.downloading }}</span></div>
+      <div id="queue-list" class="compact-list">
+        {% for x in queue %}<article><div><b>{{ x.artist }}</b><span>{{ x.title }}</span></div><span class="status-badge status-{{ x.download_status }}">{{ status_labels.get(x.download_status, x.download_status) }}</span></article>
+        {% else %}<p class="empty">De wachtrij is leeg.</p>{% endfor %}
+      </div>
+    </section>
+    <section class="panel">
+      <div class="section-heading compact"><div><span class="eyebrow">Live</span><h2>Laatste activiteit</h2></div></div>
+      <div id="activity-list" class="compact-list activity-list">
+        {% for x in activity %}<article><div><b>{{ x.artist }}</b><span>{{ x.title }}</span></div><span class="status-badge status-{{ x.download_status }}">{{ status_labels.get(x.download_status, x.download_status) }}</span></article>
+        {% else %}<p class="empty">Nog geen activiteit.</p>{% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="section-heading compact"><div><span class="eyebrow">Problemen</span><h2>Mislukte downloads</h2></div><span id="failed-count" class="count-chip danger">{{ status_counts.failed }}</span></div>
+    <div id="failed-list" class="failed-list">
+      {% for x in failed %}
+      <article><div class="failed-head"><div><b>{{ x.artist }} — {{ x.title }}</b><small>{{ x.download_attempts }} poging(en) · Spotify: {{ spotify_status_labels.get(x.spotify_status, x.spotify_status) }}</small></div><span class="status-badge status-failed">Mislukt</span></div><details><summary>Foutmelding</summary><pre>{{ x.error_message or 'Geen foutmelding opgeslagen' }}</pre></details><form method="post" action="/track/{{ x.id }}/query" class="retry-form"><input name="custom_search_query" value="{{ x.custom_search_query or (x.artist ~ ' - ' ~ x.title ~ ' official audio') }}"><button>Opnieuw klaarzetten</button></form></article>
+      {% else %}<p class="empty success-text">Geen mislukte downloads.</p>{% endfor %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading compact"><div><span class="eyebrow">Gereed</span><h2>Laatste geslaagde downloads</h2></div><span id="success-count" class="count-chip success">{{ status_counts.downloaded }}</span></div>
+    <div id="success-list" class="success-list">
+      {% for x in success %}<article><span>✓</span><div><b>{{ x.artist }} — {{ x.title }}</b><small>{{ x.mp3_filename }}</small></div></article>
+      {% else %}<p class="empty">Nog geen downloads.</p>{% endfor %}
+    </div>
+  </section>
+
+  <details class="panel settings-panel">
+    <summary><b>Instellingen</b><span>Klik om te openen</span></summary>
+    <form method="post" action="/settings" class="settings-grid">
+      <label>Startdatum wekelijkse controle<input type="date" name="start_date" value="{{ settings.start_date }}" required></label>
+      <label>Controledag<select name="weekly_day">{% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<option {% if settings.weekly_day==d %}selected{% endif %}>{{ d }}</option>{% endfor %}</select></label>
+      <label>Tijd<input type="time" name="weekly_time" value="{{ settings.weekly_time }}" required></label>
+      <label class="wide">Downloadmap<input name="download_dir" value="{{ settings.download_dir }}" required></label>
+      <label>Pogingen<input type="number" min="1" max="20" name="max_download_attempts" value="{{ settings.max_download_attempts }}"></label>
+      <label class="wide">YouTube-zoeksjabloon<input name="search_template" value="{{ settings.search_template }}" required><small>Gebruik {artist} en {title}</small></label>
+      <label>Historisch startjaar Top 40<input type="number" min="1965" max="2100" name="history_start_year" value="{{ settings.history_start_year }}"></label>
+      <label>Historische startweek Top 40<input type="number" min="1" max="53" name="history_start_week" value="{{ settings.history_start_week }}"></label>
+      <label>Weken per lijst per batch<input type="number" min="1" max="52" name="history_batch_weeks" value="{{ settings.history_batch_weeks }}"></label>
+      <label>Wachttijd per pagina<input type="number" step="0.5" min="0" max="30" name="history_delay_seconds" value="{{ settings.history_delay_seconds }}"></label>
+      <label>Downloads per historische run<input type="number" min="0" max="100" name="history_download_limit" value="{{ settings.history_download_limit }}"></label>
+      <label>Spotify minimumscore<input type="number" step="0.01" min="0" max="1" name="spotify_min_match_score" value="{{ settings.spotify_min_match_score }}"></label>
+      <label class="check-label"><input type="checkbox" name="tipparade_enabled" value="true" {% if settings.tipparade_enabled == '1' %}checked{% endif %}> Tipparade wekelijks meenemen</label>
+      <label class="check-label"><input type="checkbox" name="spotify_validation_enabled" value="true" {% if settings.spotify_validation_enabled == '1' %}checked{% endif %}> Spotify alleen als metadata-controle gebruiken</label>
+      <button>Instellingen opslaan</button>
+    </form>
+    <p class="note">Tipparadehistorie start vast bij 1967-W28. Nieuwe MP3's: <code>Genre / beginletter, cijfer of teken / Artiest - Titel.mp3</code>.</p>
+    <div class="organize-box"><div><b>Bestaande MP3's opnieuw ordenen</b><small>Alleen lokaal aanwezige bestanden worden verplaatst; SQLite blijft leidend.</small></div><form method="post" action="/organize"><button type="submit" class="secondary">Bestaande MP3's ordenen</button></form></div>
+    <p class="note">Windows-share instellen als root: <code>/opt/top40-archiver/setup-network-share.sh</code>. De share bevat alleen de externe muziekschijf; de SQLite-database blijft op de interne SSD.</p>
+    <p class="note">Spotify Client ID en Secret staan uitsluitend in <code>/etc/top40-archiver.env</code>. Na wijziging van dag of tijd: <code>/opt/top40-archiver/update-timer.sh</code>.</p>
+  </details>
+
+  <section class="panel search-panel">
+    <div class="section-heading compact"><div><span class="eyebrow">Database</span><h2>Historie zoeken</h2></div></div>
+    <form method="get" action="/" class="search-form"><input name="q" value="{{ q }}" placeholder="Artiest of titel"><button>Zoeken</button></form>
+    {% if q %}<div class="search-results">{% for x in history %}<article><b>{{ x.artist }} — {{ x.title }}</b><span>Eerste notering {{ x.first_chart_type }} {{ x.first_edition }} · Top 40-piek {{ x.top40_peak_position or '—' }} · Tipparade-piek {{ x.tipparade_peak_position or '—' }} · {{ status_labels.get(x.download_status, x.download_status) }}</span></article>{% else %}<p class="empty">Geen resultaten.</p>{% endfor %}</div>{% endif %}
+  </section>
+
+  <footer>Top 40 Archiver v{{ app_version }} · <span id="footer-live-state">live verbinding wordt gestart</span></footer>
+</main>
+</body>
+</html>

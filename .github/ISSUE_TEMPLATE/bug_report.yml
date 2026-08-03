@@ -1,0 +1,40 @@
+name: Fout melden
+description: Meld een reproduceerbaar probleem in Top40Archiver
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Verwijder wachtwoorden, tokens en Spotify-geheimen uit logs.
+  - type: input
+    id: version
+    attributes:
+      label: Versie
+      placeholder: 1.7.0
+    validations:
+      required: true
+  - type: input
+    id: debian
+    attributes:
+      label: Debian-versie
+      placeholder: Debian 13
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Probleem
+      description: Wat ging er mis en wat had je verwacht?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Stappen om te reproduceren
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevante logs
+      render: shell

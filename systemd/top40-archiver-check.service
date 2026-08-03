@@ -1,0 +1,15 @@
+[Unit]
+Description=Controleer Nederlandse Top 40 en Tipparade en download alleen nieuwe nummers
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=top40archiver
+Group=top40archiver
+WorkingDirectory=/opt/top40-archiver
+Environment=TOP40_APP_DIR=/opt/top40-archiver
+Environment=TOP40_DATA_DIR=/var/lib/top40-archiver
+EnvironmentFile=-/etc/top40-archiver.env
+ExecStart=/opt/top40-archiver/venv/bin/python -m app.cli check
+TimeoutStartSec=4h

@@ -1,0 +1,11 @@
+[Unit]
+Description=Voer historische Top 40- en Tipparade-import periodiek uit
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=30min
+Persistent=true
+Unit=top40-archiver-history.service
+
+[Install]
+WantedBy=timers.target

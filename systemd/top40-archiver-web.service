@@ -1,0 +1,19 @@
+[Unit]
+Description=Top 40 Archiver webinterface
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=top40archiver
+Group=top40archiver
+WorkingDirectory=/opt/top40-archiver
+Environment=TOP40_APP_DIR=/opt/top40-archiver
+Environment=TOP40_DATA_DIR=/var/lib/top40-archiver
+EnvironmentFile=-/etc/top40-archiver.env
+ExecStart=/opt/top40-archiver/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8040
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

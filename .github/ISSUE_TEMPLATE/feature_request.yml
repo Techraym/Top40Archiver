@@ -1,0 +1,23 @@
+name: Functievoorstel
+description: Stel een gerichte uitbreiding voor
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Doel
+      description: Welk concreet probleem lost deze functie op?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Voorgestelde werking
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Randvoorwaarden
+      description: Denk aan SQLite, Debian, systemd, externe opslag of backwards compatibility.

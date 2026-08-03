@@ -1,0 +1,15 @@
+[Unit]
+Description=Historische Nederlandse Top 40 en Tipparade importeren
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=top40archiver
+Group=top40archiver
+WorkingDirectory=/opt/top40-archiver
+Environment=TOP40_DATA_DIR=/var/lib/top40-archiver
+Environment=PYTHONPATH=/opt/top40-archiver
+EnvironmentFile=-/etc/top40-archiver.env
+ExecStart=/opt/top40-archiver/venv/bin/python -m app.cli history
+TimeoutStartSec=4h
