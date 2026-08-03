@@ -1,0 +1,12 @@
+[Unit]
+Description=Controleer Top40Archiver-updates bij opstarten en iedere 24 uur
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=24h
+Persistent=true
+AccuracySec=1min
+Unit=top40-archiver-auto-update.service
+
+[Install]
+WantedBy=timers.target
