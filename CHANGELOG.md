@@ -2,6 +2,24 @@
 
 Alle noemenswaardige wijzigingen worden in dit bestand bijgehouden.
 
+## [1.8.0] - 2026-08-04
+
+### Toegevoegd
+
+- Automatische GitHub-updatecontrole bij iedere systeemstart.
+- Daarna iedere 24 uur opnieuw controleren via een systemd-timer.
+- Vergelijking van de lokaal geïnstalleerde commit-SHA met de actuele SHA van `main`.
+- Download van de broncode via een vastgepinde commit-SHA in plaats van een veranderlijke branch-ZIP.
+- SHA-256-berekening van ieder gedownload updatearchief.
+- Permanente updategegevens in `/var/lib/top40-archiver/update-state`.
+- Handmatige update controleert na installatie of de toegepaste SHA overeenkomt met GitHub.
+
+### Veiligheid
+
+- De lokaal geregistreerde commit-SHA wordt alleen aangepast nadat de volledige update is geslaagd.
+- Bij een mislukte download, installatie of SHA-controle blijft de vorige installatie als geregistreerde versie behouden.
+- De SQLite-database, instellingen, historische voortgang en externe muziekopslag worden niet vervangen.
+
 ## [1.7.0] - 2026-08-03
 
 ### Toegevoegd
