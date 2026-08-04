@@ -5,6 +5,7 @@ import fcntl
 from pathlib import Path
 import shutil
 from typing import Iterable
+from urllib.parse import parse_qs, urlparse
 
 from .config import DATA_DIR
 from .db import connect, get_settings, now_iso
@@ -23,6 +24,43 @@ def _download_worker_count(settings: dict) -> int:
     except (TypeError, ValueError):
         configured = 1
     return max(1, min(MAX_DOWNLOAD_WORKERS, configured))
+
+
+def _direct_youtube_url(value: str | None) -> str | None:
+    """Herken een volledige YouTube-URL die rechtstreeks moet worden gedownload."""
+    candidate = str(value or "").strip()
+    if not candidate:
+        return None
+
+    try:
+        parsed = urlparse(candidate)
+    except ValueError:
+        return None
+
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return None
+
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if host == "youtu.be":
+        return candidate if parsed.path.strip("/") else None
+
+    is_youtube = host == "youtube.com" or host.endswith(".youtube.com")
+    is_nocookie = host == "youtube-nocookie.com" or host.endswith(
+        ".youtube-nocookie.com"
+    )
+    if not (is_youtube or is_nocookie):
+        return None
+
+    path = parsed.path or ""
+    if path == "/watch" and parse_qs(parsed.query).get("v", [""])[0].strip():
+        return candidate
+    if any(path.startswith(prefix) and path[len(prefix) :].strip("/") for prefix in (
+        "/shorts/",
+        "/live/",
+        "/embed/",
+    )):
+        return candidate
+    return None
 
 
 def _save_spotify_validation(track_id: int, result: dict) -> None:
@@ -60,9 +98,21 @@ def _process_track(
     minimum_score: float,
 ):
     track_id = int(row["id"])
-    query = row["custom_search_query"] or settings["search_template"].format(
-        artist=row["artist"], title=row["title"]
-    )
+    custom_input = str(row["custom_search_query"] or "").strip()
+    direct_source_url = _direct_youtube_url(custom_input)
+
+    # Een volledige YouTube-link wordt rechtstreeks gebruikt. De normale brede
+    # zoekopdracht blijft beschikbaar als fallback wanneer die video verdwenen is.
+    if direct_source_url:
+        query = settings["search_template"].format(
+            artist=row["artist"], title=row["title"]
+        )
+        source_url = direct_source_url
+    else:
+        query = custom_input or settings["search_template"].format(
+            artist=row["artist"], title=row["title"]
+        )
+        source_url = None if custom_input else row["youtube_url"]
 
     with connect() as con:
         con.execute(
@@ -113,7 +163,7 @@ def _process_track(
             row["title"],
             query,
             settings["download_dir"],
-            None if row["custom_search_query"] else row["youtube_url"],
+            source_url,
             genre=genre,
             spotify_duration_ms=spotify_duration_ms,
             alternate_artist=alternate_artist,
@@ -124,6 +174,7 @@ def _process_track(
                 """
                 UPDATE tracks
                 SET download_status='downloaded',youtube_url=COALESCE(?,youtube_url),
+                    custom_search_query=NULL,
                     genre=?,mp3_filename=?,error_message=NULL,processed_at=?,updated_at=?,
                     youtube_match_score=?,youtube_channel=?,youtube_duration_seconds=?
                 WHERE id=?
