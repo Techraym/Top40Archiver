@@ -2,6 +2,21 @@
 
 Alle noemenswaardige wijzigingen worden in dit bestand bijgehouden.
 
+## [1.8.4] - 2026-08-04
+
+### Gewijzigd
+
+- Genre-indeling gebruikt voortaan dezelfde gesloten normalisatieregels als GenreSplitter.
+- De mapstructuur gebruikt dezelfde artiest-buckets: `0-9`, `A` t/m `Z` en Windows-veilig `!-_`.
+- Speciale GenreSplitter-regels voor Piratenmuziek en kerstmuziek zijn overgenomen.
+- Apple iTunes-genregegevens worden niet meer met een Nederlandse storefront geforceerd, zodat de ruwe genrenamen gelijk lopen met GenreSplitter.
+- Onbekende of niet-herkende genres komen in `Other` terecht in plaats van willekeurige nieuwe genremappen te maken.
+- De bestaande opdracht `organize` kan al gedownloade bestanden opnieuw indelen zonder ze opnieuw te downloaden.
+
+### Tests
+
+- Regressietests toegevoegd voor genre-normalisatie, speciale overrides en artiest-buckets.
+
 ## [1.8.3] - 2026-08-04
 
 ### Opgelost
