@@ -2,6 +2,15 @@
 
 Alle noemenswaardige wijzigingen worden in dit bestand bijgehouden.
 
+## [1.8.6] - 2026-08-04
+
+### Gewijzigd
+
+- De systeemcontrole toont het schijfgebruik voortaan met drie decimalen, zodat kleine hoeveelheden op een schijf van 1,8 TB niet meer als `0%` worden weergegeven.
+- De backend registreert naast vrije, gebruikte en totale schijfruimte ook het werkelijke aantal MP3-bestanden en de totale MP3-grootte.
+- De recursieve muziekscan wordt 30 seconden gecachet, zodat de live dashboardupdate van één seconde de schijf niet voortdurend volledig doorloopt.
+- Symbolische links worden bij de muziekscan niet gevolgd.
+
 ## [1.8.5] - 2026-08-04
 
 ### Gewijzigd
