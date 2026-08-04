@@ -82,9 +82,10 @@ chown -R root:root /var/lib/top40-archiver/update-state
 chmod 755 /var/lib/top40-archiver/update-state
 chmod 644 /var/lib/top40-archiver/update-state/* 2>/dev/null || true
 
-echo "Update naar Top 40 Archiver 1.8.2 gereed."
+echo "Update naar Top 40 Archiver 1.8.3 gereed."
 echo "Automatische GitHub-updatecontrole is actief bij opstarten en iedere 24 uur."
 echo "Top40.nl TLS-keten is via een gecontroleerde Sectigo-bundle hersteld."
+echo "De actuele en historische Top40.nl-lijststructuur wordt ondersteund."
 echo "Spotify instellen: nano /etc/top40-archiver.env"
 echo "Daarna: systemctl restart top40-archiver-web.service"
 echo "Windows-netwerkschijf instellen: /opt/top40-archiver/setup-network-share.sh"
