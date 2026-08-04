@@ -98,6 +98,7 @@ DEFAULTS = {
     "weekly_day": "Fri",
     "weekly_time": "10:00",
     "download_dir": DEFAULT_DOWNLOAD_DIR,
+    "download_workers": "2",
     "max_download_attempts": "3",
     "search_template": "{artist} - {title} official audio",
     "last_edition": "",
