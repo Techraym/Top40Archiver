@@ -8,6 +8,7 @@
     downloading: "Bezig",
     downloaded: "Gedownload",
     failed: "Mislukt",
+    unavailable: "Niet meer beschikbaar",
   };
 
   function escapeHtml(value) {
@@ -73,8 +74,10 @@
     setText("metric-queue-count", (counts.pending ?? 0) + (counts.downloading ?? 0));
     setText("metric-queue-summary", `${counts.pending ?? 0} wachtend · ${counts.downloading ?? 0} bezig`);
     setText("metric-failed-count", counts.failed ?? 0);
+    setText("metric-failed-summary", `${counts.unavailable ?? 0} niet meer beschikbaar`);
     setText("queue-count", (counts.pending ?? 0) + (counts.downloading ?? 0));
     setText("failed-count", counts.failed ?? 0);
+    setText("unavailable-count", counts.unavailable ?? 0);
     setText("success-count", counts.downloaded ?? 0);
   }
 
@@ -194,12 +197,29 @@
           const query = row.custom_search_query || `${row.artist} - ${row.title} official audio`;
           return `<article>
             <div class="failed-head"><div><b>${escapeHtml(row.artist)} — ${escapeHtml(row.title)}</b><small>${escapeHtml(row.download_attempts)} poging(en) · Spotify: ${escapeHtml(row.spotify_status || "unchecked")}</small></div><span class="status-badge status-failed">Mislukt</span></div>
-            <details><summary>Foutmelding</summary><pre>${escapeHtml(row.error_message || "Geen foutmelding opgeslagen")}</pre></details>
-            <form method="post" action="/track/${encodeURIComponent(row.id)}/query" class="retry-form"><input name="custom_search_query" value="${escapeHtml(query)}"><button>Opnieuw klaarzetten</button></form>
+            <details><summary>Foutmelding en gebruikte zoekvarianten</summary><pre>${escapeHtml(row.error_message || "Geen foutmelding opgeslagen")}</pre></details>
+            <form method="post" action="/track/${encodeURIComponent(row.id)}/query" class="retry-form">
+              <input name="custom_search_query" value="${escapeHtml(query)}">
+              <button>Autonoom opnieuw zoeken</button>
+              <button type="submit" class="unavailable" formaction="/track/${encodeURIComponent(row.id)}/unavailable" formnovalidate>Niet meer beschikbaar</button>
+            </form>
           </article>`;
         }).join("")
       : '<p class="empty success-text">Geen mislukte downloads.</p>';
     updateHtml("failed-list", JSON.stringify(rows), html, true);
+  }
+
+  function updateUnavailable(data) {
+    const rows = data.unavailable || [];
+    const panel = $("unavailable-panel");
+    if (panel) panel.hidden = rows.length === 0;
+    const html = rows.length
+      ? rows.map((row) => `<article>
+          <div><b>${escapeHtml(row.artist)}</b><span>${escapeHtml(row.title)}</span></div>
+          <form method="post" action="/track/${encodeURIComponent(row.id)}/restore"><button class="secondary">Toch opnieuw proberen</button></form>
+        </article>`).join("")
+      : "";
+    updateHtml("unavailable-list", JSON.stringify(rows), html, true);
   }
 
   function updateSuccess(data) {
@@ -219,6 +239,7 @@
     updateChart(data, "tipparade");
     updateQueueAndActivity(data);
     updateFailed(data);
+    updateUnavailable(data);
     updateSuccess(data);
   }
 
