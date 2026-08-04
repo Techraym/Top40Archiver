@@ -94,13 +94,13 @@ def _candidate_score(
 
     wanted_flags = set(
         re.findall(
-            r"\b(live|remix|acoustic|karaoke|instrumental|sped up|slowed)\b",
+            r"\b(live|remix|acoustic|karaoke|instrumental|cover|tribute|sped up|slowed)\b",
             wanted_title,
         )
     )
     found_flags = set(
         re.findall(
-            r"\b(live|remix|acoustic|karaoke|instrumental|sped up|slowed)\b",
+            r"\b(live|remix|acoustic|karaoke|instrumental|cover|tribute|sped up|slowed)\b",
             found_title,
         )
     )
@@ -123,7 +123,7 @@ def _candidate_score(
 
 def _plain_text(value: str) -> str:
     value = re.sub(r"[\[(].*?[\])]", " ", str(value or ""))
-    value = value.replace("/", " ").replace("|", " ")
+    value = value.replace("|", " ")
     return re.sub(r"\s+", " ", value).strip()
 
 
@@ -136,6 +136,100 @@ def _broad_search_query(value: str) -> str:
         cleaned,
         flags=re.I,
     ).strip(" -")
+
+
+def _split_credit_parts(value: str) -> list[str]:
+    """Splits oude samengestelde hitlijstcredits zonder namen als AC/DC te breken."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip(" /;|")
+    if not text:
+        return []
+
+    # Oude Top 40-records gebruiken doorgaans ' / ' of meerdere slashes.
+    # Een enkele slash zonder spaties, zoals AC/DC, blijft bewust intact.
+    parts = re.split(r"\s+/{1,}\s+|/{2,}|;\s*|\|\s*", text)
+    result: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        cleaned = re.sub(r"\s+", " ", part).strip(" -/;|")
+        key = cleaned.casefold()
+        if cleaned and key not in seen:
+            seen.add(key)
+            result.append(cleaned)
+    return result or [text]
+
+
+def _simplified_artist(value: str) -> str:
+    """Verwijder vooral dirigentcredits die YouTube-zoekopdrachten versmallen."""
+    cleaned = re.sub(r"\s+", " ", str(value or "")).strip()
+    simplified = re.sub(
+        r"\s+(?:o\.?\s*l\.?\s*v\.?|onder\s+leiding\s+van)\s+.+$",
+        "",
+        cleaned,
+        flags=re.I,
+    ).strip(" -")
+    return simplified or cleaned
+
+
+def _search_pairs(
+    artist: str,
+    title: str,
+    alternate_artist: str | None = None,
+    alternate_title: str | None = None,
+) -> list[tuple[str, str]]:
+    """Maak bruikbare artiest-titelparen uit gewone én samengestelde credits."""
+    pairs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(pair_artist: str, pair_title: str) -> None:
+        pair_artist = re.sub(r"\s+", " ", str(pair_artist or "")).strip(" -/")
+        pair_title = re.sub(r"\s+", " ", str(pair_title or "")).strip(" -/")
+        if not pair_artist or not pair_title:
+            return
+        key = (pair_artist.casefold(), pair_title.casefold())
+        if key in seen:
+            return
+        seen.add(key)
+        pairs.append((pair_artist, pair_title))
+
+    def expand(source_artist: str | None, source_title: str | None) -> None:
+        if not source_artist or not source_title:
+            return
+
+        artists = _split_credit_parts(source_artist)
+        titles = _split_credit_parts(source_title)
+        compound = len(artists) > 1 or len(titles) > 1
+        component_pairs: list[tuple[str, str]] = []
+
+        if len(artists) == len(titles) and len(artists) > 1:
+            component_pairs.extend(zip(artists, titles))
+        elif len(artists) == 1 and len(titles) > 1:
+            component_pairs.extend((artists[0], item) for item in titles)
+        elif len(titles) == 1 and len(artists) > 1:
+            component_pairs.extend((item, titles[0]) for item in artists)
+        elif len(artists) > 1 and len(titles) > 1:
+            # Eerst logische positieparen, daarna enkele beperkte kruiscombinaties
+            # voor rommelige historische bronregels met ongelijke aantallen.
+            component_pairs.extend(zip(artists, titles))
+            for item_artist in artists[:3]:
+                for item_title in titles[:3]:
+                    component_pairs.append((item_artist, item_title))
+
+        if compound:
+            for item_artist, item_title in component_pairs:
+                add(item_artist, item_title)
+                simplified = _simplified_artist(item_artist)
+                if simplified.casefold() != item_artist.casefold():
+                    add(simplified, item_title)
+
+        add(source_artist, source_title)
+        simplified_whole = _simplified_artist(source_artist)
+        if simplified_whole.casefold() != str(source_artist).casefold():
+            add(simplified_whole, source_title)
+
+    # Canonieke metadata krijgt prioriteit, daarna de oorspronkelijke hitlijsttekst.
+    expand(alternate_artist, alternate_title)
+    expand(artist, title)
+    return pairs[:14]
 
 
 def _unique_queries(
@@ -152,34 +246,41 @@ def _unique_queries(
         if cleaned and cleaned.casefold() not in {item.casefold() for item in queries}:
             queries.append(cleaned)
 
-    pairs = [(artist, title)]
-    if alternate_artist and alternate_title:
-        pairs.insert(0, (alternate_artist, alternate_title))
+    pairs = _search_pairs(
+        artist,
+        title,
+        alternate_artist,
+        alternate_title,
+    )
 
-    # Begin breed en exact. Vooral oudere tracks hebben vaak geen upload met
-    # letterlijk 'official audio' in de titel.
+    # Begin met exacte brede zoekopdrachten. Bij samengestelde historische
+    # noteringen staan de afzonderlijke positieparen vóór de lange bronregel.
     for query_artist, query_title in pairs:
         add(f"{query_artist} - {query_title}")
         add(f"{query_artist} {query_title}")
+
+    # Een oude of handmatig ingevoerde query met 'official audio' wordt eerst
+    # zonder die beperkende toevoeging geprobeerd.
+    add(_broad_search_query(primary_query))
+
+    # Omgekeerde volgorde helpt bij uploads die alleen de titel vooraan zetten.
+    for query_artist, query_title in pairs[:6]:
         add(f"{query_title} {query_artist}")
+
+    # Gerichtere termen blijven als fallback beschikbaar.
+    for query_artist, query_title in pairs[:6]:
+        add(f"{query_artist} {query_title} topic")
+        add(f"{query_artist} {query_title} audio")
+        add(f"{query_artist} {query_title} lyrics")
+        add(f"{query_artist} - {query_title} official audio")
 
         plain_artist = _plain_text(query_artist)
         plain_title = _plain_text(query_title)
         if (plain_artist, plain_title) != (query_artist, query_title):
             add(f"{plain_artist} - {plain_title}")
 
-    # Een oude of handmatig ingevoerde query met 'official audio' wordt eerst
-    # zonder die beperkende toevoeging geprobeerd.
-    add(_broad_search_query(primary_query))
-
-    # Gerichtere termen blijven als fallback beschikbaar.
-    for query_artist, query_title in pairs:
-        add(f"{query_artist} {query_title} topic")
-        add(f"{query_artist} {query_title} audio")
-        add(f"{query_artist} - {query_title} official audio")
-
     add(primary_query)
-    return queries[:10]
+    return queries[:20]
 
 
 def _search_one(query: str, timeout: int) -> list[dict]:
@@ -191,11 +292,11 @@ def _search_one(query: str, timeout: int) -> list[dict]:
         "--dump-single-json",
         "--flat-playlist",
         "--playlist-end",
-        "8",
+        "10",
         "--socket-timeout",
         "30",
         *_runtime_args(),
-        f"ytsearch8:{query}",
+        f"ytsearch10:{query}",
     ]
     process = subprocess.run(
         cmd,
@@ -231,9 +332,12 @@ def _search_youtube(
     candidates: dict[str, tuple[float, dict, str]] = {}
     searched: list[str] = []
 
-    scoring_pairs = [(artist, title)]
-    if alternate_artist and alternate_title:
-        scoring_pairs.append((alternate_artist, alternate_title))
+    scoring_pairs = _search_pairs(
+        artist,
+        title,
+        alternate_artist,
+        alternate_title,
+    )
 
     for search_query in queries:
         searched.append(search_query)
