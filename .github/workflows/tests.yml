@@ -23,6 +23,7 @@ jobs:
           bash -n update-from-github.sh
           bash -n auto-update.sh
           bash -n setup-network-share.sh
+          bash -n setup-top40-ca-bundle.sh
           bash -n update-timer.sh
 
   pytest:
