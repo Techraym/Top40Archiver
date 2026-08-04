@@ -25,7 +25,16 @@ from .service import (
 from .spotify import spotify_configured
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "1.7"
+
+
+def _load_app_version() -> str:
+    try:
+        return (BASE.parent / "VERSION").read_text(encoding="utf-8").strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
+APP_VERSION = _load_app_version()
 LIVE_INTERVAL_SECONDS = 1.0
 
 app = FastAPI(title="Top 40 Archiver", version=APP_VERSION)
