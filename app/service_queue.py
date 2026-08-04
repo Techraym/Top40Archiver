@@ -77,6 +77,9 @@ def _process_track(
 
     try:
         spotify_duration_ms = row["spotify_duration_ms"]
+        alternate_artist = row["spotify_artist"]
+        alternate_title = row["spotify_title"]
+
         if spotify_enabled and row["spotify_status"] in {
             None,
             "",
@@ -88,6 +91,9 @@ def _process_track(
             validation_dict = validation.as_dict()
             _save_spotify_validation(track_id, validation_dict)
             spotify_duration_ms = validation.duration_ms
+            if validation.status == "matched":
+                alternate_artist = validation.artist
+                alternate_title = validation.title
         elif not spotify_configured() and row["spotify_status"] == "unchecked":
             _save_spotify_validation(track_id, {"status": "not_configured"})
 
@@ -110,6 +116,8 @@ def _process_track(
             None if row["custom_search_query"] else row["youtube_url"],
             genre=genre,
             spotify_duration_ms=spotify_duration_ms,
+            alternate_artist=alternate_artist,
+            alternate_title=alternate_title,
         )
         with connect() as con:
             con.execute(
@@ -159,7 +167,8 @@ def process_queue(limit: int | None = None, track_ids: Iterable[int] | None = No
             settings = get_settings(con)
             max_attempts = int(settings["max_download_attempts"])
             sql = (
-                "SELECT * FROM tracks WHERE download_status!='downloaded' "
+                "SELECT * FROM tracks "
+                "WHERE download_status IN ('pending','failed','downloading') "
                 "AND download_attempts<?"
             )
             params: list[object] = [max_attempts]
@@ -209,8 +218,6 @@ def process_queue(limit: int | None = None, track_ids: Iterable[int] | None = No
                 try:
                     results.append(future.result())
                 except Exception:
-                    # _process_track vangt normale downloadfouten zelf af. Deze
-                    # reserve voorkomt dat één onverwachte threadfout de hele batch stopt.
                     results.append((track_id, "worker_error"))
 
         return sorted(results, key=lambda item: int(item[0]))
