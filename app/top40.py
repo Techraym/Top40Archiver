@@ -217,14 +217,35 @@ def fetch_chart_from_youtube(target: date | None = None) -> ChartEdition:
 
 def _parse_year_week(soup: BeautifulSoup, source_url: str) -> tuple[int, int]:
     heading = soup.get_text(" ", strip=True)
-    match = re.search(r"week\s+(\d{1,2})\s*,?\s*(20\d{2})", heading, re.I)
+    match = re.search(r"week\s+(\d{1,2})\s*,?\s*((?:19|20)\d{2})", heading, re.I)
     if match:
         return int(match.group(2)), int(match.group(1))
-    match = re.search(r"/(20\d{2})/week-(\d{1,2})", source_url)
+    match = re.search(r"/((?:19|20)\d{2})/week-(\d{1,2})", source_url)
     if match:
         return int(match.group(1)), int(match.group(2))
     iso = date.today().isocalendar()
     return iso.year, iso.week
+
+
+def _detail_link_texts(node: Any) -> tuple[list[str], str | None]:
+    """Read title/artist from current Top40.nl item detail links."""
+    values: list[str] = []
+    track_id: str | None = None
+
+    for link in node.select("a[href]"):
+        href = str(link.get("href") or "")
+        id_match = re.search(r"-(\d+)(?:[/?#]|$)", href)
+        if not id_match:
+            continue
+
+        if track_id is None:
+            track_id = id_match.group(1)
+
+        value = link.get_text(" ", strip=True)
+        if value and value not in values:
+            values.append(value)
+
+    return values, track_id
 
 
 def parse_chart(html: str, source_url: str, chart_type: ChartType = "top40") -> ChartEdition:
@@ -249,6 +270,7 @@ def parse_chart(html: str, source_url: str, chart_type: ChartType = "top40") -> 
                 node,
                 [
                     ".list-item__position",
+                    ".top40-list__item__info__position",
                     ".position",
                     "[class*='position']",
                     ".number",
@@ -262,6 +284,7 @@ def parse_chart(html: str, source_url: str, chart_type: ChartType = "top40") -> 
         position = int(position_match.group(1))
         if position > expected:
             continue
+
         title = _text(
             node,
             [
@@ -283,12 +306,21 @@ def parse_chart(html: str, source_url: str, chart_type: ChartType = "top40") -> 
                 ".name",
             ],
         )
+
+        detail_values, detail_track_id = _detail_link_texts(node)
+        if not title and detail_values:
+            title = detail_values[0]
+        if not artist and len(detail_values) >= 2:
+            artist = detail_values[1]
+
         link = node.select_one("a[href]")
         href = str(link.get("href") or "") if link else ""
-        source_track_id = None
-        id_match = re.search(r"-(\d+)(?:[/?#]|$)", href)
-        if id_match:
-            source_track_id = id_match.group(1)
+        source_track_id = detail_track_id
+        if source_track_id is None:
+            id_match = re.search(r"-(\d+)(?:[/?#]|$)", href)
+            if id_match:
+                source_track_id = id_match.group(1)
+
         if title and artist and title != artist:
             found[position] = ChartTrack(position, artist, title, None, source_track_id)
 
