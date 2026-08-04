@@ -4,7 +4,7 @@ set -euo pipefail
 SRC=$(cd "$(dirname "$0")" && pwd)
 
 apt-get update
-apt-get install -y python3 python3-venv python3-pip ffmpeg sqlite3 ca-certificates curl unzip util-linux
+apt-get install -y python3 python3-venv python3-pip ffmpeg sqlite3 ca-certificates curl unzip util-linux openssl
 id top40archiver >/dev/null 2>&1 || useradd --system --home /var/lib/top40-archiver --shell /usr/sbin/nologin top40archiver
 mkdir -p \
   /opt/top40-archiver \
@@ -15,13 +15,23 @@ rm -rf /opt/top40-archiver/app
 cp -a "$SRC/app" "$SRC/requirements.txt" "$SRC/VERSION" \
   "$SRC/update-timer.sh" "$SRC/update-from-github.sh" \
   "$SRC/auto-update.sh" "$SRC/setup-network-share.sh" \
+  "$SRC/setup-top40-ca-bundle.sh" \
   /opt/top40-archiver/
 python3 -m venv /opt/top40-archiver/venv
 /opt/top40-archiver/venv/bin/pip install --upgrade pip wheel
 /opt/top40-archiver/venv/bin/pip install -r /opt/top40-archiver/requirements.txt
 
+chmod 755 \
+  /opt/top40-archiver/update-timer.sh \
+  /opt/top40-archiver/update-from-github.sh \
+  /opt/top40-archiver/auto-update.sh \
+  /opt/top40-archiver/setup-network-share.sh \
+  /opt/top40-archiver/setup-top40-ca-bundle.sh
+
+/opt/top40-archiver/setup-top40-ca-bundle.sh
+
 if ! command -v deno >/dev/null 2>&1; then
-  DENO_INSTALL=/opt/deno curl -fsSL https://deno.land/install.sh | sh
+  curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/opt/deno sh
   ln -sf /opt/deno/bin/deno /usr/local/bin/deno
 fi
 
@@ -37,13 +47,11 @@ EOF
   chown root:root /etc/top40-archiver.env
 fi
 
-chmod 755 \
-  /opt/top40-archiver/update-timer.sh \
-  /opt/top40-archiver/update-from-github.sh \
-  /opt/top40-archiver/auto-update.sh \
-  /opt/top40-archiver/setup-network-share.sh
 chown -R top40archiver:top40archiver /opt/top40-archiver /var/lib/top40-archiver
-chown root:root /opt/top40-archiver/auto-update.sh /opt/top40-archiver/update-from-github.sh
+chown root:root \
+  /opt/top40-archiver/auto-update.sh \
+  /opt/top40-archiver/update-from-github.sh \
+  /opt/top40-archiver/setup-top40-ca-bundle.sh
 cp "$SRC"/systemd/*.service "$SRC"/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
 cd /opt/top40-archiver
@@ -66,7 +74,8 @@ systemctl enable --now \
   top40-archiver-web.service \
   top40-archiver-history.timer \
   top40-archiver-auto-update.timer
-printf 'Top 40 Archiver 1.8 is klaar. Open: http://%s:8040\n' "$(hostname -I | awk '{print $1}')"
+printf 'Top 40 Archiver 1.8.1 is klaar. Open: http://%s:8040\n' "$(hostname -I | awk '{print $1}')"
 echo "Automatische updates: bij opstarten en iedere 24 uur, met commit-SHA- en SHA-256-controle."
+echo "Top40.nl TLS-keten: gecontroleerde Sectigo-bundle geïnstalleerd."
 echo "Spotify instellen: nano /etc/top40-archiver.env && systemctl restart top40-archiver-web.service"
 echo "Windows-netwerkschijf instellen: /opt/top40-archiver/setup-network-share.sh"
