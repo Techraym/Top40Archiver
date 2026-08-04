@@ -74,11 +74,12 @@ systemctl enable --now \
   top40-archiver-web.service \
   top40-archiver-history.timer \
   top40-archiver-auto-update.timer
-printf 'Top 40 Archiver 1.8.5 is klaar. Open: http://%s:8040\n' "$(hostname -I | awk '{print $1}')"
+printf 'Top 40 Archiver 1.8.6 is klaar. Open: http://%s:8040\n' "$(hostname -I | awk '{print $1}')"
 echo "Automatische updates: bij opstarten en iedere 24 uur, met commit-SHA- en SHA-256-controle."
 echo "Top40.nl TLS-keten: gecontroleerde Sectigo-bundle geïnstalleerd."
 echo "De actuele en historische Top40.nl-lijststructuur wordt ondersteund."
 echo "Genre- en artiestmappen volgen dezelfde regels als GenreSplitter."
 echo "De downloadwachtrij gebruikt standaard twee parallelle workers."
+echo "De systeemcontrole toont nauwkeurig schijfgebruik en werkelijke MP3-statistieken."
 echo "Spotify instellen: nano /etc/top40-archiver.env && systemctl restart top40-archiver-web.service"
 echo "Windows-netwerkschijf instellen: /opt/top40-archiver/setup-network-share.sh"
