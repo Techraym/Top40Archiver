@@ -1,0 +1,11 @@
+[Unit]
+Description=Verwerk de Top40Archiver-downloadwachtrij periodiek
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=5min
+AccuracySec=15s
+Unit=top40-archiver-download.service
+
+[Install]
+WantedBy=timers.target
