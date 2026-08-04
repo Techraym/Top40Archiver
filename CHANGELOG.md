@@ -2,6 +2,22 @@
 
 Alle noemenswaardige wijzigingen worden in dit bestand bijgehouden.
 
+## [1.8.5] - 2026-08-04
+
+### Gewijzigd
+
+- De downloadwachtrij gebruikt standaard twee parallelle workers.
+- Eén globale proceslock blijft dubbele service-runs voorkomen.
+- Iedere worker gebruikt eigen korte SQLite-verbindingen; WAL en een timeout van 60 seconden blijven actief.
+- Het aantal workers is instelbaar via `download_workers` en wordt voor veiligheid begrensd op maximaal vier.
+- `history_download_limit` blijft het totale aantal nummers per batch, niet het aantal per worker.
+
+### Veiligheid
+
+- Tracks worden nog steeds slechts eenmaal uit de wachtrij geselecteerd binnen de globale workerlock.
+- Tijdelijke downloadmappen blijven per track uniek.
+- Eén mislukte worker stopt de overige downloads in dezelfde batch niet.
+
 ## [1.8.4] - 2026-08-04
 
 ### Gewijzigd
