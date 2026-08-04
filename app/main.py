@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .dashboard import download_chart, history_progress, storage_status
-from .db import connect, get_settings, init_db, set_settings
+from .db import connect, get_settings, init_db, now_iso, set_settings
 from .service import (
     history_pause,
     history_start,
@@ -46,6 +46,7 @@ STATUS_LABELS = {
     "downloading": "Bezig",
     "downloaded": "Gedownload",
     "failed": "Mislukt",
+    "unavailable": "Niet meer beschikbaar",
 }
 SPOTIFY_STATUS_LABELS = {
     "unchecked": "Nog niet gecontroleerd",
@@ -127,6 +128,16 @@ def _dashboard_data(q: str = "") -> dict[str, Any]:
                 """
             ).fetchall()
         )
+        unavailable = _rows(
+            con.execute(
+                """
+                SELECT * FROM tracks
+                WHERE download_status='unavailable'
+                ORDER BY updated_at DESC
+                LIMIT 30
+                """
+            ).fetchall()
+        )
         activity = _rows(
             con.execute(
                 """
@@ -183,6 +194,7 @@ def _dashboard_data(q: str = "") -> dict[str, Any]:
         "queue": queue,
         "success": success,
         "failed": failed,
+        "unavailable": unavailable,
         "activity": activity,
         "status_counts": status_counts,
         "status_labels": STATUS_LABELS,
@@ -221,6 +233,7 @@ def _live_payload() -> dict[str, Any]:
         "queue": data["queue"],
         "success": data["success"],
         "failed": data["failed"],
+        "unavailable": data["unavailable"],
         "activity": data["activity"],
         "status_counts": data["status_counts"],
         "status_labels": STATUS_LABELS,
@@ -286,6 +299,15 @@ def check(background_tasks: BackgroundTasks):
 
 @app.post("/retry")
 def retry(background_tasks: BackgroundTasks):
+    with connect() as con:
+        con.execute(
+            """
+            UPDATE tracks
+            SET download_status='pending',download_attempts=0,error_message=NULL,updated_at=?
+            WHERE download_status='failed'
+            """,
+            (now_iso(),),
+        )
     background_tasks.add_task(process_queue)
     return RedirectResponse("/", 303)
 
@@ -358,11 +380,42 @@ def track_query(track_id: int, custom_search_query: str = Form(...)):
         con.execute(
             """
             UPDATE tracks
-            SET custom_search_query=?,download_status='pending',error_message=NULL,
-                updated_at=datetime('now')
+            SET custom_search_query=?,download_status='pending',download_attempts=0,
+                youtube_url=NULL,error_message=NULL,updated_at=?
             WHERE id=?
             """,
-            (custom_search_query.strip() or None, track_id),
+            (custom_search_query.strip() or None, now_iso(), track_id),
+        )
+    return RedirectResponse("/", 303)
+
+
+@app.post("/track/{track_id}/unavailable")
+def track_unavailable(track_id: int):
+    with connect() as con:
+        con.execute(
+            """
+            UPDATE tracks
+            SET download_status='unavailable',custom_search_query=NULL,
+                error_message='Handmatig gemarkeerd als niet meer beschikbaar op de downloadbron',
+                updated_at=?
+            WHERE id=? AND download_status!='downloaded'
+            """,
+            (now_iso(), track_id),
+        )
+    return RedirectResponse("/", 303)
+
+
+@app.post("/track/{track_id}/restore")
+def track_restore(track_id: int):
+    with connect() as con:
+        con.execute(
+            """
+            UPDATE tracks
+            SET download_status='pending',download_attempts=0,youtube_url=NULL,
+                error_message=NULL,updated_at=?
+            WHERE id=? AND download_status='unavailable'
+            """,
+            (now_iso(), track_id),
         )
     return RedirectResponse("/", 303)
 
