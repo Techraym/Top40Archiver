@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Top 40 Archiver</title>
-  <link rel="stylesheet" href="/static/style.css?v=17">
-  <script src="/static/live.js?v=17" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=19">
+  <script src="/static/live.js?v=19" defer></script>
 </head>
 <body>
 <main class="shell">
@@ -23,7 +23,7 @@
     </div>
     <div class="actions">
       <form method="post" action="/check"><button>Nu controleren</button></form>
-      <form method="post" action="/retry"><button class="secondary">Mislukte downloads opnieuw proberen</button></form>
+      <form method="post" action="/retry"><button class="secondary">Mislukte downloads autonoom opnieuw zoeken</button></form>
     </div>
   </header>
 
@@ -56,7 +56,7 @@
     <article class="metric-card danger-card">
       <span>Mislukt</span>
       <strong id="metric-failed-count">{{ status_counts.failed }}</strong>
-      <small>Handmatig of later opnieuw</small>
+      <small id="metric-failed-summary">{{ status_counts.unavailable }} niet meer beschikbaar</small>
     </article>
   </section>
 
@@ -102,7 +102,7 @@
         <div><b id="storage-title">{% if storage.exists and storage.writable %}USB-C schrijfbaar{% elif not storage.exists %}USB-C niet gevonden{% else %}USB-C niet schrijfbaar{% endif %}</b><small id="storage-path">{{ storage.path }}</small></div>
       </div>
       <div class="progress storage"><span id="storage-progress-bar" style="width:{{ storage.used_percent }}%"></span></div>
-      <div class="storage-numbers"><b id="storage-free">{{ storage.free_gb }} GB vrij</b><span id="storage-used">{{ storage.used_percent }}% gebruikt</span></div>
+      <div class="storage-numbers"><b id="storage-free">{{ storage.free_gb }} GB vrij · {{ storage.mp3_count }} MP3 · {{ storage.music_size_label }}</b><span id="storage-used">{{ storage.used_percent_label }}% gebruikt</span></div>
       <div id="spotify-state" class="storage-state {% if spotify_configured %}ok{% else %}bad{% endif %}">
         <span id="spotify-icon">{% if spotify_configured %}✓{% else %}!{% endif %}</span>
         <div><b id="spotify-title">Spotify-controle {% if spotify_configured %}actief{% else %}niet ingesteld{% endif %}</b><small>Alleen metadata-validatie; audio komt nooit van Spotify.</small></div>
@@ -170,8 +170,25 @@
     <div class="section-heading compact"><div><span class="eyebrow">Problemen</span><h2>Mislukte downloads</h2></div><span id="failed-count" class="count-chip danger">{{ status_counts.failed }}</span></div>
     <div id="failed-list" class="failed-list">
       {% for x in failed %}
-      <article><div class="failed-head"><div><b>{{ x.artist }} — {{ x.title }}</b><small>{{ x.download_attempts }} poging(en) · Spotify: {{ spotify_status_labels.get(x.spotify_status, x.spotify_status) }}</small></div><span class="status-badge status-failed">Mislukt</span></div><details><summary>Foutmelding</summary><pre>{{ x.error_message or 'Geen foutmelding opgeslagen' }}</pre></details><form method="post" action="/track/{{ x.id }}/query" class="retry-form"><input name="custom_search_query" value="{{ x.custom_search_query or (x.artist ~ ' - ' ~ x.title ~ ' official audio') }}"><button>Opnieuw klaarzetten</button></form></article>
+      <article>
+        <div class="failed-head"><div><b>{{ x.artist }} — {{ x.title }}</b><small>{{ x.download_attempts }} poging(en) · Spotify: {{ spotify_status_labels.get(x.spotify_status, x.spotify_status) }}</small></div><span class="status-badge status-failed">Mislukt</span></div>
+        <details><summary>Foutmelding en gebruikte zoekvarianten</summary><pre>{{ x.error_message or 'Geen foutmelding opgeslagen' }}</pre></details>
+        <form method="post" action="/track/{{ x.id }}/query" class="retry-form">
+          <input name="custom_search_query" value="{{ x.custom_search_query or (x.artist ~ ' - ' ~ x.title ~ ' official audio') }}">
+          <button>Autonoom opnieuw zoeken</button>
+          <button type="submit" class="unavailable" formaction="/track/{{ x.id }}/unavailable" formnovalidate>Niet meer beschikbaar</button>
+        </form>
+      </article>
       {% else %}<p class="empty success-text">Geen mislukte downloads.</p>{% endfor %}
+    </div>
+  </section>
+
+  <section class="panel" id="unavailable-panel" {% if not unavailable %}hidden{% endif %}>
+    <div class="section-heading compact"><div><span class="eyebrow">Archiefstatus</span><h2>Niet meer beschikbaar</h2></div><span id="unavailable-count" class="count-chip">{{ status_counts.unavailable }}</span></div>
+    <div id="unavailable-list" class="compact-list">
+      {% for x in unavailable %}
+      <article><div><b>{{ x.artist }}</b><span>{{ x.title }}</span></div><form method="post" action="/track/{{ x.id }}/restore"><button class="secondary">Toch opnieuw proberen</button></form></article>
+      {% endfor %}
     </div>
   </section>
 
@@ -191,7 +208,7 @@
       <label>Tijd<input type="time" name="weekly_time" value="{{ settings.weekly_time }}" required></label>
       <label class="wide">Downloadmap<input name="download_dir" value="{{ settings.download_dir }}" required></label>
       <label>Pogingen<input type="number" min="1" max="20" name="max_download_attempts" value="{{ settings.max_download_attempts }}"></label>
-      <label class="wide">YouTube-zoeksjabloon<input name="search_template" value="{{ settings.search_template }}" required><small>Gebruik {artist} en {title}</small></label>
+      <label class="wide">Eerste YouTube-zoekopdracht<input name="search_template" value="{{ settings.search_template }}" required><small>Daarna probeert het systeem automatisch aanvullende varianten.</small></label>
       <label>Historisch startjaar Top 40<input type="number" min="1965" max="2100" name="history_start_year" value="{{ settings.history_start_year }}"></label>
       <label>Historische startweek Top 40<input type="number" min="1" max="53" name="history_start_week" value="{{ settings.history_start_week }}"></label>
       <label>Weken per lijst per batch<input type="number" min="1" max="52" name="history_batch_weeks" value="{{ settings.history_batch_weeks }}"></label>
