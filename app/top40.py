@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 import json
+import os
+from pathlib import Path
 import re
 from typing import Any, Literal
 
@@ -17,6 +19,9 @@ from .config import TOP40_BASE_URL
 ChartType = Literal["top40", "tipparade"]
 TIPPARADE_BASE_URL = "https://www.top40.nl/tipparade"
 TOP40_YOUTUBE_PLAYLIST = "https://www.youtube.com/playlist?list=PLC800B9699743BD19"
+TOP40_CA_BUNDLE = Path(
+    os.getenv("TOP40_CA_BUNDLE", "/etc/top40-archiver/top40-ca-bundle.pem")
+)
 TIPPARADE_FIRST_ISO = (1967, 28)
 TIPPARADE_30_START_ISO = (1969, 38)
 
@@ -60,6 +65,15 @@ def expected_track_count(chart_type: ChartType, chart_date: date) -> int:
     return 20 if (iso.year, iso.week) < TIPPARADE_30_START_ISO else 30
 
 
+def _ca_bundle() -> str:
+    try:
+        if TOP40_CA_BUNDLE.is_file() and TOP40_CA_BUNDLE.stat().st_size > 0:
+            return str(TOP40_CA_BUNDLE)
+    except OSError:
+        pass
+    return certifi.where()
+
+
 def _http_session() -> requests.Session:
     session = requests.Session()
     retry = Retry(
@@ -75,7 +89,7 @@ def _http_session() -> requests.Session:
         {
             "User-Agent": (
                 "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "Chrome/124 Safari/537.36 Top40Archiver/1.6"
+                "Chrome/124 Safari/537.36 Top40Archiver/1.8"
             )
         }
     )
@@ -338,7 +352,7 @@ def fetch_chart_from_website(
 ) -> ChartEdition:
     url = edition_url(chart_type, target)
     with _http_session() as session:
-        response = session.get(url, timeout=30, verify=certifi.where())
+        response = session.get(url, timeout=30, verify=_ca_bundle())
         response.raise_for_status()
     return parse_chart(response.text, response.url, chart_type)
 
