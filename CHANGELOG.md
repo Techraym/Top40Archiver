@@ -2,6 +2,31 @@
 
 Alle noemenswaardige wijzigingen worden in dit bestand bijgehouden.
 
+## [1.9.0] - 2026-08-04
+
+### Toegevoegd
+
+- Mislukte downloads gebruiken maximaal acht unieke YouTube-zoekvarianten met maximaal acht kandidaten per zoekopdracht.
+- Spotify-metadata wordt, wanneer beschikbaar, als alternatieve artiest- en titelcombinatie meegenomen in de selectie.
+- Een verdwenen eerder opgeslagen YouTube-URL valt automatisch terug op een nieuwe zoekronde.
+- Het dashboard bevat per mislukte track de actie `Niet meer beschikbaar`.
+- Niet-beschikbare tracks blijven in de hitlijsthistorie en database bewaard, maar worden uitgesloten van automatische downloads.
+- Niet-beschikbare tracks kunnen later met `Toch opnieuw proberen` weer worden geactiveerd.
+
+### Gewijzigd
+
+- Handmatig en gezamenlijk opnieuw proberen zet de pogingsteller terug op nul en verwijdert een mogelijk verouderde YouTube-URL.
+- Foutmeldingen tonen de gebruikte zoekvarianten wanneer geen betrouwbare kandidaat wordt gevonden.
+- De updater voert pakket- en Python-voorbereiding uit terwijl de bestaande webinterface blijft draaien.
+- De applicatie wordt pas aan het einde kort omgeschakeld en automatisch teruggedraaid wanneer de healthcheck mislukt.
+- De webservice gebruikt `Restart=always`, een herstartvertraging van twee seconden en begrensde start- en stoptijden.
+
+### Veiligheid
+
+- De selectie blijft een minimale overeenkomstscore en eventuele speelduurcontrole gebruiken.
+- `Niet meer beschikbaar` verwijdert geen track- of hitlijstrecords uit SQLite.
+- De globale workerlock en de begrenzing tot maximaal vier workers blijven actief.
+
 ## [1.8.6] - 2026-08-04
 
 ### Gewijzigd
@@ -115,7 +140,7 @@ Alle noemenswaardige wijzigingen worden in dit bestand bijgehouden.
 - Hervatbare historische import vanaf 1965 en 1967.
 - Compact live dashboard met FastAPI.
 - Systemd-services en timers voor actuele en historische controles.
-- Externe opslag via Samba beschikbaar maken voor Windows.
+- Externe USB-C-opslag als Windows-netwerkschijf via Samba.
 - Directe update vanaf GitHub met `update-from-github.sh`.
 
 ### Belangrijk
