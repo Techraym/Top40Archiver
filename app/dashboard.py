@@ -5,6 +5,8 @@ import os
 import re
 from pathlib import Path
 import shutil
+import threading
+import time
 
 HISTORY_STATUS_LABELS = {
     "idle": "Nog niet gestart",
@@ -13,6 +15,10 @@ HISTORY_STATUS_LABELS = {
     "completed": "Actueel",
     "error": "Fout",
 }
+
+STORAGE_SCAN_TTL_SECONDS = 30.0
+_storage_scan_cache: dict[str, tuple[float, int, int]] = {}
+_storage_scan_lock = threading.Lock()
 
 
 def as_int(value: object, default: int = 0) -> int:
@@ -33,29 +39,94 @@ def iso_monday(year: int, week: int) -> date:
         return date.fromisocalendar(year, 1, 1)
 
 
+def _format_bytes(value: int) -> str:
+    size = max(0, int(value))
+    units = ("B", "KB", "MB", "GB", "TB")
+    amount = float(size)
+    for unit in units:
+        if amount < 1024.0 or unit == units[-1]:
+            decimals = 0 if unit == "B" else 1
+            return f"{amount:.{decimals}f} {unit}"
+        amount /= 1024.0
+    return "0 B"
+
+
+def _scan_mp3_tree(root: Path) -> tuple[int, int]:
+    """Return actual MP3 count and total MP3 bytes without following symlinks."""
+    if not root.exists() or not root.is_dir():
+        return 0, 0
+
+    count = 0
+    total_bytes = 0
+    stack = [root]
+
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(Path(entry.path))
+                        elif (
+                            entry.is_file(follow_symlinks=False)
+                            and entry.name.casefold().endswith(".mp3")
+                        ):
+                            count += 1
+                            total_bytes += entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+
+    return count, total_bytes
+
+
+def _cached_mp3_stats(root: Path) -> tuple[int, int]:
+    """Cache the recursive filesystem scan so the one-second SSE loop stays light."""
+    key = str(root)
+    now = time.monotonic()
+
+    with _storage_scan_lock:
+        cached = _storage_scan_cache.get(key)
+        if cached and now - cached[0] < STORAGE_SCAN_TTL_SECONDS:
+            return cached[1], cached[2]
+
+        count, total_bytes = _scan_mp3_tree(root)
+        _storage_scan_cache[key] = (now, count, total_bytes)
+        return count, total_bytes
+
+
 def storage_status(download_dir: str) -> dict[str, object]:
     requested = Path(download_dir).expanduser()
     probe = requested
     while not probe.exists() and probe.parent != probe:
         probe = probe.parent
 
+    mp3_count, music_bytes = _cached_mp3_stats(requested)
     result: dict[str, object] = {
         "path": str(requested),
         "exists": requested.exists(),
         "writable": requested.exists() and os.access(requested, os.W_OK),
         "free_gb": 0.0,
+        "used_gb": 0.0,
         "total_gb": 0.0,
         "used_percent": 0.0,
+        "used_percent_label": "0.000",
+        "mp3_count": mp3_count,
+        "music_bytes": music_bytes,
+        "music_size_label": _format_bytes(music_bytes),
     }
     try:
         usage = shutil.disk_usage(probe)
+        used_percent = (usage.used / usage.total) * 100 if usage.total else 0.0
         result.update(
             {
                 "free_gb": round(usage.free / (1024**3), 1),
+                "used_gb": round(usage.used / (1024**3), 2),
                 "total_gb": round(usage.total / (1024**3), 1),
-                "used_percent": round((usage.used / usage.total) * 100, 1)
-                if usage.total
-                else 0.0,
+                "used_percent": round(used_percent, 3),
+                "used_percent_label": f"{used_percent:.3f}",
             }
         )
     except OSError:
@@ -197,6 +268,7 @@ def history_progress(settings: dict[str, str], completed_editions: int = 0) -> d
         "top40": top40,
         "tipparade": tipparade,
     }
+
 
 def bar_rows(rows: list[dict[str, object]], value_key: str) -> list[dict[str, object]]:
     maximum = max((as_int(row.get(value_key)) for row in rows), default=0)
