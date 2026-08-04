@@ -123,10 +123,20 @@
     setText("storage-icon", good ? "✓" : "!");
     setText("storage-title", good ? "USB-C schrijfbaar" : !storage.exists ? "USB-C niet gevonden" : "USB-C niet schrijfbaar");
     setText("storage-path", storage.path || "—");
-    setText("storage-free", `${storage.free_gb ?? 0} GB vrij`);
-    setText("storage-used", `${storage.used_percent ?? 0}% gebruikt`);
+
+    const mp3Count = Number(storage.mp3_count || 0);
+    const musicSize = storage.music_size_label || "0 B";
+    const percentLabel = storage.used_percent_label ?? storage.used_percent ?? 0;
+    setText("storage-free", `${storage.free_gb ?? 0} GB vrij · ${mp3Count} MP3 · ${musicSize}`);
+    setText("storage-used", `${percentLabel}% gebruikt`);
+
+    const actualPercent = Math.max(0, Math.min(100, Number(storage.used_percent || 0)));
+    const visualPercent = actualPercent > 0 ? Math.max(0.25, actualPercent) : 0;
     const bar = $("storage-progress-bar");
-    if (bar) bar.style.width = `${Math.max(0, Math.min(100, Number(storage.used_percent || 0)))}%`;
+    if (bar) {
+      bar.style.width = `${visualPercent}%`;
+      bar.title = `${percentLabel}% werkelijk gebruikt`;
+    }
 
     const spotify = $("spotify-state");
     if (spotify) spotify.className = `storage-state ${data.spotify_configured ? "ok" : "bad"}`;
