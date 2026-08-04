@@ -1,7 +1,7 @@
 from app.downloader import _candidate_score, _unique_queries
 
 
-def test_autonomous_queries_include_fallbacks_and_canonical_metadata():
+def test_autonomous_queries_start_broad_and_include_canonical_metadata():
     queries = _unique_queries(
         "Original Artist",
         "Song Title (Radio Edit)",
@@ -10,12 +10,28 @@ def test_autonomous_queries_include_fallbacks_and_canonical_metadata():
         "Canonical Song",
     )
 
-    assert queries[0] == "Original Artist - Song Title official audio"
+    assert queries[0] == "Canonical Artist - Canonical Song"
     assert "Canonical Artist - Canonical Song official audio" in queries
-    assert "Original Artist Song Title (Radio Edit) topic" in queries
-    assert any("Song Title" in query and "Radio Edit" not in query for query in queries)
-    assert len(queries) <= 8
+    assert "Original Artist - Song Title (Radio Edit)" in queries
+    assert "Original Artist - Song Title" in queries
+    assert len(queries) <= 10
     assert len({query.casefold() for query in queries}) == len(queries)
+
+
+def test_official_audio_suffix_is_not_the_primary_search():
+    queries = _unique_queries(
+        "Will Tura",
+        "Viva El Amor",
+        "Will Tura - Viva El Amor official audio",
+        None,
+        None,
+    )
+
+    assert queries[0] == "Will Tura - Viva El Amor"
+    assert "Will Tura - Viva El Amor official audio" in queries
+    assert queries.index("Will Tura - Viva El Amor") < queries.index(
+        "Will Tura - Viva El Amor official audio"
+    )
 
 
 def test_candidate_score_rewards_exact_official_audio_and_duration():
