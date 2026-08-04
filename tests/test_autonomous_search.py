@@ -14,7 +14,7 @@ def test_autonomous_queries_start_broad_and_include_canonical_metadata():
     assert "Canonical Artist - Canonical Song official audio" in queries
     assert "Original Artist - Song Title (Radio Edit)" in queries
     assert "Original Artist - Song Title" in queries
-    assert len(queries) <= 10
+    assert len(queries) <= 20
     assert len({query.casefold() for query in queries}) == len(queries)
 
 
@@ -32,6 +32,47 @@ def test_official_audio_suffix_is_not_the_primary_search():
     assert queries.index("Will Tura - Viva El Amor") < queries.index(
         "Will Tura - Viva El Amor official audio"
     )
+
+
+def test_compound_historical_credits_are_searched_as_matching_pairs():
+    queries = _unique_queries(
+        "Duo Acropolis / Trio Hellenique / Mikis Theodorakis",
+        "Zorba Le Grec / La Danse De Zorba / Sirtaki",
+        "",
+        None,
+        None,
+    )
+
+    assert queries[0] == "Duo Acropolis - Zorba Le Grec"
+    assert "Trio Hellenique - La Danse De Zorba" in queries
+    assert "Mikis Theodorakis - Sirtaki" in queries
+
+
+def test_conductor_credit_gets_a_broader_artist_variant():
+    queries = _unique_queries(
+        "Bob Smit en het Duke City Sextet o.l.v. Jan Blaaser",
+        "Ik Heb Me Weer Vergist",
+        "",
+        None,
+        None,
+    )
+
+    assert (
+        "Bob Smit en het Duke City Sextet - Ik Heb Me Weer Vergist"
+        in queries
+    )
+
+
+def test_single_internal_slash_in_artist_name_is_not_split():
+    queries = _unique_queries(
+        "AC/DC",
+        "T.N.T.",
+        "",
+        None,
+        None,
+    )
+
+    assert queries[0] == "AC/DC - T.N.T."
 
 
 def test_candidate_score_rewards_exact_official_audio_and_duration():
