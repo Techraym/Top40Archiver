@@ -127,6 +127,17 @@ def _plain_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _broad_search_query(value: str) -> str:
+    """Verwijder beperkende suffixen uit een handmatige of oude standaardquery."""
+    cleaned = re.sub(r"\s+", " ", str(value or "")).strip()
+    return re.sub(
+        r"\s+(?:official\s+audio|official\s+video|offici[eë]le\s+audio)$",
+        "",
+        cleaned,
+        flags=re.I,
+    ).strip(" -")
+
+
 def _unique_queries(
     artist: str,
     title: str,
@@ -141,25 +152,34 @@ def _unique_queries(
         if cleaned and cleaned.casefold() not in {item.casefold() for item in queries}:
             queries.append(cleaned)
 
-    add(primary_query)
-
     pairs = [(artist, title)]
     if alternate_artist and alternate_title:
         pairs.insert(0, (alternate_artist, alternate_title))
 
+    # Begin breed en exact. Vooral oudere tracks hebben vaak geen upload met
+    # letterlijk 'official audio' in de titel.
     for query_artist, query_title in pairs:
-        add(f"{query_artist} - {query_title} official audio")
-        add(f"{query_artist} {query_title} topic")
-        add(f"{query_artist} {query_title} audio")
+        add(f"{query_artist} - {query_title}")
+        add(f"{query_artist} {query_title}")
         add(f"{query_title} {query_artist}")
 
         plain_artist = _plain_text(query_artist)
         plain_title = _plain_text(query_title)
         if (plain_artist, plain_title) != (query_artist, query_title):
             add(f"{plain_artist} - {plain_title}")
-            add(f"{plain_artist} {plain_title} audio")
 
-    return queries[:8]
+    # Een oude of handmatig ingevoerde query met 'official audio' wordt eerst
+    # zonder die beperkende toevoeging geprobeerd.
+    add(_broad_search_query(primary_query))
+
+    # Gerichtere termen blijven als fallback beschikbaar.
+    for query_artist, query_title in pairs:
+        add(f"{query_artist} {query_title} topic")
+        add(f"{query_artist} {query_title} audio")
+        add(f"{query_artist} - {query_title} official audio")
+
+    add(primary_query)
+    return queries[:10]
 
 
 def _search_one(query: str, timeout: int) -> list[dict]:
