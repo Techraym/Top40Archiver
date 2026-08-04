@@ -4,73 +4,31 @@ from difflib import SequenceMatcher
 import fcntl
 import re
 import time
-import unicodedata
 from pathlib import Path
 
 import certifi
 import requests
 
 from .config import DATA_DIR
+from .genre_rules import artist_bucket, final_genre, normalize_genre
 from .normalize import normalize, safe_filename
 
 ITUNES_SEARCH_URL = "https://itunes.apple.com/search"
 ITUNES_REQUEST_INTERVAL = 3.2
-UNKNOWN_GENRE = "Onbekend"
-
-_GENRE_ALIASES = {
-    "hip-hop/rap": "Hip-Hop & Rap",
-    "hip hop/rap": "Hip-Hop & Rap",
-    "r&b/soul": "R&B & Soul",
-    "r&b / soul": "R&B & Soul",
-    "singer/songwriter": "Singer-Songwriter",
-    "children's music": "Children's Music",
-    "christian & gospel": "Christian & Gospel",
-}
+UNKNOWN_GENRE = "Other"
 
 
 def clean_genre(value: str | None) -> str:
-    raw = re.sub(r"\s+", " ", str(value or "")).strip()
-    if not raw:
-        return UNKNOWN_GENRE
-    canonical = _GENRE_ALIASES.get(raw.casefold(), raw)
-    canonical = canonical.replace("/", " & ")
-    canonical = re.sub(r"\s+", " ", canonical).strip()
-    cleaned = safe_filename(canonical, max_len=80).strip(" .")
+    """Normaliseer naar hetzelfde gesloten genresysteem als GenreSplitter."""
+    cleaned = safe_filename(normalize_genre(value), max_len=80).strip(" .")
     return cleaned or UNKNOWN_GENRE
-
-
-def artist_bucket(artist: str) -> str:
-    """Return the first sortable letter, digit or safe symbol of an artist name."""
-    value = str(artist or "").strip()
-    if not value:
-        return "TEKEN"
-
-    first = value[0]
-    decomposed = unicodedata.normalize("NFKD", first)
-    ascii_first = next(
-        (
-            char
-            for char in decomposed
-            if ord(char) < 128 and not unicodedata.combining(char)
-        ),
-        "",
-    )
-    candidate = ascii_first or first
-
-    if candidate.isalpha():
-        return candidate.upper()
-    if candidate.isdigit():
-        return candidate
-
-    # These symbols are safe as a single NTFS/Linux directory name.
-    if candidate in "!#$%&()+,-.;=@[]^_{}~":
-        return candidate
-    return "TEKEN"
 
 
 def track_relative_path(genre: str | None, artist: str, title: str) -> Path:
     genre_folder = clean_genre(genre)
-    bucket = artist_bucket(artist)
+    # GenreSplitter gebruikt 0-9, A-Z en !-?. De Windows-veilige vorm van
+    # !-? wordt door dezelfde bestandsnaamopschoning !-_.
+    bucket = safe_filename(artist_bucket(artist), max_len=20)
     filename = f"{safe_filename(f'{artist} - {title}')}.mp3"
     return Path(genre_folder) / bucket / filename
 
@@ -100,7 +58,7 @@ def _candidate_score(artist: str, title: str, candidate: dict) -> float:
         title_score = max(title_score, 0.92)
     if wanted_artist and (wanted_artist in found_artist or found_artist in wanted_artist):
         artist_score = max(artist_score, 0.88)
-    return (title_score * 0.65) + (artist_score * 0.35)
+    return (title_score * 0.60) + (artist_score * 0.40)
 
 
 def _rate_limited_itunes_request(params: dict[str, str | int]) -> requests.Response:
@@ -125,7 +83,7 @@ def _rate_limited_itunes_request(params: dict[str, str | int]) -> requests.Respo
                 params=params,
                 timeout=20,
                 verify=certifi.where(),
-                headers={"User-Agent": "Top40Archiver/1.5 (+personal archive)"},
+                headers={"User-Agent": "Top40Archiver/1.8 (+personal archive)"},
             )
             return response
         finally:
@@ -134,12 +92,11 @@ def _rate_limited_itunes_request(params: dict[str, str | int]) -> requests.Respo
 
 
 def resolve_genre(artist: str, title: str) -> str:
-    """Resolve a broad store genre. Network failures fall back to Onbekend."""
+    """Bepaal het genre en pas daarna exact de GenreSplitter-mapregels toe."""
     try:
         response = _rate_limited_itunes_request(
             {
                 "term": f"{artist} {title}",
-                "country": "NL",
                 "media": "music",
                 "entity": "song",
                 "limit": 10,
@@ -148,7 +105,7 @@ def resolve_genre(artist: str, title: str) -> str:
         response.raise_for_status()
         results = response.json().get("results", [])
     except Exception:
-        return UNKNOWN_GENRE
+        return final_genre(artist, title, None)
 
     ranked = sorted(
         ((float(_candidate_score(artist, title, item)), item) for item in results),
@@ -156,5 +113,7 @@ def resolve_genre(artist: str, title: str) -> str:
         reverse=True,
     )
     if not ranked or ranked[0][0] < 0.54:
-        return UNKNOWN_GENRE
-    return clean_genre(ranked[0][1].get("primaryGenreName"))
+        return final_genre(artist, title, None)
+
+    raw_genre = ranked[0][1].get("primaryGenreName")
+    return safe_filename(final_genre(artist, title, raw_genre), max_len=80)
