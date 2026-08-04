@@ -2,6 +2,23 @@
 
 Alle noemenswaardige wijzigingen worden in dit bestand bijgehouden.
 
+## [1.8.1] - 2026-08-04
+
+### Opgelost
+
+- Top40.nl TLS-fouten door een onvolledige Sectigo-certificaatketen.
+- Gecontroleerde installatie van `Sectigo Public Server Authentication CA DV R36` en de cross-sign `Sectigo Public Server Authentication Root R46 x USERTrust RSA`.
+- Certificaten worden op subject, issuer en cryptografische keten gecontroleerd voordat ze in de Top40Archiver CA-bundle worden opgenomen.
+- De uiteindelijke HTTPS-verbinding met Top40.nl wordt na installatie getest.
+- De CA-bundle wordt na iedere installatie en update opnieuw toegepast, zodat een pip-upgrade de reparatie niet verwijdert.
+- Deno-installatie gebruikt nu de correcte `DENO_INSTALL`-omgeving voor het installatiescript.
+
+### Veiligheid
+
+- TLS-verificatie blijft volledig actief; `verify=False` wordt niet gebruikt.
+- De Debian CA-bundle blijft de basis van de applicatiebundle.
+- Alleen de officiële Sectigo-certificaten met vaste certificate-transparency-ID's worden toegevoegd.
+
 ## [1.8.0] - 2026-08-04
 
 ### Toegevoegd
