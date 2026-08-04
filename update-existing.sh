@@ -11,15 +11,25 @@ cp -a "$SRC/app" /opt/top40-archiver/app
 cp "$SRC/requirements.txt" "$SRC/VERSION" \
   "$SRC/update-timer.sh" "$SRC/update-from-github.sh" \
   "$SRC/auto-update.sh" "$SRC/setup-network-share.sh" \
+  "$SRC/setup-top40-ca-bundle.sh" \
   /opt/top40-archiver/
 
 apt-get update
-apt-get install -y ffmpeg ca-certificates curl unzip util-linux
+apt-get install -y ffmpeg ca-certificates curl unzip util-linux openssl
 update-ca-certificates
 /opt/top40-archiver/venv/bin/pip install --upgrade -r /opt/top40-archiver/requirements.txt
 
+chmod 755 \
+  /opt/top40-archiver/update-timer.sh \
+  /opt/top40-archiver/update-from-github.sh \
+  /opt/top40-archiver/auto-update.sh \
+  /opt/top40-archiver/setup-network-share.sh \
+  /opt/top40-archiver/setup-top40-ca-bundle.sh
+
+/opt/top40-archiver/setup-top40-ca-bundle.sh
+
 if ! command -v deno >/dev/null 2>&1; then
-  DENO_INSTALL=/opt/deno curl -fsSL https://deno.land/install.sh | sh
+  curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/opt/deno sh
   ln -sf /opt/deno/bin/deno /usr/local/bin/deno
 fi
 
@@ -35,18 +45,14 @@ EOF
 fi
 
 mkdir -p /var/lib/top40-archiver/download-temp /var/lib/top40-archiver/update-state
-chmod 755 \
-  /opt/top40-archiver/update-timer.sh \
-  /opt/top40-archiver/update-from-github.sh \
-  /opt/top40-archiver/auto-update.sh \
-  /opt/top40-archiver/setup-network-share.sh
 chown -R top40archiver:top40archiver \
   /opt/top40-archiver/app \
   /opt/top40-archiver/requirements.txt \
   /var/lib/top40-archiver
 chown root:root \
   /opt/top40-archiver/auto-update.sh \
-  /opt/top40-archiver/update-from-github.sh
+  /opt/top40-archiver/update-from-github.sh \
+  /opt/top40-archiver/setup-top40-ca-bundle.sh
 chown -R root:root /var/lib/top40-archiver/update-state
 chmod 755 /var/lib/top40-archiver/update-state
 
@@ -76,8 +82,9 @@ chown -R root:root /var/lib/top40-archiver/update-state
 chmod 755 /var/lib/top40-archiver/update-state
 chmod 644 /var/lib/top40-archiver/update-state/* 2>/dev/null || true
 
-echo "Update naar Top 40 Archiver 1.8 gereed."
+echo "Update naar Top 40 Archiver 1.8.1 gereed."
 echo "Automatische GitHub-updatecontrole is actief bij opstarten en iedere 24 uur."
+echo "Top40.nl TLS-keten is via een gecontroleerde Sectigo-bundle hersteld."
 echo "Spotify instellen: nano /etc/top40-archiver.env"
 echo "Daarna: systemctl restart top40-archiver-web.service"
 echo "Windows-netwerkschijf instellen: /opt/top40-archiver/setup-network-share.sh"
