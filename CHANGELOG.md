@@ -2,6 +2,22 @@
 
 Alle noemenswaardige wijzigingen worden in dit bestand bijgehouden.
 
+## [1.8.2] - 2026-08-04
+
+### Opgelost
+
+- De TLS-installatie is niet meer afhankelijk van het downloadformaat van `crt.sh`.
+- Sectigo DV R36 en Root R46 worden via vaste Sectigo-adressen gedownload.
+- Zowel PEM als DER wordt automatisch herkend.
+- Beide certificaten worden gecontroleerd tegen een vastgelegde SHA-256-vingerafdruk voordat ze worden gebruikt.
+- Top40Archiver gebruikt voortaan `/etc/top40-archiver/top40-ca-bundle.pem` rechtstreeks; de `certifi`-pakketbestanden worden niet meer aangepast.
+
+### Veiligheid
+
+- TLS-verificatie en hostnaamcontrole blijven actief.
+- Een download via de HTTP-reserve-URL wordt alleen geaccepteerd wanneer de volledige SHA-256-vingerafdruk exact overeenkomt.
+- De certificaatketen en de uiteindelijke HTTPS-verbinding met Top40.nl worden na installatie gecontroleerd.
+
 ## [1.8.1] - 2026-08-04
 
 ### Opgelost
