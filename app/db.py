@@ -100,7 +100,7 @@ DEFAULTS = {
     "download_dir": DEFAULT_DOWNLOAD_DIR,
     "download_workers": "2",
     "max_download_attempts": "3",
-    "search_template": "{artist} - {title} official audio",
+    "search_template": "{artist} - {title}",
     "last_edition": "",
     "last_tipparade_edition": "",
     "tipparade_enabled": "1",
@@ -196,6 +196,17 @@ def init_db():
                 "INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",
                 (key, value),
             )
+
+        # Migreer alleen de oude meegeleverde standaard. Een zelf ingestelde
+        # zoektemplate blijft bewust onaangetast.
+        con.execute(
+            """
+            UPDATE settings
+            SET value='{artist} - {title}'
+            WHERE key='search_template'
+              AND lower(trim(value))='{artist} - {title} official audio'
+            """
+        )
 
 
 def get_settings(con=None):
