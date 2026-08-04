@@ -2,6 +2,15 @@
 
 Alle noemenswaardige wijzigingen worden in dit bestand bijgehouden.
 
+## [1.8.3] - 2026-08-04
+
+### Opgelost
+
+- De actuele HTML-structuur van Top40.nl met `.top40-list__item` wordt opnieuw correct verwerkt.
+- Titel en artiest worden uit de tekstlinks naar de nummerdetailpagina gelezen wanneer oude titel- en artiestclasses ontbreken.
+- Historische jaartallen vanaf 1965 worden correct uit paginatitels en URL's gelezen; de parser accepteert nu zowel 19xx als 20xx.
+- Regressietests toegevoegd voor Tipparade 1967-W28 met 20 noteringen en een actuele Tipparade met 30 noteringen.
+
 ## [1.8.2] - 2026-08-04
 
 ### Opgelost
