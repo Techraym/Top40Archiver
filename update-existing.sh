@@ -149,8 +149,10 @@ fi
 SWAPPED=0
 
 systemctl enable --now \
+  top40-archiver-download.timer \
   top40-archiver-history.timer \
   top40-archiver-auto-update.timer
+systemctl restart top40-archiver-download.timer 2>/dev/null || true
 systemctl restart top40-archiver-check.timer 2>/dev/null || true
 
 SOURCE_SHA="${TOP40_SOURCE_SHA:-}"
@@ -171,4 +173,5 @@ chmod 644 "$STATE_DIR"/* 2>/dev/null || true
 
 echo "Update naar Top 40 Archiver $VERSION gereed."
 echo "Dashboard-healthcheck is geslaagd."
+echo "De permanente downloadtimer is actief en verwerkt maximaal twintig tracks per ronde."
 echo "De webinterface was alleen tijdens de korte applicatiewissel offline."
