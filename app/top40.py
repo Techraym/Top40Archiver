@@ -227,6 +227,11 @@ def _parse_year_week(soup: BeautifulSoup, source_url: str) -> tuple[int, int]:
     return iso.year, iso.week
 
 
+def _track_id_from_href(href: str) -> str | None:
+    matches = re.findall(r"-(\d+)(?=[/?#]|$)", href)
+    return matches[-1] if matches else None
+
+
 def _detail_link_texts(node: Any) -> tuple[list[str], str | None]:
     """Read title/artist from current Top40.nl item detail links."""
     values: list[str] = []
@@ -234,12 +239,12 @@ def _detail_link_texts(node: Any) -> tuple[list[str], str | None]:
 
     for link in node.select("a[href]"):
         href = str(link.get("href") or "")
-        id_match = re.search(r"-(\d+)(?:[/?#]|$)", href)
-        if not id_match:
+        link_track_id = _track_id_from_href(href)
+        if link_track_id is None:
             continue
 
         if track_id is None:
-            track_id = id_match.group(1)
+            track_id = link_track_id
 
         value = link.get_text(" ", strip=True)
         if value and value not in values:
@@ -317,9 +322,7 @@ def parse_chart(html: str, source_url: str, chart_type: ChartType = "top40") -> 
         href = str(link.get("href") or "") if link else ""
         source_track_id = detail_track_id
         if source_track_id is None:
-            id_match = re.search(r"-(\d+)(?:[/?#]|$)", href)
-            if id_match:
-                source_track_id = id_match.group(1)
+            source_track_id = _track_id_from_href(href)
 
         if title and artist and title != artist:
             found[position] = ChartTrack(position, artist, title, None, source_track_id)
