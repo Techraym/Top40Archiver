@@ -28,6 +28,8 @@ Een nummer dat eerst in de Tipparade staat en later in de Top 40 komt, wordt nie
 - historische Tipparade vanaf `1967-W28`;
 - hervatbare historische batches;
 - automatische overgang naar wekelijkse actuele controles;
+- permanente downloadtimer die iedere vijf minuten maximaal twintig wachtende tracks verwerkt;
+- standaard twee parallelle downloadworkers met één globale proceslock;
 - Spotify uitsluitend voor metadata, nooit voor audio;
 - YouTube-download via yt-dlp en FFmpeg;
 - live FastAPI-dashboard op poort `8040`;
@@ -86,6 +88,37 @@ chmod +x /tmp/update-top40-archiver.sh
 ```
 
 De bestaande database, instellingen, historische voortgang en downloadstatussen blijven behouden.
+
+## Permanente downloadwachtrij
+
+De timer `top40-archiver-download.timer` start vijf minuten na het opstarten. Daarna wordt vijf minuten na het einde van iedere downloadronde opnieuw een batch gestart. Iedere batch verwerkt maximaal twintig tracks. De bestaande globale workerlock voorkomt gelijktijdige verwerking door de downloadtimer, een historische batch en een handmatige retry.
+
+Status bekijken:
+
+```bash
+systemctl status top40-archiver-download.timer --no-pager
+systemctl list-timers --all | grep top40-archiver-download
+```
+
+De actieve of laatste downloadronde bekijken:
+
+```bash
+systemctl status top40-archiver-download.service --no-pager -l
+journalctl -u top40-archiver-download.service -n 100 --no-pager -l
+```
+
+Een ronde direct starten:
+
+```bash
+systemctl start top40-archiver-download.service
+```
+
+De timer uitschakelen of opnieuw inschakelen:
+
+```bash
+systemctl disable --now top40-archiver-download.timer
+systemctl enable --now top40-archiver-download.timer
+```
 
 ## Automatische updates en SHA-controle
 
@@ -178,10 +211,18 @@ Gebruik Linux-/Samba-gebruiker `top40`.
 
 ```bash
 systemctl status top40-archiver-web.service --no-pager
+systemctl status top40-archiver-download.timer --no-pager
 systemctl status top40-archiver-check.timer --no-pager
 systemctl status top40-archiver-history.timer --no-pager
 systemctl status top40-archiver-auto-update.timer --no-pager
 systemctl status smbd.service --no-pager
+```
+
+Downloadwachtrij:
+
+```bash
+systemctl start top40-archiver-download.service
+journalctl -u top40-archiver-download.service -f
 ```
 
 Actuele controle:
