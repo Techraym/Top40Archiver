@@ -15,6 +15,19 @@ from .spotify import spotify_configured, validate_track
 
 LOCK = DATA_DIR / "worker.lock"
 MAX_DOWNLOAD_WORKERS = 4
+UNAVAILABLE_ERROR_MARKERS = (
+    "geen youtube-resultaten gevonden",
+    "geen betrouwbaar youtube-resultaat",
+    "youtube-resultaat bevat geen bruikbare url",
+    "video unavailable",
+    "this video is unavailable",
+    "video is unavailable",
+    "private video",
+    "video is private",
+    "not available in your country",
+    "removed by the uploader",
+    "copyright claim",
+)
 
 
 def _download_worker_count(settings: dict) -> int:
@@ -24,6 +37,12 @@ def _download_worker_count(settings: dict) -> int:
     except (TypeError, ValueError):
         configured = 1
     return max(1, min(MAX_DOWNLOAD_WORKERS, configured))
+
+
+def _failure_is_probably_unavailable(message: str) -> bool:
+    """Distinguish missing media from storage, network and software failures."""
+    normalized = " ".join(str(message or "").casefold().split())
+    return any(marker in normalized for marker in UNAVAILABLE_ERROR_MARKERS)
 
 
 def _direct_youtube_url(value: str | None) -> str | None:
@@ -54,11 +73,14 @@ def _direct_youtube_url(value: str | None) -> str | None:
     path = parsed.path or ""
     if path == "/watch" and parse_qs(parsed.query).get("v", [""])[0].strip():
         return candidate
-    if any(path.startswith(prefix) and path[len(prefix) :].strip("/") for prefix in (
-        "/shorts/",
-        "/live/",
-        "/embed/",
-    )):
+    if any(
+        path.startswith(prefix) and path[len(prefix) :].strip("/")
+        for prefix in (
+            "/shorts/",
+            "/live/",
+            "/embed/",
+        )
+    ):
         return candidate
     return None
 
@@ -193,16 +215,29 @@ def _process_track(
             )
         return (track_id, "downloaded")
     except Exception as exc:
+        message = str(exc)[-3000:]
+        attempts = int(row["download_attempts"] or 0) + 1
+        max_attempts = max(1, int(settings.get("max_download_attempts", "3")))
+        unavailable = (
+            attempts >= max_attempts and _failure_is_probably_unavailable(message)
+        )
+        status = "unavailable" if unavailable else "failed"
+        if unavailable:
+            message = (
+                f"Automatisch als niet beschikbaar gemarkeerd na {attempts} volledige "
+                f"zoekpogingen. De hitlijstnotering blijft bewaard. Laatste fout: {message}"
+            )[-3000:]
+
         with connect() as con:
             con.execute(
                 """
                 UPDATE tracks
-                SET download_status='failed',error_message=?,updated_at=?
+                SET download_status=?,error_message=?,updated_at=?
                 WHERE id=?
                 """,
-                (str(exc)[-3000:], now_iso(), track_id),
+                (status, message, now_iso(), track_id),
             )
-        return (track_id, "failed")
+        return (track_id, status)
 
 
 def process_queue(limit: int | None = None, track_ids: Iterable[int] | None = None):
@@ -213,7 +248,9 @@ def process_queue(limit: int | None = None, track_ids: Iterable[int] | None = No
         except BlockingIOError:
             return [{"busy": True}]
 
-        requested_ids = sorted({int(value) for value in track_ids or [] if int(value) > 0})
+        requested_ids = sorted(
+            {int(value) for value in track_ids or [] if int(value) > 0}
+        )
         with connect() as con:
             settings = get_settings(con)
             max_attempts = int(settings["max_download_attempts"])
@@ -238,7 +275,8 @@ def process_queue(limit: int | None = None, track_ids: Iterable[int] | None = No
             return []
 
         spotify_enabled = (
-            settings.get("spotify_validation_enabled", "1") == "1" and spotify_configured()
+            settings.get("spotify_validation_enabled", "1") == "1"
+            and spotify_configured()
         )
         minimum_score = float(settings.get("spotify_min_match_score", "0.70"))
         worker_count = min(_download_worker_count(settings), len(rows))
@@ -305,7 +343,10 @@ def organize_downloaded_files(limit=None):
             flat_candidate = base / stored.name
             if flat_candidate not in candidates:
                 candidates.append(flat_candidate)
-            source = next((item for item in candidates if item.exists() and item.is_file()), None)
+            source = next(
+                (item for item in candidates if item.exists() and item.is_file()),
+                None,
+            )
 
             if destination.exists() and destination.stat().st_size > 0:
                 already += 1
@@ -335,4 +376,9 @@ def organize_downloaded_files(limit=None):
         except Exception:
             failed += 1
 
-    return {"moved": moved, "already": already, "missing": missing, "failed": failed}
+    return {
+        "moved": moved,
+        "already": already,
+        "missing": missing,
+        "failed": failed,
+    }
