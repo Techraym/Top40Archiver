@@ -1,7 +1,10 @@
 from pathlib import Path
 
 import pytest
+from requests import Response
+from requests.exceptions import HTTPError
 
+from app import service_history
 from app.top40 import parse_chart
 
 
@@ -78,6 +81,60 @@ def test_history_parser_rejects_only_a_page_without_any_recognizable_entry():
             "tipparade",
             allow_incomplete=True,
         )
+
+
+@pytest.mark.parametrize("status_code", [404, 410])
+def test_missing_historical_page_advances_to_next_iso_week(
+    monkeypatch,
+    status_code: int,
+):
+    response = Response()
+    response.status_code = status_code
+    response.url = "https://www.top40.nl/top40/1970/week-53"
+    error = HTTPError(
+        f"{status_code} Client Error",
+        response=response,
+    )
+
+    def missing_page(*args, **kwargs):
+        raise error
+
+    updates: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        service_history,
+        "fetch_chart_from_website",
+        missing_page,
+    )
+    monkeypatch.setattr(
+        service_history,
+        "set_settings",
+        lambda values: updates.append(dict(values)),
+    )
+
+    result = service_history._run_chart_history(
+        "top40",
+        {
+            "history_status": "running",
+            "history_next_year": "1970",
+            "history_next_week": "53",
+            "history_last_edition": "1970-W52",
+        },
+        current_pair=(1971, 1),
+        batch=1,
+        delay=0,
+    )
+
+    assert result["skipped"] == ["1970-W53"]
+    assert result["next"] == "1971-W01"
+    assert result["completed"] is False
+    assert f"HTTP {status_code}" in result["warnings"][0]
+
+    cursor_update = updates[-1]
+    assert cursor_update["history_next_year"] == 1971
+    assert cursor_update["history_next_week"] == 1
+    assert cursor_update["history_status"] == "running"
+    assert cursor_update["history_last_error"] == ""
+    assert "history_last_edition" not in cursor_update
 
 
 def test_history_timer_restarts_one_minute_after_each_batch():
