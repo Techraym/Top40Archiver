@@ -44,6 +44,7 @@ class ChartEdition:
     week: int
     source_url: str
     tracks: list[ChartTrack]
+    warning: str | None = None
 
 
 def chart_label(chart_type: ChartType) -> str:
@@ -63,6 +64,11 @@ def expected_track_count(chart_type: ChartType, chart_date: date) -> int:
         return 40
     iso = chart_date.isocalendar()
     return 20 if (iso.year, iso.week) < TIPPARADE_30_START_ISO else 30
+
+
+def _minimum_historical_track_count(expected: int) -> int:
+    """Ondergrens voor bruikbare historische edities met bronafwijkingen."""
+    return max(10, int(expected * 0.75))
 
 
 def _ca_bundle() -> str:
@@ -253,7 +259,12 @@ def _detail_link_texts(node: Any) -> tuple[list[str], str | None]:
     return values, track_id
 
 
-def parse_chart(html: str, source_url: str, chart_type: ChartType = "top40") -> ChartEdition:
+def parse_chart(
+    html: str,
+    source_url: str,
+    chart_type: ChartType = "top40",
+    allow_incomplete: bool = False,
+) -> ChartEdition:
     soup = BeautifulSoup(html, "html.parser")
     year, week = _parse_year_week(soup, source_url)
     monday = date.fromisocalendar(year, week, 1)
@@ -364,10 +375,18 @@ def parse_chart(html: str, source_url: str, chart_type: ChartType = "top40") -> 
             walk(data)
 
     tracks = [found[position] for position in range(1, expected + 1) if position in found]
+    warning: str | None = None
     if len(tracks) != expected:
-        raise ValueError(
+        message = (
             f"{chart_label(chart_type)} leverde {len(tracks)} herkenbare noteringen op; "
-            f"exact {expected} vereist voor {year}-W{week:02d}."
+            f"exact {expected} verwacht voor {year}-W{week:02d}."
+        )
+        minimum = _minimum_historical_track_count(expected)
+        if not allow_incomplete or len(tracks) < minimum:
+            raise ValueError(message)
+        warning = (
+            f"{message} De {len(tracks)} bruikbare noteringen zijn opgeslagen en "
+            "de historische verwerking gaat automatisch verder."
         )
 
     return ChartEdition(
@@ -378,18 +397,25 @@ def parse_chart(html: str, source_url: str, chart_type: ChartType = "top40") -> 
         week=week,
         source_url=source_url,
         tracks=tracks,
+        warning=warning,
     )
 
 
 def fetch_chart_from_website(
     target: date | None = None,
     chart_type: ChartType = "top40",
+    allow_incomplete: bool = False,
 ) -> ChartEdition:
     url = edition_url(chart_type, target)
     with _http_session() as session:
         response = session.get(url, timeout=30, verify=_ca_bundle())
         response.raise_for_status()
-    return parse_chart(response.text, response.url, chart_type)
+    return parse_chart(
+        response.text,
+        response.url,
+        chart_type,
+        allow_incomplete=allow_incomplete,
+    )
 
 
 def fetch_chart(
