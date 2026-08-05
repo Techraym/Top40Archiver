@@ -6,7 +6,6 @@ import time
 from .db import connect, get_settings, now_iso, set_settings
 from .top40 import ChartType, fetch_chart, fetch_chart_from_website
 from .service_common import _next_week, _parse_edition_key, _persist_chart
-from .service_queue import process_queue
 
 
 def history_start(reset: bool = False):
@@ -92,11 +91,18 @@ def _run_chart_history(
 ) -> dict:
     keys = _history_keys(chart_type)
     if settings.get(keys["status"]) == "completed":
-        return {"chart_type": chart_type, "completed": True, "imported": []}
+        return {
+            "chart_type": chart_type,
+            "completed": True,
+            "imported": [],
+            "warnings": [],
+        }
 
     year = int(settings[keys["next_year"]])
     week = int(settings[keys["next_week"]])
     imported: list[str] = []
+    warnings: list[str] = []
+
     for _ in range(batch):
         if (year, week) > current_pair:
             set_settings(
@@ -106,12 +112,24 @@ def _run_chart_history(
                     keys["completed_at"]: now_iso(),
                 }
             )
-            return {"chart_type": chart_type, "completed": True, "imported": imported}
+            return {
+                "chart_type": chart_type,
+                "completed": True,
+                "imported": imported,
+                "warnings": warnings,
+            }
 
         target = date.fromisocalendar(year, week, 1)
-        chart = fetch_chart_from_website(target, chart_type)
+        chart = fetch_chart_from_website(
+            target,
+            chart_type,
+            allow_incomplete=True,
+        )
         _persist_chart(chart, False)
         imported.append(chart.edition_key)
+        if chart.warning:
+            warnings.append(chart.warning)
+
         year, week = _next_week(year, week)
         set_settings(
             {
@@ -138,6 +156,7 @@ def _run_chart_history(
         "chart_type": chart_type,
         "completed": completed,
         "imported": imported,
+        "warnings": warnings,
         "next": f"{year}-W{week:02d}",
     }
 
@@ -194,25 +213,51 @@ def run_history_batch():
     batch = max(1, int(settings["history_batch_weeks"]))
     delay = max(0.0, float(settings["history_delay_seconds"]))
     results: dict[str, dict] = {}
+    errors: dict[str, str] = {}
 
-    try:
-        current_top = _known_current_pair(settings, "top40")
-        current_tip = _known_current_pair(settings, "tipparade")
+    # Top 40 en Tipparade worden onafhankelijk verwerkt. Een tijdelijke fout in
+    # één lijst mag de voortgang van de andere lijst niet meer blokkeren.
+    for chart_type in ("top40", "tipparade"):
         with connect() as con:
-            settings = get_settings(con)
+            chart_settings = get_settings(con)
+        keys = _history_keys(chart_type)
 
-        results["top40"] = _run_chart_history(
-            "top40", settings, current_top, batch, delay
-        )
-        with connect() as con:
-            settings = get_settings(con)
-        results["tipparade"] = _run_chart_history(
-            "tipparade", settings, current_tip, batch, delay
-        )
-    except Exception as exc:
-        message = str(exc)[-3000:]
-        set_settings({"history_status": "error", "history_last_error": message})
-        return {"error": message, "results": results}
+        if chart_settings.get(keys["status"]) == "completed":
+            results[chart_type] = {
+                "chart_type": chart_type,
+                "completed": True,
+                "imported": [],
+                "warnings": [],
+            }
+            continue
+
+        try:
+            current_pair = _known_current_pair(chart_settings, chart_type)
+            with connect() as con:
+                chart_settings = get_settings(con)
+            results[chart_type] = _run_chart_history(
+                chart_type,
+                chart_settings,
+                current_pair,
+                batch,
+                delay,
+            )
+        except Exception as exc:
+            message = str(exc)[-3000:]
+            set_settings(
+                {
+                    keys["status"]: "error",
+                    keys["error"]: message,
+                }
+            )
+            results[chart_type] = {
+                "chart_type": chart_type,
+                "completed": False,
+                "imported": [],
+                "warnings": [],
+                "error": message,
+            }
+            errors[chart_type] = message
 
     with connect() as con:
         refreshed = get_settings(con)
@@ -224,7 +269,11 @@ def run_history_batch():
     else:
         response = {"completed": False, "results": results}
 
-    limit = max(0, int(refreshed.get("history_download_limit", "0")))
-    downloads = process_queue(limit=limit) if limit else []
-    response["downloads"] = len(downloads)
+    if errors:
+        response["errors"] = errors
+
+    # Downloads worden bewust door de permanente downloadtimer afgehandeld.
+    # Daardoor kan de historische import zonder wachttijd door naar de volgende batch.
+    response["downloads"] = 0
+    response["download_queue"] = "top40-archiver-download.timer"
     return response
