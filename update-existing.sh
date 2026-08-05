@@ -155,6 +155,7 @@ systemctl enable --now \
 systemctl restart top40-archiver-download.timer 2>/dev/null || true
 systemctl restart top40-archiver-history.timer 2>/dev/null || true
 systemctl restart top40-archiver-check.timer 2>/dev/null || true
+systemctl start --no-block top40-archiver-history.service 2>/dev/null || true
 
 SOURCE_SHA="${TOP40_SOURCE_SHA:-}"
 if [ -z "$SOURCE_SHA" ] && command -v git >/dev/null 2>&1 && [ -d "$SRC/.git" ]; then
