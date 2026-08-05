@@ -5,9 +5,9 @@ import pytest
 from app.top40 import parse_chart
 
 
-def _tipparade_html(count: int) -> str:
+def _tipparade_html(count: int, *, start: int = 1) -> str:
     items = []
-    for position in range(1, count + 1):
+    for position in range(start, start + count):
         items.append(
             f"""
             <article data-position="{position}">
@@ -19,7 +19,7 @@ def _tipparade_html(count: int) -> str:
     return "<html><body>" + "".join(items) + "</body></html>"
 
 
-def test_strict_parser_rejects_incomplete_historical_tipparade():
+def test_strict_current_parser_still_requires_complete_positions():
     with pytest.raises(ValueError, match="19 herkenbare noteringen"):
         parse_chart(
             _tipparade_html(19),
@@ -28,24 +28,52 @@ def test_strict_parser_rejects_incomplete_historical_tipparade():
         )
 
 
-def test_history_parser_keeps_usable_partial_edition_and_warns():
+def test_history_parser_keeps_every_available_partial_notation():
     chart = parse_chart(
-        _tipparade_html(19),
+        _tipparade_html(7),
         "https://www.top40.nl/tipparade/1969/week-37",
         "tipparade",
         allow_incomplete=True,
     )
 
     assert chart.edition_key == "1969-W37"
-    assert len(chart.tracks) == 19
+    assert len(chart.tracks) == 7
     assert chart.warning is not None
-    assert "gaat automatisch verder" in chart.warning
+    assert "zonder een vast vereist aantal" in chart.warning
 
 
-def test_history_parser_still_rejects_severely_incomplete_page():
-    with pytest.raises(ValueError, match="14 herkenbare noteringen"):
+def test_history_parser_accepts_more_entries_than_reference_count():
+    chart = parse_chart(
+        _tipparade_html(24),
+        "https://www.top40.nl/tipparade/1969/week-37",
+        "tipparade",
+        allow_incomplete=True,
+    )
+
+    assert len(chart.tracks) == 24
+    assert chart.tracks[-1].position == 24
+    assert chart.warning is not None
+
+
+def test_history_parser_preserves_non_contiguous_positions():
+    html = (
+        _tipparade_html(2, start=1).replace("</body></html>", "")
+        + _tipparade_html(1, start=5).replace("<html><body>", "")
+    )
+    chart = parse_chart(
+        html,
+        "https://www.top40.nl/tipparade/1969/week-37",
+        "tipparade",
+        allow_incomplete=True,
+    )
+
+    assert [track.position for track in chart.tracks] == [1, 2, 5]
+
+
+def test_history_parser_rejects_only_a_page_without_any_recognizable_entry():
+    with pytest.raises(ValueError, match="Geen herkenbare noteringen"):
         parse_chart(
-            _tipparade_html(14),
+            "<html><body><p>Geen gegevens aanwezig</p></body></html>",
             "https://www.top40.nl/tipparade/1969/week-37",
             "tipparade",
             allow_incomplete=True,
