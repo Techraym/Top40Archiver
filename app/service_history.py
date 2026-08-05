@@ -96,12 +96,14 @@ def _run_chart_history(
             "completed": True,
             "imported": [],
             "warnings": [],
+            "skipped": [],
         }
 
     year = int(settings[keys["next_year"]])
     week = int(settings[keys["next_week"]])
     imported: list[str] = []
     warnings: list[str] = []
+    skipped: list[str] = []
 
     for _ in range(batch):
         if (year, week) > current_pair:
@@ -117,14 +119,43 @@ def _run_chart_history(
                 "completed": True,
                 "imported": imported,
                 "warnings": warnings,
+                "skipped": skipped,
             }
 
         target = date.fromisocalendar(year, week, 1)
-        chart = fetch_chart_from_website(
-            target,
-            chart_type,
-            allow_incomplete=True,
-        )
+        edition_key = f"{year}-W{week:02d}"
+        try:
+            chart = fetch_chart_from_website(
+                target,
+                chart_type,
+                allow_incomplete=True,
+            )
+        except ValueError as exc:
+            message = str(exc)
+            if "herkenbare noteringen" not in message:
+                raise
+
+            # Een structureel onvolledige bronweek mag de tientallen jaren
+            # daarna niet blokkeren. De editie wordt overgeslagen en gelogd.
+            warnings.append(
+                f"{message} Editie {edition_key} is overgeslagen; "
+                "de historische verwerking gaat automatisch verder."
+            )
+            skipped.append(edition_key)
+            year, week = _next_week(year, week)
+            set_settings(
+                {
+                    keys["next_year"]: year,
+                    keys["next_week"]: week,
+                    keys["last"]: edition_key,
+                    keys["status"]: "running",
+                    keys["error"]: "",
+                }
+            )
+            if delay:
+                time.sleep(delay)
+            continue
+
         _persist_chart(chart, False)
         imported.append(chart.edition_key)
         if chart.warning:
@@ -157,6 +188,7 @@ def _run_chart_history(
         "completed": completed,
         "imported": imported,
         "warnings": warnings,
+        "skipped": skipped,
         "next": f"{year}-W{week:02d}",
     }
 
@@ -228,6 +260,7 @@ def run_history_batch():
                 "completed": True,
                 "imported": [],
                 "warnings": [],
+                "skipped": [],
             }
             continue
 
@@ -246,8 +279,11 @@ def run_history_batch():
             message = str(exc)[-3000:]
             set_settings(
                 {
-                    keys["status"]: "error",
-                    keys["error"]: message,
+                    keys["status"]: "running",
+                    keys["error"]: (
+                        "Tijdelijke bronfout; automatische nieuwe poging binnen één minuut. "
+                        + message
+                    ),
                 }
             )
             results[chart_type] = {
@@ -255,6 +291,7 @@ def run_history_batch():
                 "completed": False,
                 "imported": [],
                 "warnings": [],
+                "skipped": [],
                 "error": message,
             }
             errors[chart_type] = message
