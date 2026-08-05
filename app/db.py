@@ -208,6 +208,40 @@ def init_db():
             """
         )
 
+        # Oude, volledig uitgeputte zoekfouten die duidelijk op ontbrekend
+        # bronmateriaal wijzen worden niet opnieuw als technische fout getoond.
+        max_attempts_row = con.execute(
+            "SELECT value FROM settings WHERE key='max_download_attempts'"
+        ).fetchone()
+        try:
+            max_attempts = max(1, int(max_attempts_row["value"]))
+        except (TypeError, ValueError, KeyError):
+            max_attempts = 3
+
+        con.execute(
+            """
+            UPDATE tracks
+            SET download_status='unavailable',
+                error_message=(
+                    'Automatisch als niet beschikbaar gemarkeerd na eerdere '
+                    'volledige zoekpogingen. De hitlijstnotering blijft bewaard. '
+                    'Laatste fout: ' || COALESCE(error_message,'')
+                ),
+                updated_at=?
+            WHERE download_status='failed'
+              AND download_attempts>=?
+              AND (
+                    lower(COALESCE(error_message,'')) LIKE '%geen youtube-resultaten gevonden%'
+                 OR lower(COALESCE(error_message,'')) LIKE '%geen betrouwbaar youtube-resultaat%'
+                 OR lower(COALESCE(error_message,'')) LIKE '%youtube-resultaat bevat geen bruikbare url%'
+                 OR lower(COALESCE(error_message,'')) LIKE '%video unavailable%'
+                 OR lower(COALESCE(error_message,'')) LIKE '%private video%'
+                 OR lower(COALESCE(error_message,'')) LIKE '%removed by the uploader%'
+              )
+            """,
+            (now_iso(), max_attempts),
+        )
+
 
 def get_settings(con=None):
     own = con is None
