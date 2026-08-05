@@ -4,8 +4,15 @@ from datetime import date
 import time
 
 from .db import connect, get_settings, now_iso, set_settings
-from .top40 import ChartType, fetch_chart, fetch_chart_from_website
+from .top40 import (
+    ChartType,
+    chart_label,
+    fetch_chart,
+    fetch_chart_from_website,
+)
 from .service_common import _next_week, _parse_edition_key, _persist_chart
+
+MISSING_HISTORICAL_HTTP_STATUSES = {404, 410}
 
 
 def history_start(reset: bool = False):
@@ -82,6 +89,16 @@ def _history_keys(chart_type: ChartType) -> dict[str, str]:
     }
 
 
+def _http_status_from_exception(exc: Exception) -> int | None:
+    """Read an HTTP status without tying the history service to requests internals."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    try:
+        return int(status) if status is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _run_chart_history(
     chart_type: ChartType,
     settings: dict,
@@ -130,24 +147,36 @@ def _run_chart_history(
                 chart_type,
                 allow_incomplete=True,
             )
-        except ValueError as exc:
+        except Exception as exc:
             message = str(exc)
-            if "herkenbare noteringen" not in message:
+            status_code = _http_status_from_exception(exc)
+            missing_source_page = status_code in MISSING_HISTORICAL_HTTP_STATUSES
+            unreadable_source_page = (
+                isinstance(exc, ValueError)
+                and "herkenbare noteringen" in message.casefold()
+            )
+            if not missing_source_page and not unreadable_source_page:
                 raise
 
-            # Een structureel onvolledige bronweek mag de tientallen jaren
-            # daarna niet blokkeren. De editie wordt overgeslagen en gelogd.
-            warnings.append(
-                f"{message} Editie {edition_key} is overgeslagen; "
-                "de historische verwerking gaat automatisch verder."
-            )
+            if missing_source_page:
+                warning = (
+                    f"{chart_label(chart_type)} {edition_key} ontbreekt op de "
+                    f"historische bron (HTTP {status_code}). De editie is "
+                    "overgeslagen en de verwerking gaat automatisch verder."
+                )
+            else:
+                warning = (
+                    f"{message} Editie {edition_key} is overgeslagen; "
+                    "de historische verwerking gaat automatisch verder."
+                )
+
+            warnings.append(warning)
             skipped.append(edition_key)
             year, week = _next_week(year, week)
             set_settings(
                 {
                     keys["next_year"]: year,
                     keys["next_week"]: week,
-                    keys["last"]: edition_key,
                     keys["status"]: "running",
                     keys["error"]: "",
                 }
