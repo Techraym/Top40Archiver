@@ -24,6 +24,7 @@ TOP40_CA_BUNDLE = Path(
 )
 TIPPARADE_FIRST_ISO = (1967, 28)
 TIPPARADE_30_START_ISO = (1969, 38)
+MAX_HISTORICAL_POSITION = 250
 
 
 @dataclass
@@ -60,15 +61,11 @@ def edition_url(chart_type: ChartType = "top40", target: date | None = None) -> 
 
 
 def expected_track_count(chart_type: ChartType, chart_date: date) -> int:
+    """Reference count for current editions; historical imports are variable."""
     if chart_type == "top40":
         return 40
     iso = chart_date.isocalendar()
     return 20 if (iso.year, iso.week) < TIPPARADE_30_START_ISO else 30
-
-
-def _minimum_historical_track_count(expected: int) -> int:
-    """Ondergrens voor bruikbare historische edities met bronafwijkingen."""
-    return max(10, int(expected * 0.75))
 
 
 def _ca_bundle() -> str:
@@ -95,7 +92,7 @@ def _http_session() -> requests.Session:
         {
             "User-Agent": (
                 "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "Chrome/124 Safari/537.36 Top40Archiver/1.8"
+                "Chrome/124 Safari/537.36 Top40Archiver/1.9"
             )
         }
     )
@@ -111,7 +108,7 @@ def _text(node: Any, selectors: list[str]) -> str:
 
 
 def _clean_video_title(value: str) -> str:
-    value = re.sub(r"^\s*\d{1,2}\s*[.):-]\s*", "", value or "")
+    value = re.sub(r"^\s*\d{1,3}\s*[.):-]\s*", "", value or "")
     value = re.sub(
         r"\s*[\[(](official\s*(music\s*)?(video|audio)|lyrics?|lyric\s*video|visuali[sz]er|audio|video|4k|hd)[^\])]*[\])]\s*$",
         "",
@@ -207,7 +204,9 @@ def fetch_chart_from_youtube(target: date | None = None) -> ChartEdition:
         tracks.append(ChartTrack(position, artist, title, url, video_id or None))
 
     today = date.today()
-    edition_text = " ".join(str((data or {}).get(key) or "") for key in ("title", "description"))
+    edition_text = " ".join(
+        str((data or {}).get(key) or "") for key in ("title", "description")
+    )
     year, week = _edition_from_text(edition_text, today)
     monday = date.fromisocalendar(year, week, 1)
     return ChartEdition(
@@ -259,6 +258,15 @@ def _detail_link_texts(node: Any) -> tuple[list[str], str | None]:
     return values, track_id
 
 
+def _position_from_value(value: object, maximum: int) -> int | None:
+    """Extract a plausible chart position without assuming a fixed list length."""
+    match = re.search(r"\b([1-9]\d{0,2})\b", str(value or ""))
+    if not match:
+        return None
+    position = int(match.group(1))
+    return position if 1 <= position <= maximum else None
+
+
 def parse_chart(
     html: str,
     source_url: str,
@@ -272,6 +280,7 @@ def parse_chart(
         raise ValueError("Deze week ligt vóór het begin van de Tipparade")
 
     expected = expected_track_count(chart_type, monday)
+    maximum_position = MAX_HISTORICAL_POSITION if allow_incomplete else expected
     found: dict[int, ChartTrack] = {}
     candidates = soup.select(
         "article, li.list-item, .chart-list__item, .top40-list__item, "
@@ -294,11 +303,8 @@ def parse_chart(
                 ],
             )
         )
-        position_match = re.search(r"\b([1-9]|[1-3]\d|40)\b", str(raw_position))
-        if not position_match:
-            continue
-        position = int(position_match.group(1))
-        if position > expected:
+        position = _position_from_value(raw_position, maximum_position)
+        if position is None:
             continue
 
         title = _text(
@@ -338,7 +344,9 @@ def parse_chart(
         if title and artist and title != artist:
             found[position] = ChartTrack(position, artist, title, None, source_track_id)
 
-    if len(found) < max(10, expected // 2):
+    # Historische pagina's kunnen zichtbare regels en aanvullende JSON bevatten.
+    # Lees beide bronnen en voeg alles samen; het aantal regels is niet normatief.
+    if allow_incomplete or len(found) < max(10, expected // 2):
         for script in soup.find_all("script"):
             text = script.string or script.get_text()
             if not text or len(text) < 20:
@@ -350,22 +358,25 @@ def parse_chart(
 
             def walk(obj: Any) -> None:
                 if isinstance(obj, dict):
-                    position = obj.get("position") or obj.get("rank") or obj.get("currentPosition")
+                    raw_position = (
+                        obj.get("position")
+                        or obj.get("rank")
+                        or obj.get("currentPosition")
+                    )
                     artist = obj.get("artist") or obj.get("artistName")
                     title = obj.get("title") or obj.get("trackTitle") or obj.get("name")
                     track_id = obj.get("id") or obj.get("trackId")
                     if isinstance(artist, dict):
                         artist = artist.get("name")
-                    if str(position).isdigit() and artist and title:
-                        pos = int(position)
-                        if 1 <= pos <= expected:
-                            found[pos] = ChartTrack(
-                                pos,
-                                str(artist),
-                                str(title),
-                                None,
-                                str(track_id) if track_id else None,
-                            )
+                    position = _position_from_value(raw_position, maximum_position)
+                    if position is not None and artist and title:
+                        found[position] = ChartTrack(
+                            position,
+                            str(artist),
+                            str(title),
+                            None,
+                            str(track_id) if track_id else None,
+                        )
                     for value in obj.values():
                         walk(value)
                 elif isinstance(obj, list):
@@ -374,19 +385,28 @@ def parse_chart(
 
             walk(data)
 
-    tracks = [found[position] for position in range(1, expected + 1) if position in found]
-    warning: str | None = None
-    if len(tracks) != expected:
-        message = (
-            f"{chart_label(chart_type)} leverde {len(tracks)} herkenbare noteringen op; "
-            f"exact {expected} verwacht voor {year}-W{week:02d}."
+    tracks = [found[position] for position in sorted(found)]
+    if not tracks:
+        raise ValueError(
+            f"Geen herkenbare noteringen gevonden voor "
+            f"{chart_label(chart_type)} {year}-W{week:02d}."
         )
-        minimum = _minimum_historical_track_count(expected)
-        if not allow_incomplete or len(tracks) < minimum:
-            raise ValueError(message)
+
+    if not allow_incomplete:
+        required_positions = set(range(1, expected + 1))
+        if len(tracks) != expected or set(found) != required_positions:
+            raise ValueError(
+                f"{chart_label(chart_type)} leverde {len(tracks)} herkenbare "
+                f"noteringen op; exact de posities 1 t/m {expected} zijn vereist "
+                f"voor de actuele editie {year}-W{week:02d}."
+            )
+
+    warning: str | None = None
+    if allow_incomplete and len(tracks) != expected:
         warning = (
-            f"{message} De {len(tracks)} bruikbare noteringen zijn opgeslagen en "
-            "de historische verwerking gaat automatisch verder."
+            f"{chart_label(chart_type)} {year}-W{week:02d}: "
+            f"{len(tracks)} beschikbare historische noteringen opgeslagen. "
+            "Historische broninhoud wordt gevolgd zonder een vast vereist aantal."
         )
 
     return ChartEdition(
