@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from .dashboard import download_chart, history_progress, storage_status
 from .db import connect, get_settings, init_db, now_iso, set_settings
+from .log_view import router as log_router
 from .service import (
     history_pause,
     history_start,
@@ -40,6 +41,7 @@ LIVE_INTERVAL_SECONDS = 1.0
 app = FastAPI(title="Top 40 Archiver", version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 templates = Jinja2Templates(directory=BASE / "templates")
+app.include_router(log_router)
 
 STATUS_LABELS = {
     "pending": "In wachtrij",
