@@ -9,11 +9,15 @@ BACKUP="$APP/backups/history_queue_limit_$STAMP"
 cd "$APP"
 
 echo "=== Backup maken ==="
-sudo install -d -o top40archiver -g top40archiver -m 750 "$BACKUP"
+sudo install -d -o root -g root -m 750 "$APP/backups"
+sudo install -d -o root -g root -m 750 "$BACKUP"
 sudo cp -a app/service_history.py app/templates/index.html "$BACKUP/"
 
 if [[ -f "$DB" ]]; then
-  sudo -u top40archiver sqlite3 "$DB" ".backup '$BACKUP/top40.sqlite3'"
+  # De backup wordt als root gemaakt. Zo zijn schrijfrechten op de applicatie-
+  # backupmap niet afhankelijk van de servicegebruiker of rechten op bovenliggende mappen.
+  sudo sqlite3 "$DB" ".backup '$BACKUP/top40.sqlite3'"
+  sudo chmod 640 "$BACKUP/top40.sqlite3"
 fi
 
 echo "=== Wachtrijbegrenzing toevoegen ==="
@@ -63,9 +67,9 @@ if old in text:
 elif 'Maximale actieve wachtrij' not in text:
     raise SystemExit('FOUT: instelling history_download_limit niet gevonden')
 
-for version in ('22','23','24','25','26','27'):
-    text = text.replace(f'/static/style.css?v={version}', '/static/style.css?v=28')
-    text = text.replace(f'/static/live.js?v={version}', '/static/live.js?v=28')
+for version in ('22','23','24','25','26','27','28'):
+    text = text.replace(f'/static/style.css?v={version}', '/static/style.css?v=29')
+    text = text.replace(f'/static/live.js?v={version}', '/static/live.js?v=29')
 
 path.write_text(text, encoding='utf-8')
 PY
