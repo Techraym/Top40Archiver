@@ -1,0 +1,12 @@
+[Unit]
+Description=Plan Top40Archiver AI incident scans
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+Unit=top40-archiver-incident-scan.service
+
+[Install]
+WantedBy=timers.target
