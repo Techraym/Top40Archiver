@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodieke Top40Archiver AI-diagnostiek
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+Persistent=true
+Unit=top40-ai-diagnostics.service
+
+[Install]
+WantedBy=timers.target
