@@ -17,8 +17,10 @@ service_diagnostics(){
   echo "=== Diagnostiek na mislukte installatie ==="
   systemctl status top40-log-reader.service --no-pager -l || true
   systemctl status top40-archiver-ai.service --no-pager -l || true
+  systemctl status top40-ai-recovery.service --no-pager -l || true
   journalctl -u top40-log-reader.service -n 80 --no-pager || true
   journalctl -u top40-archiver-ai.service -n 120 --no-pager || true
+  journalctl -u top40-ai-recovery.service -n 120 --no-pager || true
 }
 
 rollback(){
@@ -70,8 +72,6 @@ if [[ ! -x "$VENV_PIP" ]]; then
   "$VENV_PY" -m ensurepip --upgrade
 fi
 
-# Controleer zowel runtime- als regressietestdependencies. Starlette TestClient
-# gebruikt vanaf deze dependencylijn httpx2 in plaats van uitsluitend httpx.
 if ! "$VENV_PY" - <<'PY'
 import importlib.util
 required = ('fastapi', 'uvicorn', 'requests', 'httpx2')
@@ -117,6 +117,8 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ReadWritePaths=$DATA_DIR
+ExecStart=
+ExecStart=$VENV_DIR/bin/uvicorn app.ai_operations_app:app --host 0.0.0.0 --port 8041
 EOF
 
 SERVICE_USER=top40archiver
@@ -135,19 +137,22 @@ PY
 systemctl daemon-reload
 systemctl enable --now top40-log-reader.service
 systemctl enable --now top40-ai-recovery.timer
-systemctl reset-failed top40-archiver-ai.service top40-log-reader.service || true
+systemctl reset-failed top40-archiver-ai.service top40-log-reader.service top40-ai-recovery.service || true
 systemctl restart top40-archiver-ai.service
 
 wait_for_url "logreader" "http://127.0.0.1:8042/healthz" 20 1
 wait_for_url "AI Operations Center" "http://127.0.0.1:8041/healthz" 30 2
+wait_for_url "AI-herstelrapport API" "http://127.0.0.1:8041/api/recovery/actions" 15 1
 
 TOP40_DATA_DIR="$DATA_DIR" PYTHONPATH="$APP_DIR" "$VENV_PY" -m pytest -q tests/test_operations_center.py
 
-# Start de eerste herstelcyclus pas nadat API, logreader en tests gezond zijn.
 systemctl start top40-ai-recovery.service
+sleep 2
+curl -fsS http://127.0.0.1:8041/api/recovery/actions >/dev/null
 
 INSTALL_COMPLETE=1
 trap - ERR
 
 echo "1.15.5 succesvol geïnstalleerd. Backup: $BACKUP_DIR"
 echo "AI-herstelcyclus: iedere vijf minuten via top40-ai-recovery.timer"
+echo "AI-activiteiten: http://$(hostname -I | awk '{print $1}'):8041/ai-actions"
