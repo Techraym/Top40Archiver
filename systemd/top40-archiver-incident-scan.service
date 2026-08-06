@@ -1,0 +1,19 @@
+[Unit]
+Description=Top40Archiver AI incident scan
+After=network-online.target top40-archiver-web.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=top40archiver
+Group=top40archiver
+SupplementaryGroups=systemd-journal
+WorkingDirectory=/opt/top40-archiver
+EnvironmentFile=-/etc/top40-archiver.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/top40-archiver/venv/bin/python -m app.incident_scan
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
