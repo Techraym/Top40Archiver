@@ -1,18 +1,24 @@
 [Unit]
-Description=Verwerk de Top40Archiver-downloadwachtrij
-After=network-online.target
+Description=Permanente Top40Archiver-downloadworker
+After=network-online.target top40-archiver-web.service
 Wants=network-online.target
 
 [Service]
-Type=oneshot
+Type=simple
 User=top40archiver
 Group=top40archiver
 WorkingDirectory=/opt/top40-archiver
 Environment=TOP40_DATA_DIR=/var/lib/top40-archiver
 Environment=PYTHONPATH=/opt/top40-archiver
 EnvironmentFile=-/etc/top40-archiver.env
-ExecStart=/opt/top40-archiver/venv/bin/python -m app.cli retry --limit 20
-TimeoutStartSec=2h
+ExecStart=/opt/top40-archiver/venv/bin/python -m app.cli download-daemon --limit 20
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+TimeoutStopSec=30
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=6
+
+[Install]
+WantedBy=multi-user.target
