@@ -13,15 +13,55 @@ CHART_TABLES = {
 }
 
 
+def iso_weeks_in_year(year: int) -> int:
+    """Return the number of ISO weeks in a calendar year (52 or 53)."""
+    year = int(year)
+    if year < 1:
+        raise ValueError("ISO-jaar moet minimaal 1 zijn")
+    return date(year, 12, 28).isocalendar().week
+
+
+def _normalize_week_cursor(year: int, week: int) -> tuple[int, int]:
+    """Normalize a stored cursor with the ISO calendar, across year boundaries."""
+    year = int(year)
+    week = int(week)
+    if year < 1:
+        raise ValueError("ISO-jaar moet minimaal 1 zijn")
+
+    while week < 1:
+        year -= 1
+        if year < 1:
+            raise ValueError("Historische weekcursor valt vóór ISO-jaar 1")
+        week += iso_weeks_in_year(year)
+
+    while week > iso_weeks_in_year(year):
+        week -= iso_weeks_in_year(year)
+        year += 1
+
+    return year, week
+
+
 def _next_week(year: int, week: int) -> tuple[int, int]:
-    current = date.fromisocalendar(year, week, 1)
-    next_iso = current.fromordinal(current.toordinal() + 7).isocalendar()
-    return next_iso.year, next_iso.week
+    """Advance exactly one ISO week without ever producing an invalid week."""
+    year, week = _normalize_week_cursor(year, week)
+    last_week = iso_weeks_in_year(year)
+    if week < last_week:
+        return year, week + 1
+    return year + 1, 1
 
 
 def _parse_edition_key(value: str) -> tuple[int, int] | None:
     match = re.fullmatch(r"(\d{4})-W(\d{1,2})", str(value or ""))
-    return (int(match.group(1)), int(match.group(2))) if match else None
+    if not match:
+        return None
+
+    year = int(match.group(1))
+    week = int(match.group(2))
+    try:
+        normalized = _normalize_week_cursor(year, week)
+    except ValueError:
+        return None
+    return normalized if normalized == (year, week) else None
 
 
 def _chart_fields(chart_type: ChartType) -> dict[str, str]:
