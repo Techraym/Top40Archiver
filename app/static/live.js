@@ -194,7 +194,7 @@
     const rows = data.failed || [];
     const html = rows.length
       ? rows.map((row) => {
-          const query = row.custom_search_query || `${row.artist} - ${row.title} official audio`;
+          const query = row.custom_search_query || `${row.artist} - ${row.title}`;
           return `<article>
             <div class="failed-head"><div><b>${escapeHtml(row.artist)} — ${escapeHtml(row.title)}</b><small>${escapeHtml(row.download_attempts)} poging(en) · Spotify: ${escapeHtml(row.spotify_status || "unchecked")}</small></div><span class="status-badge status-failed">Mislukt</span></div>
             <details><summary>Foutmelding en gebruikte zoekvarianten</summary><pre>${escapeHtml(row.error_message || "Geen foutmelding opgeslagen")}</pre></details>
