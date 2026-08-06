@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import fcntl
 from pathlib import Path
 import shutil
+import time
 from typing import Iterable
 from urllib.parse import parse_qs, urlparse
 
@@ -310,6 +311,86 @@ def process_queue(limit: int | None = None, track_ids: Iterable[int] | None = No
                     results.append((track_id, "worker_error"))
 
         return sorted(results, key=lambda item: int(item[0]))
+
+
+def run_download_daemon(
+    limit: int = 20,
+    idle_seconds: float = 30.0,
+    busy_seconds: float = 10.0,
+):
+    """Blijf de downloadwachtrij verwerken zonder handmatige nieuwe runs."""
+    batch_limit = max(1, int(limit or 20))
+    idle_wait = max(5.0, float(idle_seconds))
+    busy_wait = max(2.0, float(busy_seconds))
+    last_state = ""
+
+    print(
+        {
+            "state": "started",
+            "batch_limit": batch_limit,
+            "idle_seconds": idle_wait,
+            "busy_seconds": busy_wait,
+        },
+        flush=True,
+    )
+
+    while True:
+        try:
+            results = process_queue(limit=batch_limit)
+            busy = bool(
+                results
+                and isinstance(results[0], dict)
+                and results[0].get("busy")
+            )
+
+            if busy:
+                if last_state != "busy":
+                    print(
+                        {
+                            "state": "busy",
+                            "message": "Een andere worker heeft tijdelijk de downloadlock.",
+                        },
+                        flush=True,
+                    )
+                last_state = "busy"
+                time.sleep(busy_wait)
+                continue
+
+            if results:
+                print(
+                    {
+                        "state": "processed",
+                        "count": len(results),
+                        "results": results,
+                    },
+                    flush=True,
+                )
+                last_state = "processed"
+                # Bij een gevulde wachtrij begint de volgende batch vrijwel direct.
+                time.sleep(1.0)
+                continue
+
+            if last_state != "idle":
+                print(
+                    {
+                        "state": "idle",
+                        "message": "Downloadwachtrij is leeg; de worker blijft actief.",
+                    },
+                    flush=True,
+                )
+            last_state = "idle"
+            time.sleep(idle_wait)
+        except Exception as exc:
+            print(
+                {
+                    "state": "error",
+                    "message": str(exc)[-3000:],
+                    "retry_seconds": idle_wait,
+                },
+                flush=True,
+            )
+            last_state = "error"
+            time.sleep(idle_wait)
 
 
 def organize_downloaded_files(limit=None):
