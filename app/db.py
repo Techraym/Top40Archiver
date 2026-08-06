@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
 from .config import DATA_DIR, DB_PATH, DEFAULT_DOWNLOAD_DIR
+from .history_rules import BLACKLISTED_HISTORICAL_EDITIONS
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -197,9 +198,60 @@ def _missing_http_status_text(value: object) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _recover_stale_missing_history(con: sqlite3.Connection) -> list[str]:
-    """Advance cursors left behind by historical 404/410 failures."""
+def _apply_blacklisted_history_cursors(con: sqlite3.Connection) -> list[str]:
+    """Apply permanent cursor rules even when no usable HTTP exception was stored."""
     recovered: list[str] = []
+
+    for (chart_type, year, week), rule in BLACKLISTED_HISTORICAL_EDITIONS.items():
+        if chart_type == "top40":
+            year_key = "history_next_year"
+            week_key = "history_next_week"
+            status_key = "history_status"
+            error_key = "history_last_error"
+            completed_key = "history_completed_at"
+        elif chart_type == "tipparade":
+            year_key = "tip_history_next_year"
+            week_key = "tip_history_next_week"
+            status_key = "tip_history_status"
+            error_key = "tip_history_last_error"
+            completed_key = "tip_history_completed_at"
+        else:
+            continue
+
+        try:
+            current_pair = (
+                int(_setting_value(con, year_key)),
+                int(_setting_value(con, week_key)),
+            )
+        except (TypeError, ValueError):
+            continue
+
+        error = _setting_value(con, error_key)
+        source_url = str(rule["source_url"]).casefold()
+        cursor_matches = current_pair == (year, week)
+        error_matches = source_url in error.casefold()
+        if not cursor_matches and not error_matches:
+            continue
+
+        _write_settings(
+            con,
+            {
+                year_key: int(rule["next_year"]),
+                week_key: int(rule["next_week"]),
+                status_key: "running",
+                error_key: "",
+                completed_key: "",
+                "history_enabled": "1",
+            },
+        )
+        recovered.append(f"blacklist:{chart_type}:{year}-W{week:02d}")
+
+    return recovered
+
+
+def _recover_stale_missing_history(con: sqlite3.Connection) -> list[str]:
+    """Advance cursors left behind by blacklisted or missing historical pages."""
+    recovered = _apply_blacklisted_history_cursors(con)
     charts = (
         {
             "label": "top40",
@@ -245,11 +297,8 @@ def _recover_stale_missing_history(con: sqlite3.Connection) -> list[str]:
             year,
             week,
         ):
-            # Wis of verplaats nooit een andere cursor dan de editie die in de
-            # opgeslagen foutmelding staat.
             continue
         if not url_match and "top40.nl" not in error.casefold():
-            # Een losse 404 uit een andere component mag de historie niet verplaatsen.
             continue
 
         next_iso = (current + timedelta(days=7)).isocalendar()
@@ -280,7 +329,6 @@ def init_db():
         con.executescript(SCHEMA)
         _ensure_columns(con, "tracks", TRACK_MIGRATION_COLUMNS)
 
-        # Records uit oudere versies waren uitsluitend Top 40-records.
         con.execute(
             """
             UPDATE tracks
@@ -298,11 +346,11 @@ def init_db():
                 (key, value),
             )
 
-        # Herstel een opgeslagen 404/410-cursor tijdens iedere applicatiestart.
+        # Dit draait bij iedere applicatiestart en tijdens iedere update-init.
+        # De geblokkeerde 1970-W53-cursor wordt daardoor zonder HTTP-verzoek
+        # rechtstreeks naar 1971-W01 verplaatst.
         _recover_stale_missing_history(con)
 
-        # Migreer alleen de oude meegeleverde standaard. Een zelf ingestelde
-        # zoektemplate blijft bewust onaangetast.
         con.execute(
             """
             UPDATE settings
@@ -312,8 +360,6 @@ def init_db():
             """
         )
 
-        # Oude, volledig uitgeputte zoekfouten die duidelijk op ontbrekend
-        # bronmateriaal wijzen worden niet opnieuw als technische fout getoond.
         max_attempts_row = con.execute(
             "SELECT value FROM settings WHERE key='max_download_attempts'"
         ).fetchone()
