@@ -14,7 +14,7 @@ cd "$APP_DIR"
 
 service_diagnostics(){
   echo
-  echo "=== Diagnostiek na mislukte service-start ==="
+  echo "=== Diagnostiek na mislukte installatie ==="
   systemctl status top40-log-reader.service --no-pager -l || true
   systemctl status top40-archiver-ai.service --no-pager -l || true
   journalctl -u top40-log-reader.service -n 80 --no-pager || true
@@ -70,13 +70,18 @@ if [[ ! -x "$VENV_PIP" ]]; then
   "$VENV_PY" -m ensurepip --upgrade
 fi
 
+# Controleer zowel runtime- als regressietestdependencies. Starlette TestClient
+# gebruikt vanaf deze dependencylijn httpx2 in plaats van uitsluitend httpx.
 if ! "$VENV_PY" - <<'PY'
 import importlib.util
-missing = [name for name in ('fastapi', 'uvicorn', 'requests') if importlib.util.find_spec(name) is None]
+required = ('fastapi', 'uvicorn', 'requests', 'httpx2')
+missing = [name for name in required if importlib.util.find_spec(name) is None]
+if missing:
+    print('Ontbrekende Python-modules:', ', '.join(missing))
 raise SystemExit(1 if missing else 0)
 PY
 then
-  echo "Applicatiepakketten ontbreken in de virtualenv; requirements worden geïnstalleerd."
+  echo "Applicatie- of testpakketten ontbreken; requirements worden geïnstalleerd."
   "$VENV_PIP" install --upgrade pip wheel
   "$VENV_PIP" install -r "$APP_DIR/requirements.txt"
 fi
@@ -87,7 +92,7 @@ if ! "$VENV_PY" -c 'import pytest' >/dev/null 2>&1; then
 fi
 
 "$VENV_PY" - <<'PY'
-import fastapi, uvicorn, requests, pytest
+import fastapi, uvicorn, requests, httpx2, pytest
 print('Python-omgeving: OK')
 PY
 
