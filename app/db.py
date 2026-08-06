@@ -191,8 +191,14 @@ def _write_settings(con: sqlite3.Connection, values: dict[str, object]) -> None:
         )
 
 
+def _missing_http_status_text(value: object) -> int | None:
+    """Recognize a missing-page status in stored errors from any HTTP client."""
+    match = re.search(r"(?<!\d)(404|410)(?!\d)", str(value or ""))
+    return int(match.group(1)) if match else None
+
+
 def _recover_stale_missing_history(con: sqlite3.Connection) -> list[str]:
-    """Advance cursors left behind by pre-1.9.7 historical 404/410 failures."""
+    """Advance cursors left behind by historical 404/410 failures."""
     recovered: list[str] = []
     charts = (
         {
@@ -217,7 +223,8 @@ def _recover_stale_missing_history(con: sqlite3.Connection) -> list[str]:
 
     for chart in charts:
         error = _setting_value(con, chart["error"])
-        if not re.search(r"\b(?:404|410)\s+Client\s+Error\b", error, flags=re.I):
+        status_code = _missing_http_status_text(error)
+        if status_code not in {404, 410}:
             continue
         if _setting_value(con, chart["status"]) == "completed":
             continue
@@ -241,6 +248,9 @@ def _recover_stale_missing_history(con: sqlite3.Connection) -> list[str]:
             # Wis of verplaats nooit een andere cursor dan de editie die in de
             # opgeslagen foutmelding staat.
             continue
+        if not url_match and "top40.nl" not in error.casefold():
+            # Een losse 404 uit een andere component mag de historie niet verplaatsen.
+            continue
 
         next_iso = (current + timedelta(days=7)).isocalendar()
         _write_settings(
@@ -257,6 +267,12 @@ def _recover_stale_missing_history(con: sqlite3.Connection) -> list[str]:
         recovered.append(f"{chart['label']}:{year}-W{week:02d}")
 
     return recovered
+
+
+def recover_stale_missing_history() -> list[str]:
+    """Public recovery hook used at startup and before every history batch."""
+    with connect() as con:
+        return _recover_stale_missing_history(con)
 
 
 def init_db():
@@ -282,9 +298,7 @@ def init_db():
                 (key, value),
             )
 
-        # Herstel een vóór versie 1.9.7 opgeslagen 404/410-cursor tijdens iedere
-        # applicatiestart. Hierdoor is geen handmatige SQLite-ingreep nodig wanneer
-        # de nieuwe servicecode nog niet aan bod kwam.
+        # Herstel een opgeslagen 404/410-cursor tijdens iedere applicatiestart.
         _recover_stale_missing_history(con)
 
         # Migreer alleen de oude meegeleverde standaard. Een zelf ingestelde
