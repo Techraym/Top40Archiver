@@ -18,9 +18,17 @@ from .top40 import (
     fetch_chart,
     fetch_chart_from_website,
 )
-from .service_common import _next_week, _parse_edition_key, _persist_chart
+from .service_common import (
+    _next_week,
+    _normalize_week_cursor,
+    _parse_edition_key,
+    _persist_chart,
+)
 
-MISSING_HISTORICAL_HTTP_STATUSES = {404, 410}
+# Deze statussen betekenen voor een historische editie dat de bronpagina niet
+# bruikbaar is. De editie wordt overgeslagen; de volgende ISO-week gaat door.
+SKIPPABLE_HISTORICAL_HTTP_STATUSES = {402, 404, 410}
+MISSING_HISTORICAL_HTTP_STATUSES = SKIPPABLE_HISTORICAL_HTTP_STATUSES
 
 
 def history_start(reset: bool = False):
@@ -74,7 +82,7 @@ def _known_current_pair(settings: dict, chart_type: ChartType) -> tuple[int, int
     chart = fetch_chart(chart_type=chart_type)
     _persist_chart(chart, False)
     set_settings({key: chart.edition_key})
-    return chart.year, chart.week
+    return _normalize_week_cursor(chart.year, chart.week)
 
 
 def _history_keys(chart_type: ChartType) -> dict[str, str]:
@@ -97,7 +105,7 @@ def _history_keys(chart_type: ChartType) -> dict[str, str]:
     }
 
 
-def _http_status_from_exception(exc: Exception) -> int | None:
+def _http_status_from_exception(exc: BaseException) -> int | None:
     """Read HTTP status from attributes, wrapped exceptions or error text."""
     current: BaseException | None = exc
     seen: set[int] = set()
@@ -117,13 +125,36 @@ def _http_status_from_exception(exc: Exception) -> int | None:
             except (TypeError, ValueError):
                 pass
 
-        match = re.search(r"(?<!\d)(404|410)(?!\d)", str(current))
+        match = re.search(r"(?<!\d)(402|404|410)(?!\d)", str(current))
         if match:
             return int(match.group(1))
 
         current = current.__cause__ or current.__context__
 
     return None
+
+
+def _set_running_cursor(
+    chart_type: ChartType,
+    year: int,
+    week: int,
+    *,
+    clear_error: bool = True,
+) -> tuple[int, int]:
+    """Store one valid ISO cursor and keep the historical worker enabled."""
+    keys = _history_keys(chart_type)
+    year, week = _normalize_week_cursor(year, week)
+    values: dict[str, object] = {
+        keys["next_year"]: year,
+        keys["next_week"]: week,
+        keys["status"]: "running",
+        keys["completed_at"]: "",
+        "history_enabled": "1",
+    }
+    if clear_error:
+        values[keys["error"]] = ""
+    set_settings(values)
+    return year, week
 
 
 def _skip_missing_history_cursor(
@@ -133,24 +164,18 @@ def _skip_missing_history_cursor(
 ) -> dict:
     """Advance one historical cursor without pretending the edition was imported."""
     keys = _history_keys(chart_type)
-    year = int(settings[keys["next_year"]])
-    week = int(settings[keys["next_week"]])
+    year, week = _normalize_week_cursor(
+        int(settings[keys["next_year"]]),
+        int(settings[keys["next_week"]]),
+    )
     edition_key = f"{year}-W{week:02d}"
     next_year, next_week = _next_week(year, week)
+    _set_running_cursor(chart_type, next_year, next_week)
+
     warning = (
-        f"{chart_label(chart_type)} {edition_key} ontbreekt op de historische bron "
-        f"(HTTP {status_code}). De editie is overgeslagen en de verwerking gaat "
-        "automatisch verder."
-    )
-    set_settings(
-        {
-            keys["next_year"]: next_year,
-            keys["next_week"]: next_week,
-            keys["status"]: "running",
-            keys["error"]: "",
-            keys["completed_at"]: "",
-            "history_enabled": "1",
-        }
+        f"{chart_label(chart_type)} {edition_key} gaf HTTP {status_code}. "
+        f"De editie is overgeslagen; de ISO-kalender gaat verder met "
+        f"{next_year}-W{next_week:02d}."
     )
     return {
         "chart_type": chart_type,
@@ -159,6 +184,8 @@ def _skip_missing_history_cursor(
         "warnings": [warning],
         "skipped": [edition_key],
         "next": f"{next_year}-W{next_week:02d}",
+        "next_year": next_year,
+        "next_week": next_week,
     }
 
 
@@ -168,28 +195,22 @@ def _skip_blacklisted_history_cursor(
     week: int,
 ) -> dict | None:
     """Skip a known missing source URL before any network request is made."""
+    year, week = _normalize_week_cursor(year, week)
     rule = get_blacklisted_history_rule(chart_type, year, week)
     if rule is None:
         return None
 
-    keys = _history_keys(chart_type)
     edition_key = f"{year}-W{week:02d}"
-    next_year = int(rule["next_year"])
-    next_week = int(rule["next_week"])
+    next_year, next_week = _normalize_week_cursor(
+        int(rule["next_year"]),
+        int(rule["next_week"]),
+    )
+    _set_running_cursor(chart_type, next_year, next_week)
+
     warning = (
         f"{chart_label(chart_type)} {edition_key} staat op de bronblacklist. "
         f"{rule['reason']} De verwerking gaat verder met "
         f"{next_year}-W{next_week:02d}."
-    )
-    set_settings(
-        {
-            keys["next_year"]: next_year,
-            keys["next_week"]: next_week,
-            keys["status"]: "running",
-            keys["error"]: "",
-            keys["completed_at"]: "",
-            "history_enabled": "1",
-        }
     )
     return {
         "chart_type": chart_type,
@@ -198,7 +219,31 @@ def _skip_blacklisted_history_cursor(
         "warnings": [warning],
         "skipped": [edition_key],
         "next": f"{next_year}-W{next_week:02d}",
+        "next_year": next_year,
+        "next_week": next_week,
     }
+
+
+def _recover_stored_skippable_errors() -> list[str]:
+    """Advance old stored 402/404/410 errors before making another request."""
+    with connect() as con:
+        settings = get_settings(con)
+
+    recovered: list[str] = []
+    for chart_type in ("top40", "tipparade"):
+        keys = _history_keys(chart_type)
+        if settings.get(keys["status"]) == "completed":
+            continue
+        error = str(settings.get(keys["error"], ""))
+        status_code = _http_status_from_exception(RuntimeError(error)) if error else None
+        if status_code not in SKIPPABLE_HISTORICAL_HTTP_STATUSES:
+            continue
+        result = _skip_missing_history_cursor(chart_type, settings, int(status_code))
+        recovered.extend(result["skipped"])
+        settings[keys["next_year"]] = str(result["next_year"])
+        settings[keys["next_week"]] = str(result["next_week"])
+        settings[keys["error"]] = ""
+    return recovered
 
 
 def _run_chart_history(
@@ -218,24 +263,52 @@ def _run_chart_history(
             "skipped": [],
         }
 
-    year = int(settings[keys["next_year"]])
-    week = int(settings[keys["next_week"]])
+    raw_year = int(settings[keys["next_year"]])
+    raw_week = int(settings[keys["next_week"]])
+    year, week = _normalize_week_cursor(raw_year, raw_week)
+    if (year, week) != (raw_year, raw_week):
+        _set_running_cursor(chart_type, year, week)
+
+    current_pair = _normalize_week_cursor(*current_pair)
     imported: list[str] = []
     warnings: list[str] = []
     skipped: list[str] = []
+    visited: set[tuple[int, int]] = set()
 
     for _ in range(batch):
+        year, week = _normalize_week_cursor(year, week)
+        cursor = (year, week)
+        edition_key = f"{year}-W{week:02d}"
+
+        # Tweede beveiliging naast de kalender: dezelfde cursor mag binnen één
+        # batch nooit nogmaals worden benaderd. Bij herhaling schuift hij door.
+        if cursor in visited:
+            next_year, next_week = _next_week(year, week)
+            warning = (
+                f"Herhaalde historische cursor {edition_key} voorkomen. "
+                f"De ISO-kalender gaat verder met {next_year}-W{next_week:02d}."
+            )
+            warnings.append(warning)
+            skipped.append(edition_key)
+            year, week = _set_running_cursor(
+                chart_type,
+                next_year,
+                next_week,
+            )
+            continue
+        visited.add(cursor)
+
         blacklisted = _skip_blacklisted_history_cursor(chart_type, year, week)
         if blacklisted is not None:
             warnings.extend(blacklisted["warnings"])
             skipped.extend(blacklisted["skipped"])
-            year = int(blacklisted["next"].split("-W", 1)[0])
-            week = int(blacklisted["next"].split("-W", 1)[1])
+            year = int(blacklisted["next_year"])
+            week = int(blacklisted["next_week"])
             if delay:
                 time.sleep(delay)
             continue
 
-        if (year, week) > current_pair:
+        if cursor > current_pair:
             set_settings(
                 {
                     keys["status"]: "completed",
@@ -252,7 +325,6 @@ def _run_chart_history(
             }
 
         target = date.fromisocalendar(year, week, 1)
-        edition_key = f"{year}-W{week:02d}"
         try:
             chart = fetch_chart_from_website(
                 target,
@@ -262,16 +334,16 @@ def _run_chart_history(
         except Exception as exc:
             message = str(exc)
             status_code = _http_status_from_exception(exc)
-            missing_source_page = status_code in MISSING_HISTORICAL_HTTP_STATUSES
+            skippable_http = status_code in SKIPPABLE_HISTORICAL_HTTP_STATUSES
             unreadable_source_page = (
                 isinstance(exc, ValueError)
                 and "herkenbare noteringen" in message.casefold()
             )
-            if not missing_source_page and not unreadable_source_page:
+            if not skippable_http and not unreadable_source_page:
                 raise
 
-            if missing_source_page:
-                skipped_result = _skip_missing_history_cursor(
+            if skippable_http:
+                result = _skip_missing_history_cursor(
                     chart_type,
                     {
                         **settings,
@@ -280,27 +352,24 @@ def _run_chart_history(
                     },
                     int(status_code),
                 )
-                warning = skipped_result["warnings"][0]
+                warning = result["warnings"][0]
+                year = int(result["next_year"])
+                week = int(result["next_week"])
             else:
+                next_year, next_week = _next_week(year, week)
                 warning = (
                     f"{message} Editie {edition_key} is overgeslagen; "
-                    "de historische verwerking gaat automatisch verder."
+                    f"de ISO-kalender gaat verder met "
+                    f"{next_year}-W{next_week:02d}."
                 )
-                next_year, next_week = _next_week(year, week)
-                set_settings(
-                    {
-                        keys["next_year"]: next_year,
-                        keys["next_week"]: next_week,
-                        keys["status"]: "running",
-                        keys["error"]: "",
-                        keys["completed_at"]: "",
-                        "history_enabled": "1",
-                    }
+                year, week = _set_running_cursor(
+                    chart_type,
+                    next_year,
+                    next_week,
                 )
 
             warnings.append(warning)
             skipped.append(edition_key)
-            year, week = _next_week(year, week)
             if delay:
                 time.sleep(delay)
             continue
@@ -376,9 +445,10 @@ def _finish_combined_history() -> dict:
 
 
 def run_history_batch():
-    # Herstel oude fouten en pas de permanente bronblacklist toe voordat instellingen
-    # worden ingelezen of een netwerkverzoek kan worden uitgevoerd.
+    # Herstel oude fouten, verwerk de blacklist en sla eerder opgeslagen
+    # 402/404/410-edities over voordat een nieuw netwerkverzoek wordt uitgevoerd.
     recover_stale_missing_history()
+    _recover_stored_skippable_errors()
 
     with connect() as con:
         settings = get_settings(con)
@@ -429,7 +499,7 @@ def run_history_batch():
         except Exception as exc:
             message = str(exc)[-3000:]
             status_code = _http_status_from_exception(exc)
-            if status_code in MISSING_HISTORICAL_HTTP_STATUSES:
+            if status_code in SKIPPABLE_HISTORICAL_HTTP_STATUSES:
                 with connect() as con:
                     current_settings = get_settings(con)
                 results[chart_type] = _skip_missing_history_cursor(
