@@ -17,12 +17,7 @@ if ! flock -n 9; then
 fi
 
 cd "$APP"
-
-if [ ! -d .git ]; then
-  echo "FOUT: $APP is geen Git-repository; update afgebroken."
-  exit 21
-fi
-
+[ -d .git ] || { echo "FOUT: $APP is geen Git-repository; update afgebroken."; exit 21; }
 if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
   echo "FOUT: lokale wijzigingen gevonden; update afgebroken."
   git status --short
@@ -31,7 +26,6 @@ fi
 
 CURRENT_SHA="$(git rev-parse HEAD)"
 CURRENT_BRANCH="$(git branch --show-current)"
-
 mkdir -p "$BACKUP"
 cp -a VERSION "$BACKUP/VERSION" 2>/dev/null || true
 cp -a "$DB" "$BACKUP/top40.sqlite3" 2>/dev/null || true
@@ -43,11 +37,7 @@ printf '%s\n' "$CURRENT_BRANCH" > "$BACKUP/previous-branch"
 echo "=== Remote ophalen ==="
 git fetch --prune "$REMOTE" "+refs/heads/$BRANCH:refs/remotes/$REMOTE/$BRANCH"
 TARGET_SHA="$(git rev-parse "$REMOTE/$BRANCH")"
-
-if [ "$CURRENT_SHA" = "$TARGET_SHA" ]; then
-  echo "Geen update nodig: $CURRENT_SHA"
-  exit 0
-fi
+[ "$CURRENT_SHA" != "$TARGET_SHA" ] || { echo "Geen update nodig: $CURRENT_SHA"; exit 0; }
 
 WORKTREE="$(mktemp -d /tmp/top40-update.XXXXXX)"
 cleanup() {
@@ -55,32 +45,35 @@ cleanup() {
   rm -rf "$WORKTREE" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
-
 git worktree add --detach "$WORKTREE" "$TARGET_SHA"
 
-required=(
-  app/main.py app/db.py app/service.py app/templates/index.html
-  app/static/style.css app/static/live.js VERSION
-)
+required=(app/main.py app/db.py app/service.py app/templates/index.html app/static/style.css app/static/live.js VERSION)
 for file in "${required[@]}"; do
   [ -f "$WORKTREE/$file" ] || { echo "FOUT: vereist bestand ontbreekt: $file"; exit 23; }
 done
 
 PYTHONDONTWRITEBYTECODE=1 "$APP/venv/bin/python" -m py_compile \
-  "$WORKTREE/app/main.py" \
-  "$WORKTREE/app/db.py" \
-  "$WORKTREE/app/service.py"
+  "$WORKTREE/app/main.py" "$WORKTREE/app/db.py" "$WORKTREE/app/service.py"
 
 if [ -f "$WORKTREE/app/ai_sidecar.py" ]; then
-  PYTHONDONTWRITEBYTECODE=1 "$APP/venv/bin/python" -m py_compile \
-    "$WORKTREE/app/health_engine.py" \
-    "$WORKTREE/app/health_trends.py" \
-    "$WORKTREE/app/prediction_engine.py" \
-    "$WORKTREE/app/ai_sidecar.py"
+  AI_FILES=(app/health_engine.py app/health_trends.py app/prediction_engine.py app/ai_sidecar.py)
+  [ ! -f "$WORKTREE/app/incident_engine.py" ] || AI_FILES+=(app/incident_engine.py app/incident_scan.py)
+  COMPILE_FILES=()
+  for file in "${AI_FILES[@]}"; do COMPILE_FILES+=("$WORKTREE/$file"); done
+  PYTHONDONTWRITEBYTECODE=1 "$APP/venv/bin/python" -m py_compile "${COMPILE_FILES[@]}"
 fi
 
 NEW_VERSION="$(tr -d '[:space:]' < "$WORKTREE/VERSION")"
-[ -n "$NEW_VERSION" ] || { echo "FOUT: lege VERSION in doelcommit"; exit 24; }
+[[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || {
+  echo "FOUT: ongeldige VERSION in doelcommit: $NEW_VERSION"; exit 24;
+}
+INSTALLER="scripts/install-${NEW_VERSION}.sh"
+if [ -f "$WORKTREE/$INSTALLER" ]; then
+  echo "Versie-installer gevonden: $INSTALLER"
+else
+  INSTALLER=""
+  echo "Geen versie-installer; alleen generieke update wordt uitgevoerd."
+fi
 
 echo "=== Services stoppen ==="
 systemctl stop top40-archiver-ai.service 2>/dev/null || true
@@ -96,18 +89,17 @@ rollback() {
 trap rollback ERR
 
 git reset --hard "$TARGET_SHA"
-
-if [ -f scripts/install-1.15.1.sh ]; then
-  bash scripts/install-1.15.1.sh --from-updater
-fi
-
+[ -z "$INSTALLER" ] || bash "$INSTALLER" --from-updater
 systemctl daemon-reload
 systemctl start top40-archiver-web.service
 systemctl start top40-archiver-ai.service 2>/dev/null || true
 sleep 4
 curl -fsS http://127.0.0.1:8040/ >/dev/null
 if systemctl is-enabled --quiet top40-archiver-ai.service 2>/dev/null; then
-  curl -fsS http://127.0.0.1:8041/healthz >/dev/null
+  RESPONSE="$(curl -fsS http://127.0.0.1:8041/healthz)"
+  grep -q "\"version\":\"$NEW_VERSION\"" <<<"${RESPONSE// /}" || {
+    echo "FOUT: AI-sidecar rapporteert niet versie $NEW_VERSION"; exit 25;
+  }
 fi
 
 trap - ERR
