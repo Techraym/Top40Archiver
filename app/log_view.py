@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 import re
 import subprocess
 from typing import Any
@@ -12,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from .db import connect
 
 router = APIRouter()
+templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
 
 UNITS = (
     "top40-archiver.service",
@@ -96,9 +98,23 @@ def _database_failures(limit: int) -> list[dict[str, Any]]:
     ]
 
 
+@router.get("/", response_class=HTMLResponse)
+def dashboard_with_log_button(request: Request, q: str = ""):
+    # Deze route staat vóór de oorspronkelijke dashboardroute en voegt alleen
+    # de Logs-knop toe. De overige dashboardinhoud blijft uit app.main komen.
+    from .main import _dashboard_data
+
+    context = _dashboard_data(q)
+    context["request"] = request
+    html = templates.get_template("index.html").render(**context)
+    marker = '<div class="actions header-actions">'
+    button = '<a href="/logs"><button type="button" class="secondary">Logs</button></a>'
+    html = html.replace(marker, marker + button, 1)
+    return HTMLResponse(html)
+
+
 @router.get("/logs", response_class=HTMLResponse)
 def logs_page(request: Request):
-    templates = Jinja2Templates(directory="app/templates")
     return templates.TemplateResponse(
         request,
         "logs.html",
