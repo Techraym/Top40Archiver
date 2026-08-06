@@ -7,11 +7,24 @@ VENV_DIR="$APP_DIR/venv"
 VENV_PY="$VENV_DIR/bin/python"
 VENV_PIP="$VENV_DIR/bin/pip"
 BACKUP_DIR="$DATA_DIR/backups/1.15.5-$(date +%Y%m%d-%H%M%S)"
+INSTALL_COMPLETE=0
 
 [[ $EUID -eq 0 ]] || { echo "Start als root: sudo bash ./install-1.15.5.sh"; exit 1; }
 cd "$APP_DIR"
 
+service_diagnostics(){
+  echo
+  echo "=== Diagnostiek na mislukte service-start ==="
+  systemctl status top40-log-reader.service --no-pager -l || true
+  systemctl status top40-archiver-ai.service --no-pager -l || true
+  journalctl -u top40-log-reader.service -n 80 --no-pager || true
+  journalctl -u top40-archiver-ai.service -n 120 --no-pager || true
+}
+
 rollback(){
+  local rc=$?
+  [[ $INSTALL_COMPLETE -eq 1 ]] && return 0
+  service_diagnostics
   echo "Installatie mislukt; rollback wordt uitgevoerd."
   if [[ -d "$BACKUP_DIR/app" ]]; then
     rm -rf "$APP_DIR/app"
@@ -21,8 +34,29 @@ rollback(){
   systemctl disable --now top40-ai-recovery.timer 2>/dev/null || true
   systemctl daemon-reload || true
   systemctl restart top40-archiver-ai.service || true
+  exit "$rc"
 }
 trap rollback ERR
+
+wait_for_url(){
+  local name=$1
+  local url=$2
+  local attempts=${3:-30}
+  local delay=${4:-2}
+  local i
+
+  echo "Wachten op $name: $url"
+  for ((i=1; i<=attempts; i++)); do
+    if curl -fsS --connect-timeout 2 --max-time 5 "$url" >/dev/null 2>&1; then
+      echo "$name: bereikbaar na poging $i/$attempts"
+      return 0
+    fi
+    sleep "$delay"
+  done
+
+  echo "FOUT: $name werd niet bereikbaar binnen $((attempts * delay)) seconden."
+  return 1
+}
 
 command -v python3 >/dev/null
 command -v sqlite3 >/dev/null || { apt-get update; apt-get install -y sqlite3; }
@@ -36,7 +70,6 @@ if [[ ! -x "$VENV_PIP" ]]; then
   "$VENV_PY" -m ensurepip --upgrade
 fi
 
-# Gebruik altijd dezelfde Python-omgeving als de draaiende web- en AI-services.
 if ! "$VENV_PY" - <<'PY'
 import importlib.util
 missing = [name for name in ('fastapi', 'uvicorn', 'requests') if importlib.util.find_spec(name) is None]
@@ -97,13 +130,19 @@ PY
 systemctl daemon-reload
 systemctl enable --now top40-log-reader.service
 systemctl enable --now top40-ai-recovery.timer
+systemctl reset-failed top40-archiver-ai.service top40-log-reader.service || true
 systemctl restart top40-archiver-ai.service
+
+wait_for_url "logreader" "http://127.0.0.1:8042/healthz" 20 1
+wait_for_url "AI Operations Center" "http://127.0.0.1:8041/healthz" 30 2
+
+TOP40_DATA_DIR="$DATA_DIR" PYTHONPATH="$APP_DIR" "$VENV_PY" -m pytest -q tests/test_operations_center.py
+
+# Start de eerste herstelcyclus pas nadat API, logreader en tests gezond zijn.
 systemctl start top40-ai-recovery.service
 
-curl -fsS http://127.0.0.1:8042/healthz >/dev/null
-curl -fsS http://127.0.0.1:8041/healthz >/dev/null
-TOP40_DATA_DIR="$DATA_DIR" PYTHONPATH="$APP_DIR" "$VENV_PY" -m pytest -q tests/test_operations_center.py
+INSTALL_COMPLETE=1
+trap - ERR
 
 echo "1.15.5 succesvol geïnstalleerd. Backup: $BACKUP_DIR"
 echo "AI-herstelcyclus: iedere vijf minuten via top40-ai-recovery.timer"
-trap - ERR
