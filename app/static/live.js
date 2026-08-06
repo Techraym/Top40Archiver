@@ -1,3 +1,8 @@
+document.addEventListener("DOMContentLoaded", () => {
+  const ai = document.getElementById("ai-sidecar-link");
+  if (ai) ai.href = `${location.protocol}//${location.hostname}:8041/`;
+});
+
 (() => {
   "use strict";
 
@@ -149,13 +154,18 @@
 
   function chartRows(rows, statusLabels) {
     return rows.length
-      ? rows.map((row) => `
+      ? rows.map((row) => {
+          const cover = row.cover_url
+            ? `<img class="track-cover" src="${escapeHtml(row.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+            : '<span class="cover-placeholder">&#9835;</span>';
+          return `
           <tr class="${row.is_new ? "new" : ""}">
             <td><span class="position">${escapeHtml(row.position)}</span></td>
-            <td><b>${escapeHtml(row.artist)}</b></td>
+            <td><div class="artist-cell">${cover}<b>${escapeHtml(row.artist)}</b></div></td>
             <td>${escapeHtml(row.title)} ${row.is_new ? '<span class="new-label">NIEUW</span>' : ""}</td>
             <td><span class="status-badge status-${escapeHtml(row.download_status)}">${escapeHtml(statusLabels[row.download_status] || row.download_status)}</span></td>
-          </tr>`).join("")
+          </tr>`;
+        }).join("")
       : '<tr><td colspan="4" class="empty">Nog geen editie verwerkt.</td></tr>';
   }
 
