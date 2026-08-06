@@ -7,6 +7,7 @@ from .service import (
     import_latest,
     organize_downloaded_files,
     process_queue,
+    run_download_daemon,
     run_history_batch,
 )
 from .spotify import spotify_configured, validate_track
@@ -19,6 +20,7 @@ def main():
         choices=[
             "check",
             "retry",
+            "download-daemon",
             "init",
             "history",
             "history-start",
@@ -38,6 +40,8 @@ def main():
         print(import_latest(args.force))
     elif args.command == "retry":
         print(process_queue(args.limit))
+    elif args.command == "download-daemon":
+        run_download_daemon(args.limit or 20)
     elif args.command == "history":
         print(run_history_batch())
     elif args.command == "history-start":
