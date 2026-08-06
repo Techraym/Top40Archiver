@@ -11,6 +11,7 @@ from .db import (
     recover_stale_missing_history,
     set_settings,
 )
+from .history_rules import get_blacklisted_history_rule
 from .top40 import (
     ChartType,
     chart_label,
@@ -161,6 +162,45 @@ def _skip_missing_history_cursor(
     }
 
 
+def _skip_blacklisted_history_cursor(
+    chart_type: ChartType,
+    year: int,
+    week: int,
+) -> dict | None:
+    """Skip a known missing source URL before any network request is made."""
+    rule = get_blacklisted_history_rule(chart_type, year, week)
+    if rule is None:
+        return None
+
+    keys = _history_keys(chart_type)
+    edition_key = f"{year}-W{week:02d}"
+    next_year = int(rule["next_year"])
+    next_week = int(rule["next_week"])
+    warning = (
+        f"{chart_label(chart_type)} {edition_key} staat op de bronblacklist. "
+        f"{rule['reason']} De verwerking gaat verder met "
+        f"{next_year}-W{next_week:02d}."
+    )
+    set_settings(
+        {
+            keys["next_year"]: next_year,
+            keys["next_week"]: next_week,
+            keys["status"]: "running",
+            keys["error"]: "",
+            keys["completed_at"]: "",
+            "history_enabled": "1",
+        }
+    )
+    return {
+        "chart_type": chart_type,
+        "completed": False,
+        "imported": [],
+        "warnings": [warning],
+        "skipped": [edition_key],
+        "next": f"{next_year}-W{next_week:02d}",
+    }
+
+
 def _run_chart_history(
     chart_type: ChartType,
     settings: dict,
@@ -185,6 +225,16 @@ def _run_chart_history(
     skipped: list[str] = []
 
     for _ in range(batch):
+        blacklisted = _skip_blacklisted_history_cursor(chart_type, year, week)
+        if blacklisted is not None:
+            warnings.extend(blacklisted["warnings"])
+            skipped.extend(blacklisted["skipped"])
+            year = int(blacklisted["next"].split("-W", 1)[0])
+            week = int(blacklisted["next"].split("-W", 1)[1])
+            if delay:
+                time.sleep(delay)
+            continue
+
         if (year, week) > current_pair:
             set_settings(
                 {
@@ -326,9 +376,8 @@ def _finish_combined_history() -> dict:
 
 
 def run_history_batch():
-    # Herstel eerst cursors die door een oudere versie op een ontbrekende pagina
-    # zijn achtergelaten. Dit wordt iedere batch herhaald en is dus niet afhankelijk
-    # van alleen de applicatiestart.
+    # Herstel oude fouten en pas de permanente bronblacklist toe voordat instellingen
+    # worden ingelezen of een netwerkverzoek kan worden uitgevoerd.
     recover_stale_missing_history()
 
     with connect() as con:
@@ -351,8 +400,6 @@ def run_history_batch():
     results: dict[str, dict] = {}
     errors: dict[str, str] = {}
 
-    # Top 40 en Tipparade worden onafhankelijk verwerkt. Een tijdelijke fout in
-    # één lijst mag de voortgang van de andere lijst niet blokkeren.
     for chart_type in ("top40", "tipparade"):
         with connect() as con:
             chart_settings = get_settings(con)
@@ -424,7 +471,6 @@ def run_history_batch():
     if errors:
         response["errors"] = errors
 
-    # Downloads worden door de permanente downloadservice afgehandeld.
     response["downloads"] = 0
     response["download_queue"] = "top40-archiver-download.service"
     return response
