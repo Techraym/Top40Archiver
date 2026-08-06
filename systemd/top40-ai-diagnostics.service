@@ -1,0 +1,18 @@
+[Unit]
+Description=Top40Archiver AI systeemdiagnostiek
+After=network.target top40-archiver-web.service
+
+[Service]
+Type=oneshot
+User=top40archiver
+Group=top40archiver
+WorkingDirectory=/opt/top40-archiver
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/top40-archiver/venv/bin/python -m app.diagnostics_run
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+ProtectSystem=strict
+ReadWritePaths=/var/lib/top40-archiver/ai
+PrivateTmp=true
+NoNewPrivileges=true
