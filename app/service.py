@@ -1,16 +1,53 @@
 from __future__ import annotations
 
 from datetime import date
+import time
 
 from .db import connect, get_settings, set_settings
 from .top40 import fetch_chart
 from .service_common import _persist_chart
 from .service_queue import (
     organize_downloaded_files,
-    process_queue,
-    run_download_daemon,
+    process_queue as _process_queue,
 )
 from .service_history import history_start, history_pause, run_history_batch
+
+
+def downloads_paused() -> bool:
+    return get_settings().get("operations_download_paused", "0") == "1"
+
+
+def process_queue(limit: int | None = None, track_ids=None):
+    if downloads_paused():
+        return [{"paused": True, "message": "Downloadwachtrij is door AI Operations gepauzeerd."}]
+    return _process_queue(limit=limit, track_ids=track_ids)
+
+
+def run_download_daemon(
+    limit: int = 20,
+    idle_seconds: float = 30.0,
+    busy_seconds: float = 10.0,
+):
+    batch_limit = max(1, int(limit or 20))
+    idle_wait = max(5.0, float(idle_seconds))
+    last_state = ""
+    while True:
+        if downloads_paused():
+            if last_state != "paused":
+                print({"state": "paused", "message": "AI Operations heeft downloads veilig gepauzeerd."}, flush=True)
+            last_state = "paused"
+            time.sleep(idle_wait)
+            continue
+        results = _process_queue(limit=batch_limit)
+        if results:
+            print({"state": "processed", "count": len(results), "results": results}, flush=True)
+            last_state = "processed"
+            time.sleep(1.0)
+        else:
+            if last_state != "idle":
+                print({"state": "idle", "message": "Downloadwachtrij is leeg; de worker blijft actief."}, flush=True)
+            last_state = "idle"
+            time.sleep(idle_wait)
 
 
 def import_latest(force: bool = False):
@@ -42,7 +79,6 @@ def import_latest(force: bool = False):
         except Exception as exc:
             errors[chart_type] = str(exc)
 
-    # Alleen nummers die wereldwijd nog niet in SQLite stonden worden automatisch gedownload.
     downloads = process_queue(track_ids=all_new_ids) if all_new_ids else []
     if not results:
         raise RuntimeError("Geen actuele lijst kon worden verwerkt: " + " | ".join(errors.values()))
