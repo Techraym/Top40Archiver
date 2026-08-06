@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AI Centrum · Top 40 Archiver</title>
+  <link rel="stylesheet" href="/static/style.css?v=26">
+  <link rel="stylesheet" href="/static/ai_center.css?v=1">
+</head>
+<body>
+<main class="ai-shell">
+  <nav class="ai-nav">
+    <div><span class="eyebrow">Top 40 Archiver</span><h1>AI Centrum</h1><p>Gezondheid, diagnose, preventief advies en live technische informatie op één plek.</p></div>
+    <a class="button quiet" href="/">Terug naar dashboard</a>
+  </nav>
+  <section class="ai-hero">
+    <div><span class="eyebrow">Actueel advies</span><h2 id="advisor-title">Analyse wordt geladen…</h2><p id="advisor-explanation">De AI combineert de actuele health-score met de trend van de afgelopen 24 uur.</p><div class="advisor-action"><b>Aanbevolen actie</b><span id="advisor-action">—</span></div></div>
+    <div class="ai-score"><span>Gezondheid</span><strong id="advisor-score">—</strong><small id="advisor-confidence">—</small></div>
+  </section>
+  <section class="ai-grid">
+    <a class="ai-card" href="/ai-health"><span>01</span><div><b>AI Health</b><p>Live metingen, trends en waarschuwingen.</p></div></a>
+    <a class="ai-card" href="/ai-operations"><span>02</span><div><b>AI Operations</b><p>Incidenten, herstelacties en lerend geheugen.</p></div></a>
+    <a class="ai-card" href="/logs"><span>03</span><div><b>Live Logs</b><p>Technische logs en downloadfouten live volgen.</p></div></a>
+  </section>
+  <section class="panel"><div class="section-heading compact"><div><span class="eyebrow">Prioriteiten</span><h2>Preventieve aanbevelingen</h2></div></div><div id="advisor-list" class="advisor-list"><p class="empty">Adviezen worden geladen…</p></div></section>
+</main>
+<script src="/static/ai_center.js?v=1"></script>
+</body>
+</html>
