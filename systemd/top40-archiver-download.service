@@ -2,6 +2,7 @@
 Description=Permanente Top40Archiver-downloadworker
 After=network-online.target top40-archiver-web.service
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -14,7 +15,6 @@ EnvironmentFile=-/etc/top40-archiver.env
 ExecStart=/opt/top40-archiver/venv/bin/python -m app.cli download-daemon --limit 20
 Restart=always
 RestartSec=5
-StartLimitIntervalSec=0
 TimeoutStopSec=30
 Nice=10
 IOSchedulingClass=best-effort
