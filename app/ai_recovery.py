@@ -59,12 +59,7 @@ def _run_safe_action(action: str) -> dict:
     try:
         return json.loads(completed.stdout)
     except json.JSONDecodeError:
-        return {
-            "ok": False,
-            "action": action,
-            "returncode": completed.returncode,
-            "stderr": completed.stderr[-1000:],
-        }
+        return {"ok": False, "action": action, "returncode": completed.returncode, "stderr": completed.stderr[-1000:]}
 
 
 def _failure_snapshot() -> tuple[list[dict], Counter]:
@@ -116,32 +111,21 @@ def run_cycle() -> dict:
     failures, counts = _failure_snapshot()
     actions: list[dict] = []
     recommendations: list[str] = []
-
     transient_total = sum(counts[name] for name in TRANSIENT)
     search_total = sum(counts[name] for name in SEARCH_FAILURES)
 
-    # YouTube-blokkades worden niet bestreden met meer verkeer. Eerst terug naar
-    # één worker, daarna alleen tijdelijk mislukte records opnieuw vrijgeven.
     if transient_total >= 3 and _cooldown_ready(state, "youtube_backoff"):
-        settings = get_settings()
+        with connect() as con:
+            settings = get_settings(con)
         previous_workers = int(settings.get("download_workers", "1") or 1)
         if previous_workers != 1:
             set_settings({"download_workers": "1"})
         released = _release_failures(TRANSIENT)
         restart = _run_safe_action("restart_download")
-        actions.append({
-            "action": "youtube_backoff",
-            "workers_before": previous_workers,
-            "workers_after": 1,
-            "released": released,
-            "restart": restart,
-        })
+        actions.append({"action": "youtube_backoff", "workers_before": previous_workers, "workers_after": 1, "released": released, "restart": restart})
         state["actions"]["youtube_backoff"] = _utcnow().isoformat()
         recommendations.append("YouTube-fouten gedetecteerd: downloader draait tijdelijk met één worker.")
 
-    # Een massale zoekafwijzing wordt één keer per cooldown opnieuw ingepland.
-    # De matchdrempel wordt bewust niet automatisch verlaagd: dat kan verkeerde
-    # muziek accepteren. Wel worden brede zoekvarianten opnieuw geprobeerd.
     if search_total >= 10 and _cooldown_ready(state, "search_retry"):
         released = _release_failures(SEARCH_FAILURES)
         restart = _run_safe_action("restart_download") if released else {"ok": True, "skipped": True}
@@ -149,7 +133,6 @@ def run_cycle() -> dict:
         state["actions"]["search_retry"] = _utcnow().isoformat()
         recommendations.append("Veel zoekafwijzingen opnieuw ingepland; matchveiligheid bleef ongewijzigd.")
 
-    # Een achtergebleven 'downloading'-status na een crash mag veilig terug naar failed.
     stale_before = (_utcnow() - timedelta(minutes=30)).isoformat()
     with connect() as con:
         cursor = con.execute(
@@ -165,15 +148,7 @@ def run_cycle() -> dict:
     if stale_released:
         actions.append({"action": "release_stale_downloads", "released": stale_released})
 
-    report = {
-        "ok": True,
-        "generated_at": _utcnow().isoformat(),
-        "failure_count": len(failures),
-        "categories": dict(counts),
-        "actions": actions,
-        "recommendations": recommendations,
-        "mode": "bounded-autorecovery",
-    }
+    report = {"ok": True, "generated_at": _utcnow().isoformat(), "failure_count": len(failures), "categories": dict(counts), "actions": actions, "recommendations": recommendations, "mode": "bounded-autorecovery"}
     state["last_cycle"] = report["generated_at"]
     _save(STATE_FILE, state)
     _save(REPORT_FILE, report)
