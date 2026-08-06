@@ -155,6 +155,11 @@ TRACK_MIGRATION_COLUMNS = {
     "youtube_duration_seconds": "INTEGER",
 }
 
+UNAVAILABLE_MIGRATION_PREFIX = (
+    "Automatisch als niet beschikbaar gemarkeerd na eerdere volledige "
+    "zoekpogingen. De hitlijstnotering blijft bewaard. Laatste fout: "
+)
+
 
 @contextmanager
 def connect():
@@ -193,8 +198,8 @@ def _write_settings(con: sqlite3.Connection, values: dict[str, object]) -> None:
 
 
 def _missing_http_status_text(value: object) -> int | None:
-    """Recognize a missing-page status in stored errors from any HTTP client."""
-    match = re.search(r"(?<!\d)(404|410)(?!\d)", str(value or ""))
+    """Recognize a skippable historical HTTP status in stored errors."""
+    match = re.search(r"(?<!\d)(402|404|410)(?!\d)", str(value or ""))
     return int(match.group(1)) if match else None
 
 
@@ -250,7 +255,7 @@ def _apply_blacklisted_history_cursors(con: sqlite3.Connection) -> list[str]:
 
 
 def _recover_stale_missing_history(con: sqlite3.Connection) -> list[str]:
-    """Advance cursors left behind by blacklisted or missing historical pages."""
+    """Advance cursors left behind by blacklisted or skippable historical pages."""
     recovered = _apply_blacklisted_history_cursors(con)
     charts = (
         {
@@ -276,7 +281,7 @@ def _recover_stale_missing_history(con: sqlite3.Connection) -> list[str]:
     for chart in charts:
         error = _setting_value(con, chart["error"])
         status_code = _missing_http_status_text(error)
-        if status_code not in {404, 410}:
+        if status_code not in {402, 404, 410}:
             continue
         if _setting_value(con, chart["status"]) == "completed":
             continue
@@ -324,6 +329,33 @@ def recover_stale_missing_history() -> list[str]:
         return _recover_stale_missing_history(con)
 
 
+def _migrate_exhausted_unavailable_tracks(
+    con: sqlite3.Connection,
+    max_attempts: int,
+) -> int:
+    """Move exhausted missing-source failures to unavailable using valid SQLite."""
+    cursor = con.execute(
+        """
+        UPDATE tracks
+        SET download_status='unavailable',
+            error_message=? || COALESCE(error_message,''),
+            updated_at=?
+        WHERE download_status='failed'
+          AND download_attempts>=?
+          AND (
+                lower(COALESCE(error_message,'')) LIKE '%geen youtube-resultaten gevonden%'
+             OR lower(COALESCE(error_message,'')) LIKE '%geen betrouwbaar youtube-resultaat%'
+             OR lower(COALESCE(error_message,'')) LIKE '%youtube-resultaat bevat geen bruikbare url%'
+             OR lower(COALESCE(error_message,'')) LIKE '%video unavailable%'
+             OR lower(COALESCE(error_message,'')) LIKE '%private video%'
+             OR lower(COALESCE(error_message,'')) LIKE '%removed by the uploader%'
+          )
+        """,
+        (UNAVAILABLE_MIGRATION_PREFIX, now_iso(), max(1, int(max_attempts))),
+    )
+    return int(cursor.rowcount)
+
+
 def init_db():
     with connect() as con:
         con.executescript(SCHEMA)
@@ -368,29 +400,7 @@ def init_db():
         except (TypeError, ValueError, KeyError):
             max_attempts = 3
 
-        con.execute(
-            """
-            UPDATE tracks
-            SET download_status='unavailable',
-                error_message=(
-                    'Automatisch als niet beschikbaar gemarkeerd na eerdere '
-                    'volledige zoekpogingen. De hitlijstnotering blijft bewaard. '
-                    'Laatste fout: ' || COALESCE(error_message,'')
-                ),
-                updated_at=?
-            WHERE download_status='failed'
-              AND download_attempts>=?
-              AND (
-                    lower(COALESCE(error_message,'')) LIKE '%geen youtube-resultaten gevonden%'
-                 OR lower(COALESCE(error_message,'')) LIKE '%geen betrouwbaar youtube-resultaat%'
-                 OR lower(COALESCE(error_message,'')) LIKE '%youtube-resultaat bevat geen bruikbare url%'
-                 OR lower(COALESCE(error_message,'')) LIKE '%video unavailable%'
-                 OR lower(COALESCE(error_message,'')) LIKE '%private video%'
-                 OR lower(COALESCE(error_message,'')) LIKE '%removed by the uploader%'
-              )
-            """,
-            (now_iso(), max_attempts),
-        )
+        _migrate_exhausted_unavailable_tracks(con, max_attempts)
 
 
 def get_settings(con=None):
