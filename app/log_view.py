@@ -10,10 +10,12 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from .db import connect
+from .health_view import router as health_router
 from .ops_view import router as ops_router
 
 router = APIRouter()
 router.include_router(ops_router)
+router.include_router(health_router)
 templates = Jinja2Templates(directory="app/templates")
 
 UNITS = (
