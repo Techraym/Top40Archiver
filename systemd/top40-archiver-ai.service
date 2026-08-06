@@ -1,0 +1,20 @@
+[Unit]
+Description=Top40Archiver AI sidecar
+After=network-online.target top40-archiver-web.service ollama.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=top40archiver
+Group=top40archiver
+WorkingDirectory=/opt/top40-archiver
+EnvironmentFile=-/etc/top40-archiver.env
+Environment=TOP40_AI_MODEL=qwen3:4b
+ExecStart=/opt/top40-archiver/venv/bin/uvicorn app.ai_sidecar:app --host 0.0.0.0 --port 8041
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
