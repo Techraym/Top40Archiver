@@ -1,8 +1,8 @@
 [Unit]
-Description=Controleer Top40Archiver-updates tien minuten na opstarten en iedere 24 uur
+Description=Controleer Top40Archiver-updates twee minuten na opstarten en iedere 24 uur
 
 [Timer]
-OnBootSec=10min
+OnBootSec=2min
 OnUnitActiveSec=24h
 Persistent=true
 AccuracySec=1min
