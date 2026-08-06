@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodiek albumhoezen in MP3 ID3-tags plaatsen
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=45min
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
