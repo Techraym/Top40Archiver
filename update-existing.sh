@@ -9,6 +9,8 @@ APP_DIR="$APP_ROOT/app"
 NEXT_APP="$APP_ROOT/app.next"
 STATE_DIR=/var/lib/top40-archiver/update-state
 WEB_SERVICE=top40-archiver-web.service
+DOWNLOAD_SERVICE=top40-archiver-download.service
+DOWNLOAD_TIMER=top40-archiver-download.timer
 VERSION=$(tr -d '[:space:]' < "$SRC/VERSION" 2>/dev/null || echo unknown)
 STAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_APP="$APP_ROOT/app.backup_$STAMP"
@@ -128,6 +130,12 @@ chown root:root \
 
 "$APP_ROOT/setup-top40-ca-bundle.sh"
 
+# Stop de oude periodieke downloadworker voordat de nieuwe permanente service
+# wordt geïnstalleerd. Achtergebleven status 'downloading' wordt door de nieuwe
+# worker automatisch hervat.
+systemctl disable --now "$DOWNLOAD_TIMER" 2>/dev/null || true
+systemctl stop "$DOWNLOAD_SERVICE" 2>/dev/null || true
+
 cp "$SRC"/systemd/*.service "$SRC"/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
 
@@ -172,14 +180,15 @@ fi
 # De nieuwe versie draait; de oude app blijft als terugvalbackup bewaard.
 SWAPPED=0
 
-# Alle permanente onderdelen worden expliciet ingeschakeld. Daardoor starten de
-# webinterface en timers na de geplande herstart automatisch opnieuw.
+# De downloadservice is permanent actief. De oude downloadtimer blijft bewust
+# uitgeschakeld. Alle overige timers starten na iedere reboot automatisch.
+systemctl disable --now "$DOWNLOAD_TIMER" 2>/dev/null || true
 systemctl enable --now \
-  top40-archiver-download.timer \
+  "$DOWNLOAD_SERVICE" \
   top40-archiver-history.timer \
   top40-archiver-check.timer \
   top40-archiver-auto-update.timer
-systemctl restart top40-archiver-download.timer 2>/dev/null || true
+systemctl restart "$DOWNLOAD_SERVICE"
 systemctl restart top40-archiver-history.timer 2>/dev/null || true
 systemctl restart top40-archiver-check.timer 2>/dev/null || true
 systemctl start --no-block top40-archiver-history.service 2>/dev/null || true
@@ -202,13 +211,13 @@ chmod 644 "$STATE_DIR"/* 2>/dev/null || true
 
 echo "Update naar Top 40 Archiver $VERSION gereed."
 echo "Dashboard-healthcheck is geslaagd."
-echo "De permanente downloadtimer is actief en verwerkt maximaal twintig tracks per ronde."
+echo "De permanente downloadservice blijft actief en verwerkt de volledige wachtrij zelfstandig."
 echo "De historie verwerkt Top 40 en Tipparade doorlopend tot de actuele week."
-echo "Na de herstart controleert de auto-updater na tien minuten en daarna iedere 24 uur."
+echo "Na de herstart controleert de auto-updater na twee minuten en daarna iedere 24 uur."
 
-# Plan de herstart pas nadat code, database, healthcheck, timers en update-status
-# succesvol zijn verwerkt. De minuut vertraging geeft de bovenliggende updater
-# tijd om de geïnstalleerde SHA en versie nog te verifiëren.
+# Plan de herstart pas nadat code, database, healthcheck, services, timers en
+# update-status succesvol zijn verwerkt. De minuut vertraging geeft de bovenliggende
+# updater tijd om de geïnstalleerde SHA en versie nog te verifiëren.
 if ! schedule_reboot; then
   echo "De NUC moet handmatig opnieuw worden gestart om de update volledig af te ronden."
 fi
