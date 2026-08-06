@@ -5,7 +5,11 @@ from datetime import date
 from .db import connect, get_settings, set_settings
 from .top40 import fetch_chart
 from .service_common import _persist_chart
-from .service_queue import process_queue, organize_downloaded_files
+from .service_queue import (
+    organize_downloaded_files,
+    process_queue,
+    run_download_daemon,
+)
 from .service_history import history_start, history_pause, run_history_batch
 
 
@@ -53,6 +57,7 @@ def import_latest(force: bool = False):
 __all__ = [
     "import_latest",
     "process_queue",
+    "run_download_daemon",
     "organize_downloaded_files",
     "history_start",
     "history_pause",
