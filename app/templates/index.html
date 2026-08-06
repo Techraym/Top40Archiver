@@ -2,10 +2,10 @@
 <html lang="nl">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Top 40 Archiver</title>
-  <link rel="stylesheet" href="/static/style.css?v=19">
-  <script src="/static/live.js?v=19" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=20">
+  <script src="/static/live.js?v=20" defer></script>
 </head>
 <body>
 <main class="shell">
@@ -174,7 +174,7 @@
         <div class="failed-head"><div><b>{{ x.artist }} — {{ x.title }}</b><small>{{ x.download_attempts }} poging(en) · Spotify: {{ spotify_status_labels.get(x.spotify_status, x.spotify_status) }}</small></div><span class="status-badge status-failed">Mislukt</span></div>
         <details><summary>Foutmelding en gebruikte zoekvarianten</summary><pre>{{ x.error_message or 'Geen foutmelding opgeslagen' }}</pre></details>
         <form method="post" action="/track/{{ x.id }}/query" class="retry-form">
-          <input name="custom_search_query" value="{{ x.custom_search_query or (x.artist ~ ' - ' ~ x.title ~ ' official audio') }}">
+          <input name="custom_search_query" value="{{ x.custom_search_query or (x.artist ~ ' - ' ~ x.title) }}">
           <button>Autonoom opnieuw zoeken</button>
           <button type="submit" class="unavailable" formaction="/track/{{ x.id }}/unavailable" formnovalidate>Niet meer beschikbaar</button>
         </form>
