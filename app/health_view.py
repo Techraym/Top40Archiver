@@ -11,6 +11,7 @@ from .health_engine import (
     latest_health,
     start_health_collector,
 )
+from .health_trends import health_trends
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -48,6 +49,11 @@ def health_history_api(
     limit: int = Query(500, ge=10, le=2000),
 ):
     return JSONResponse({"ok": True, "hours": hours, "rows": health_history(hours, limit)})
+
+
+@router.get("/api/health/trends")
+def health_trends_api(range: str = Query("24h", pattern="^(1h|24h|7d)$")):
+    return JSONResponse({"ok": True, **health_trends(range)})
 
 
 @router.get("/api/health/events")

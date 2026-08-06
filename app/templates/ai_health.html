@@ -4,16 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>AI Health · Top 40 Archiver</title>
-  <link rel="stylesheet" href="/static/style.css?v=25">
+  <link rel="stylesheet" href="/static/style.css?v=26">
   <style>
-    .health-shell{max-width:1320px;margin:auto;padding:28px}.health-nav{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:24px}.health-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:20px}.health-card{background:#fff;border:1px solid #e7e1d8;border-radius:18px;padding:20px;box-shadow:0 10px 30px rgba(31,25,18,.06)}.health-card strong{display:block;font-size:30px;margin:6px 0}.health-score{grid-column:span 2}.score-good{border-left:6px solid #16a34a}.score-attention{border-left:6px solid #d97706}.score-critical{border-left:6px solid #dc2626}.health-detail{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}.health-bars{display:grid;gap:16px}.health-row{display:grid;grid-template-columns:130px 1fr 72px;gap:12px;align-items:center}.health-track{height:10px;background:#eee8df;border-radius:999px;overflow:hidden}.health-track span{display:block;height:100%;background:#26211c;border-radius:999px}.event-list{display:grid;gap:12px}.event{border:1px solid #e7e1d8;border-radius:14px;padding:14px}.event small{display:block;color:#766d63;margin-top:5px}.event-warning{border-left:5px solid #d97706}.event-critical{border-left:5px solid #dc2626}.diagnosis{font-size:17px;line-height:1.6}.health-meta{color:#766d63}.status-good{color:#15803d}.status-attention{color:#b45309}.status-critical{color:#b91c1c}@media(max-width:900px){.health-grid{grid-template-columns:1fr 1fr}.health-score{grid-column:span 2}.health-detail{grid-template-columns:1fr}}@media(max-width:600px){.health-grid{grid-template-columns:1fr}.health-score{grid-column:auto}.health-nav{align-items:flex-start;flex-direction:column}.health-row{grid-template-columns:100px 1fr 58px}}
+    .health-shell{max-width:1320px;margin:auto;padding:28px}.health-nav{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:24px}.health-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:20px}.health-card{background:#fff;border:1px solid #e7e1d8;border-radius:18px;padding:20px;box-shadow:0 10px 30px rgba(31,25,18,.06)}.health-card strong{display:block;font-size:30px;margin:6px 0}.health-score{grid-column:span 2}.score-good{border-left:6px solid #16a34a}.score-attention{border-left:6px solid #d97706}.score-critical{border-left:6px solid #dc2626}.health-detail{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}.health-bars{display:grid;gap:16px}.health-row{display:grid;grid-template-columns:130px 1fr 72px;gap:12px;align-items:center}.health-track{height:10px;background:#eee8df;border-radius:999px;overflow:hidden}.health-track span{display:block;height:100%;background:#26211c;border-radius:999px}.event-list{display:grid;gap:12px}.event{border:1px solid #e7e1d8;border-radius:14px;padding:14px}.event small{display:block;color:#766d63;margin-top:5px}.event-warning{border-left:5px solid #d97706}.event-critical{border-left:5px solid #dc2626}.diagnosis{font-size:17px;line-height:1.6}.health-meta{color:#766d63}.status-good{color:#15803d}.status-attention{color:#b45309}.status-critical{color:#b91c1c}.range-tabs{display:flex;gap:8px;flex-wrap:wrap}.range-tabs button{background:#f2eee8;color:#342d27}.range-tabs button.active{background:#171513;color:#fff}.trend-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:16px 0}.trend-summary article{border:1px solid #e7e1d8;border-radius:14px;padding:14px}.trend-summary b,.trend-summary span{display:block}.trend-summary b{font-size:22px;margin-top:5px}.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.chart-card{border:1px solid #e7e1d8;border-radius:16px;padding:16px;min-width:0}.chart-card h3{margin:0 0 4px}.chart-card small{color:#766d63}.trend-chart{width:100%;height:220px;display:block;margin-top:12px}.chart-grid-line{stroke:#e6dfd6;stroke-width:1}.chart-line{fill:none;stroke:#26211c;stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}.chart-area{fill:rgba(38,33,28,.08)}.chart-empty{display:flex;align-items:center;justify-content:center;height:220px;color:#766d63}.trend-diagnosis{padding:14px 16px;background:#f8f5f0;border-radius:14px;margin-top:16px}@media(max-width:1000px){.trend-summary{grid-template-columns:repeat(3,1fr)}}@media(max-width:900px){.health-grid{grid-template-columns:1fr 1fr}.health-score{grid-column:span 2}.health-detail,.chart-grid{grid-template-columns:1fr}}@media(max-width:600px){.health-grid,.trend-summary{grid-template-columns:1fr}.health-score{grid-column:auto}.health-nav{align-items:flex-start;flex-direction:column}.health-row{grid-template-columns:100px 1fr 58px}}
   </style>
-  <script src="/static/ai_health.js?v=1" defer></script>
+  <script src="/static/ai_health.js?v=2" defer></script>
 </head>
 <body>
 <main class="health-shell">
   <nav class="health-nav">
-    <div><span class="eyebrow">Predictive AI · Sprint 1.1</span><h1>AI Health</h1><p>Live gezondheid van de Top40Archiver-server, database en downloadwachtrij.</p></div>
+    <div><span class="eyebrow">Predictive AI · Sprint 1.2</span><h1>AI Health</h1><p>Live gezondheid en historische trends van server, database en downloadwachtrij.</p></div>
     <div class="actions"><button id="refresh-health">Nu meten</button><a class="button secondary" href="/ai-operations">AI Operations</a><a class="button quiet" href="/">Dashboard</a></div>
   </nav>
 
@@ -25,6 +25,24 @@
     <article class="health-card"><span>SQLite</span><strong id="database-value">—</strong><small id="database-latency">—</small></article>
     <article class="health-card"><span>Internet</span><strong id="internet-value">—</strong><small>Externe bereikbaarheid</small></article>
     <article class="health-card"><span>Downloads</span><strong id="queue-value">—</strong><small id="queue-detail">—</small></article>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading compact"><div><span class="eyebrow">Historie</span><h2>Gezondheidstrends</h2></div><div class="range-tabs" aria-label="Grafiekperiode"><button data-range="1h">1 uur</button><button data-range="24h" class="active">24 uur</button><button data-range="7d">7 dagen</button></div></div>
+    <div class="trend-summary">
+      <article><span>Gemiddelde score</span><b id="trend-score-average">—</b></article>
+      <article><span>Laagste score</span><b id="trend-score-minimum">—</b></article>
+      <article><span>Beschikbaarheid</span><b id="trend-availability">—</b></article>
+      <article><span>Gemiddelde CPU</span><b id="trend-cpu-average">—</b></article>
+      <article><span>Meetpunten</span><b id="trend-samples">—</b></article>
+    </div>
+    <div class="chart-grid">
+      <article class="chart-card"><h3>Gezondheidsscore</h3><small>Score 0–100</small><div id="score-chart"></div></article>
+      <article class="chart-card"><h3>CPU en geheugen</h3><small>Percentage gebruikt</small><div id="load-chart"></div></article>
+      <article class="chart-card"><h3>Opslaggebruik</h3><small>Percentage van volume</small><div id="disk-chart"></div></article>
+      <article class="chart-card"><h3>Downloadwachtrij</h3><small>Wachtend en mislukt</small><div id="queue-chart"></div></article>
+    </div>
+    <p id="trend-diagnosis" class="trend-diagnosis">Trendanalyse wordt geladen…</p>
   </section>
 
   <section class="health-detail">
