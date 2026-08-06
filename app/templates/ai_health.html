@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AI Health · Top 40 Archiver</title>
+  <link rel="stylesheet" href="/static/style.css?v=25">
+  <style>
+    .health-shell{max-width:1320px;margin:auto;padding:28px}.health-nav{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:24px}.health-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:20px}.health-card{background:#fff;border:1px solid #e7e1d8;border-radius:18px;padding:20px;box-shadow:0 10px 30px rgba(31,25,18,.06)}.health-card strong{display:block;font-size:30px;margin:6px 0}.health-score{grid-column:span 2}.score-good{border-left:6px solid #16a34a}.score-attention{border-left:6px solid #d97706}.score-critical{border-left:6px solid #dc2626}.health-detail{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}.health-bars{display:grid;gap:16px}.health-row{display:grid;grid-template-columns:130px 1fr 72px;gap:12px;align-items:center}.health-track{height:10px;background:#eee8df;border-radius:999px;overflow:hidden}.health-track span{display:block;height:100%;background:#26211c;border-radius:999px}.event-list{display:grid;gap:12px}.event{border:1px solid #e7e1d8;border-radius:14px;padding:14px}.event small{display:block;color:#766d63;margin-top:5px}.event-warning{border-left:5px solid #d97706}.event-critical{border-left:5px solid #dc2626}.diagnosis{font-size:17px;line-height:1.6}.health-meta{color:#766d63}.status-good{color:#15803d}.status-attention{color:#b45309}.status-critical{color:#b91c1c}@media(max-width:900px){.health-grid{grid-template-columns:1fr 1fr}.health-score{grid-column:span 2}.health-detail{grid-template-columns:1fr}}@media(max-width:600px){.health-grid{grid-template-columns:1fr}.health-score{grid-column:auto}.health-nav{align-items:flex-start;flex-direction:column}.health-row{grid-template-columns:100px 1fr 58px}}
+  </style>
+  <script src="/static/ai_health.js?v=1" defer></script>
+</head>
+<body>
+<main class="health-shell">
+  <nav class="health-nav">
+    <div><span class="eyebrow">Predictive AI · Sprint 1.1</span><h1>AI Health</h1><p>Live gezondheid van de Top40Archiver-server, database en downloadwachtrij.</p></div>
+    <div class="actions"><button id="refresh-health">Nu meten</button><a class="button secondary" href="/ai-operations">AI Operations</a><a class="button quiet" href="/">Dashboard</a></div>
+  </nav>
+
+  <section class="health-grid">
+    <article id="score-card" class="health-card health-score"><span>Gezondheidsscore</span><strong id="health-score">—</strong><p id="health-diagnosis" class="diagnosis">De eerste meting wordt geladen…</p><small id="health-time" class="health-meta">—</small></article>
+    <article class="health-card"><span>CPU</span><strong id="cpu-value">—</strong><small>Actuele processorbelasting</small></article>
+    <article class="health-card"><span>Werkgeheugen</span><strong id="memory-value">—</strong><small>Gebruikt geheugen</small></article>
+    <article class="health-card"><span>Opslag</span><strong id="disk-value">—</strong><small id="disk-free">— vrij</small></article>
+    <article class="health-card"><span>SQLite</span><strong id="database-value">—</strong><small id="database-latency">—</small></article>
+    <article class="health-card"><span>Internet</span><strong id="internet-value">—</strong><small>Externe bereikbaarheid</small></article>
+    <article class="health-card"><span>Downloads</span><strong id="queue-value">—</strong><small id="queue-detail">—</small></article>
+  </section>
+
+  <section class="health-detail">
+    <article class="panel">
+      <div class="section-heading compact"><div><span class="eyebrow">Systeemmeting</span><h2>Belasting en capaciteit</h2></div></div>
+      <div class="health-bars">
+        <div class="health-row"><b>CPU</b><div class="health-track"><span id="cpu-bar"></span></div><span id="cpu-label">—</span></div>
+        <div class="health-row"><b>Geheugen</b><div class="health-track"><span id="memory-bar"></span></div><span id="memory-label">—</span></div>
+        <div class="health-row"><b>Opslag</b><div class="health-track"><span id="disk-bar"></span></div><span id="disk-label">—</span></div>
+      </div>
+    </article>
+    <article class="panel">
+      <div class="section-heading compact"><div><span class="eyebrow">Waarschuwingen</span><h2>Health events</h2></div></div>
+      <div id="health-events" class="event-list"><p class="empty">Events worden geladen…</p></div>
+    </article>
+  </section>
+</main>
+</body>
+</html>
