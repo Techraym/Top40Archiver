@@ -20,10 +20,29 @@
       .replaceAll("'", "&#039;");
   }
 
+  function installDashboardEnhancements() {
+    if (!document.querySelector('link[href*="dashboard_refresh.css"]')) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "/static/dashboard_refresh.css?v=1";
+      document.head.appendChild(link);
+    }
+
+    const actions = document.querySelector(".header-actions");
+    if (actions && !document.getElementById("ai-main-button")) {
+      const button = document.createElement("a");
+      button.id = "ai-main-button";
+      button.className = "button ai-main-button";
+      button.href = "/ai";
+      button.textContent = "AI centrum";
+      button.setAttribute("aria-label", "Open AI centrum");
+      actions.prepend(button);
+    }
+  }
+
   function setText(id, value) {
     const el = $(id);
-    if (!el || el.textContent === String(value)) return;
-    el.textContent = String(value);
+    if (el && el.textContent !== String(value)) el.textContent = String(value);
   }
 
   function setConnection(mode, text) {
@@ -47,8 +66,7 @@
 
   function updateHtml(id, signature, html, protect = false) {
     const el = $(id);
-    if (!el || el.dataset.signature === signature) return;
-    if (protect && interactionInside(el)) return;
+    if (!el || el.dataset.signature === signature || (protect && interactionInside(el))) return;
     el.innerHTML = html;
     el.dataset.signature = signature;
   }
@@ -56,9 +74,7 @@
   function setHistoryBadge(status, label) {
     const el = $("history-status-badge");
     if (!el) return;
-    [...el.classList].forEach((name) => {
-      if (name.startsWith("history-")) el.classList.remove(name);
-    });
+    [...el.classList].forEach((name) => name.startsWith("history-") && el.classList.remove(name));
     el.classList.add(`history-${status}`);
     el.textContent = label;
   }
@@ -84,9 +100,7 @@
   function updateArchive(data) {
     const progress = data.history_progress || {};
     const current = Boolean(progress.is_current);
-    const card = $("archive-card");
-    if (card) card.classList.toggle("is-current", current);
-
+    $("archive-card")?.classList.toggle("is-current", current);
     setText("archive-title", progress.title || "Historisch archief opbouwen");
     setText("archive-subtitle", progress.subtitle || "");
     setHistoryBadge(progress.status || "idle", progress.status_label || "Onbekend");
@@ -95,18 +109,12 @@
     setText("history-tipparade-percent", `${progress.tipparade?.percent ?? 0}%`);
     setText("history-next-label", progress.next_label || "—");
     setText("history-next-caption", progress.next_caption || "Volgende edities");
-
-    const bar = $("history-progress-bar");
-    if (bar) bar.style.width = `${Math.max(0, Math.min(100, Number(progress.percent || 0)))}%`;
-
-    setText(
-      "history-last-edition",
-      `Top 40 laatst: ${data.history_last_edition || "—"} · Tipparade laatst: ${data.tip_history_last_edition || "—"}`
-    );
-    const completedAt = $("history-completed-at");
-    if (completedAt) {
-      completedAt.hidden = !progress.completed_at;
-      completedAt.textContent = progress.completed_at ? `Archief voltooid: ${progress.completed_at}` : "";
+    if ($("history-progress-bar")) $("history-progress-bar").style.width = `${Math.max(0, Math.min(100, Number(progress.percent || 0)))}%`;
+    setText("history-last-edition", `Top 40 laatst: ${data.history_last_edition || "—"} · Tipparade laatst: ${data.tip_history_last_edition || "—"}`);
+    const completed = $("history-completed-at");
+    if (completed) {
+      completed.hidden = !progress.completed_at;
+      completed.textContent = progress.completed_at ? `Archief voltooid: ${progress.completed_at}` : "";
     }
     const error = $("history-last-error");
     const errorText = data.history_last_error || data.tip_history_last_error || "";
@@ -121,41 +129,21 @@
   function updateStorage(data) {
     const storage = data.storage || {};
     const good = Boolean(storage.exists && storage.writable);
-    const stateEl = $("storage-state");
-    if (stateEl) stateEl.className = `storage-state ${good ? "ok" : "bad"}`;
+    if ($("storage-state")) $("storage-state").className = `storage-state ${good ? "ok" : "bad"}`;
     setText("storage-icon", good ? "✓" : "!");
     setText("storage-title", good ? "USB-C schrijfbaar" : !storage.exists ? "USB-C niet gevonden" : "USB-C niet schrijfbaar");
     setText("storage-path", storage.path || "—");
-
-    const mp3Count = Number(storage.mp3_count || 0);
-    const musicSize = storage.music_size_label || "0 B";
-    const percentLabel = storage.used_percent_label ?? storage.used_percent ?? 0;
-    setText("storage-free", `${storage.free_gb ?? 0} GB vrij · ${mp3Count} MP3 · ${musicSize}`);
-    setText("storage-used", `${percentLabel}% gebruikt`);
-
-    const actualPercent = Math.max(0, Math.min(100, Number(storage.used_percent || 0)));
-    const visualPercent = actualPercent > 0 ? Math.max(0.25, actualPercent) : 0;
-    const bar = $("storage-progress-bar");
-    if (bar) {
-      bar.style.width = `${visualPercent}%`;
-      bar.title = `${percentLabel}% werkelijk gebruikt`;
-    }
-
-    const spotify = $("spotify-state");
-    if (spotify) spotify.className = `storage-state ${data.spotify_configured ? "ok" : "bad"}`;
+    setText("storage-free", `${storage.free_gb ?? 0} GB vrij · ${Number(storage.mp3_count || 0)} MP3 · ${storage.music_size_label || "0 B"}`);
+    setText("storage-used", `${storage.used_percent_label ?? storage.used_percent ?? 0}% gebruikt`);
+    if ($("storage-progress-bar")) $("storage-progress-bar").style.width = `${Math.max(0, Math.min(100, Number(storage.used_percent || 0)))}%`;
+    if ($("spotify-state")) $("spotify-state").className = `storage-state ${data.spotify_configured ? "ok" : "bad"}`;
     setText("spotify-icon", data.spotify_configured ? "✓" : "!");
     setText("spotify-title", `Spotify-controle ${data.spotify_configured ? "actief" : "niet ingesteld"}`);
   }
 
   function chartRows(rows, statusLabels) {
     return rows.length
-      ? rows.map((row) => `
-          <tr class="${row.is_new ? "new" : ""}">
-            <td><span class="position">${escapeHtml(row.position)}</span></td>
-            <td><b>${escapeHtml(row.artist)}</b></td>
-            <td>${escapeHtml(row.title)} ${row.is_new ? '<span class="new-label">NIEUW</span>' : ""}</td>
-            <td><span class="status-badge status-${escapeHtml(row.download_status)}">${escapeHtml(statusLabels[row.download_status] || row.download_status)}</span></td>
-          </tr>`).join("")
+      ? rows.map((row) => `<tr class="${row.is_new ? "new" : ""}"><td><span class="position">${escapeHtml(row.position)}</span></td><td><b>${escapeHtml(row.artist)}</b></td><td>${escapeHtml(row.title)} ${row.is_new ? '<span class="new-label">NIEUW</span>' : ""}</td><td><span class="status-badge status-${escapeHtml(row.download_status)}">${escapeHtml(statusLabels[row.download_status] || row.download_status)}</span></td></tr>`).join("")
       : '<tr><td colspan="4" class="empty">Nog geen editie verwerkt.</td></tr>';
   }
 
@@ -163,17 +151,13 @@
     const isTop = type === "top40";
     const latest = isTop ? data.latest_top40 : data.latest_tipparade;
     const rows = isTop ? (data.top40_entries || []) : (data.tipparade_entries || []);
-    const titleId = isTop ? "latest-chart-title" : "tipparade-chart-title";
-    const sourceId = isTop ? "latest-source-link" : "tipparade-source-link";
-    const bodyId = isTop ? "latest-chart-body" : "tipparade-chart-body";
-    const label = isTop ? "Top 40" : "Tipparade";
-    setText(titleId, `${label}${latest ? ` — ${latest.edition_key}` : ""}`);
-    const source = $(sourceId);
+    setText(isTop ? "latest-chart-title" : "tipparade-chart-title", `${isTop ? "Top 40" : "Tipparade"}${latest ? ` — ${latest.edition_key}` : ""}`);
+    const source = $(isTop ? "latest-source-link" : "tipparade-source-link");
     if (source) {
       source.hidden = !latest;
       source.href = latest?.source_url || "#";
     }
-    updateHtml(bodyId, JSON.stringify(rows), chartRows(rows, data.status_labels || labels));
+    updateHtml(isTop ? "latest-chart-body" : "tipparade-chart-body", JSON.stringify(rows), chartRows(rows, data.status_labels || labels));
   }
 
   function compactRows(rows, statusLabels) {
@@ -182,52 +166,25 @@
       : '<p class="empty">Geen gegevens.</p>';
   }
 
-  function updateQueueAndActivity(data) {
+  function updateLists(data) {
     const statusLabels = data.status_labels || labels;
     const queue = data.queue || [];
     const activity = data.activity || [];
     updateHtml("queue-list", JSON.stringify(queue), queue.length ? compactRows(queue, statusLabels) : '<p class="empty">De wachtrij is leeg.</p>');
     updateHtml("activity-list", JSON.stringify(activity), activity.length ? compactRows(activity, statusLabels) : '<p class="empty">Nog geen activiteit.</p>');
-  }
 
-  function updateFailed(data) {
-    const rows = data.failed || [];
-    const html = rows.length
-      ? rows.map((row) => {
-          const query = row.custom_search_query || `${row.artist} - ${row.title}`;
-          return `<article>
-            <div class="failed-head"><div><b>${escapeHtml(row.artist)} — ${escapeHtml(row.title)}</b><small>${escapeHtml(row.download_attempts)} poging(en) · Spotify: ${escapeHtml(row.spotify_status || "unchecked")}</small></div><span class="status-badge status-failed">Mislukt</span></div>
-            <details><summary>Technische details tonen</summary><pre>${escapeHtml(row.error_message || "Geen foutmelding opgeslagen")}</pre></details>
-            <form method="post" action="/track/${encodeURIComponent(row.id)}/query" class="retry-form">
-              <input name="custom_search_query" value="${escapeHtml(query)}">
-              <button>Opnieuw zoeken</button>
-              <button type="submit" class="unavailable" formaction="/track/${encodeURIComponent(row.id)}/unavailable" formnovalidate>Niet online beschikbaar</button>
-            </form>
-          </article>`;
-        }).join("")
-      : '<p class="empty success-text">Geen mislukte downloads.</p>';
-    updateHtml("failed-list", JSON.stringify(rows), html, true);
-  }
+    const failed = data.failed || [];
+    updateHtml("failed-list", JSON.stringify(failed), failed.length ? failed.map((row) => {
+      const query = row.custom_search_query || `${row.artist} - ${row.title}`;
+      return `<article><div class="failed-head"><div><b>${escapeHtml(row.artist)} — ${escapeHtml(row.title)}</b><small>${escapeHtml(row.download_attempts)} poging(en) · Spotify: ${escapeHtml(row.spotify_status || "unchecked")}</small></div><span class="status-badge status-failed">Mislukt</span></div><details><summary>Technische details tonen</summary><pre>${escapeHtml(row.error_message || "Geen foutmelding opgeslagen")}</pre></details><form method="post" action="/track/${encodeURIComponent(row.id)}/query" class="retry-form"><input name="custom_search_query" value="${escapeHtml(query)}"><button>Opnieuw zoeken</button><button type="submit" class="unavailable" formaction="/track/${encodeURIComponent(row.id)}/unavailable" formnovalidate>Niet online beschikbaar</button></form></article>`;
+    }).join("") : '<p class="empty success-text">Geen mislukte downloads.</p>', true);
 
-  function updateUnavailable(data) {
-    const rows = data.unavailable || [];
-    const panel = $("unavailable-panel");
-    if (panel) panel.hidden = rows.length === 0;
-    const html = rows.length
-      ? rows.map((row) => `<article>
-          <div><b>${escapeHtml(row.artist)}</b><span>${escapeHtml(row.title)}</span></div>
-          <form method="post" action="/track/${encodeURIComponent(row.id)}/restore"><button class="secondary">Opnieuw in wachtrij</button></form>
-        </article>`).join("")
-      : "";
-    updateHtml("unavailable-list", JSON.stringify(rows), html, true);
-  }
+    const unavailable = data.unavailable || [];
+    if ($("unavailable-panel")) $("unavailable-panel").hidden = unavailable.length === 0;
+    updateHtml("unavailable-list", JSON.stringify(unavailable), unavailable.map((row) => `<article><div><b>${escapeHtml(row.artist)}</b><span>${escapeHtml(row.title)}</span></div><form method="post" action="/track/${encodeURIComponent(row.id)}/restore"><button class="secondary">Opnieuw in wachtrij</button></form></article>`).join(""), true);
 
-  function updateSuccess(data) {
-    const rows = data.success || [];
-    const html = rows.length
-      ? rows.map((row) => `<article><span>✓</span><div><b>${escapeHtml(row.artist)} — ${escapeHtml(row.title)}</b><small>${escapeHtml(row.mp3_filename || "MP3 opgeslagen")}</small></div></article>`).join("")
-      : '<p class="empty">Nog geen downloads.</p>';
-    updateHtml("success-list", JSON.stringify(rows), html);
+    const success = data.success || [];
+    updateHtml("success-list", JSON.stringify(success), success.length ? success.map((row) => `<article><span>✓</span><div><b>${escapeHtml(row.artist)} — ${escapeHtml(row.title)}</b><small>${escapeHtml(row.mp3_filename || "MP3 opgeslagen")}</small></div></article>`).join("") : '<p class="empty">Nog geen downloads.</p>');
   }
 
   function render(data) {
@@ -237,10 +194,7 @@
     updateStorage(data);
     updateChart(data, "top40");
     updateChart(data, "tipparade");
-    updateQueueAndActivity(data);
-    updateFailed(data);
-    updateUnavailable(data);
-    updateSuccess(data);
+    updateLists(data);
   }
 
   async function pollOnce() {
@@ -261,41 +215,25 @@
   }
 
   function stopFallback() {
-    if (!state.fallbackTimer) return;
-    window.clearInterval(state.fallbackTimer);
+    if (state.fallbackTimer) window.clearInterval(state.fallbackTimer);
     state.fallbackTimer = null;
   }
 
   function connect() {
+    installDashboardEnhancements();
     setConnection("connecting", "Verbinden…");
-    if (!("EventSource" in window)) {
-      startFallback();
-      return;
-    }
+    if (!("EventSource" in window)) return startFallback();
     const source = new EventSource("/events");
     state.source = source;
-    source.addEventListener("open", () => {
-      stopFallback();
-      setConnection("online", "Live");
-    });
+    source.addEventListener("open", () => { stopFallback(); setConnection("online", "Live"); });
     source.addEventListener("dashboard", (event) => {
-      try {
-        render(JSON.parse(event.data));
-        setConnection("online", "Live");
-      } catch (_error) {
-        setConnection("offline", "Datafout");
-      }
+      try { render(JSON.parse(event.data)); setConnection("online", "Live"); }
+      catch (_error) { setConnection("offline", "Datafout"); }
     });
     source.addEventListener("dashboard-error", () => setConnection("offline", "Serverfout"));
-    source.addEventListener("error", () => {
-      setConnection("offline", "Herverbinden…");
-      startFallback();
-    });
+    source.addEventListener("error", () => { setConnection("offline", "Herverbinden…"); startFallback(); });
   }
 
-  window.addEventListener("beforeunload", () => {
-    state.source?.close();
-    stopFallback();
-  });
+  window.addEventListener("beforeunload", () => { state.source?.close(); stopFallback(); });
   document.addEventListener("DOMContentLoaded", connect);
 })();

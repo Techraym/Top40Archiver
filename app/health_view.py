@@ -4,6 +4,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
+from .health_advisor import build_health_advice
 from .health_engine import (
     collect_health_snapshot,
     health_events,
@@ -16,6 +17,11 @@ from .health_trends import health_trends
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 start_health_collector()
+
+
+@router.get("/ai", response_class=HTMLResponse)
+def ai_hub_page(request: Request):
+    return templates.TemplateResponse(request, "ai_hub.html", {})
 
 
 @router.get("/ai-health", response_class=HTMLResponse)
@@ -54,6 +60,11 @@ def health_history_api(
 @router.get("/api/health/trends")
 def health_trends_api(range: str = Query("24h", pattern="^(1h|24h|7d)$")):
     return JSONResponse({"ok": True, **health_trends(range)})
+
+
+@router.get("/api/health/advice")
+def health_advice_api(range: str = Query("24h", pattern="^(1h|24h|7d)$")):
+    return JSONResponse({"ok": True, **build_health_advice(range)})
 
 
 @router.get("/api/health/events")
