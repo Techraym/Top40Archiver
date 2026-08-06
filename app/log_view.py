@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 import re
 import subprocess
 from typing import Any
@@ -11,9 +10,11 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from .db import connect
+from .ops_view import router as ops_router
 
 router = APIRouter()
-templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
+router.include_router(ops_router)
+templates = Jinja2Templates(directory="app/templates")
 
 UNITS = (
     "top40-archiver.service",
@@ -39,35 +40,24 @@ def _journal_lines(limit: int) -> tuple[list[dict[str, Any]], str | None]:
     command = ["journalctl", "--no-pager", "-o", "short-iso", "-n", str(limit)]
     for unit in UNITS:
         command.extend(["-u", unit])
-
     try:
-        process = subprocess.run(
-            command,
-            text=True,
-            capture_output=True,
-            timeout=6,
-            check=False,
-        )
+        process = subprocess.run(command, text=True, capture_output=True, timeout=6, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return [], f"journalctl kon niet worden gelezen: {exc}"
-
     raw = process.stdout.splitlines()
     if process.returncode not in (0, 1) and not raw:
         return [], (process.stderr or "journalctl gaf een onbekende fout").strip()
-
     rows = []
     for index, line in enumerate(raw):
         clean = line.rstrip()
         if not clean or clean.startswith("-- No entries --"):
             continue
-        rows.append(
-            {
-                "id": f"journal-{index}-{hash(clean)}",
-                "source": "systemd",
-                "level": _classify(clean),
-                "message": clean,
-            }
-        )
+        rows.append({
+            "id": f"journal-{index}-{hash(clean)}",
+            "source": "systemd",
+            "level": _classify(clean),
+            "message": clean,
+        })
     return rows, None
 
 
@@ -78,39 +68,19 @@ def _database_failures(limit: int) -> list[dict[str, Any]]:
             SELECT id,artist,title,download_attempts,error_message,updated_at
             FROM tracks
             WHERE download_status='failed' AND error_message IS NOT NULL
-            ORDER BY updated_at DESC,id DESC
-            LIMIT ?
+            ORDER BY updated_at DESC,id DESC LIMIT ?
             """,
             (limit,),
         ).fetchall()
-
-    return [
-        {
-            "id": f"track-{row['id']}-{row['updated_at']}",
-            "source": "download",
-            "level": "error",
-            "message": (
-                f"{row['updated_at']} · {row['artist']} — {row['title']} · "
-                f"poging {row['download_attempts']}: {row['error_message']}"
-            ),
-        }
-        for row in records
-    ]
-
-
-@router.get("/", response_class=HTMLResponse)
-def dashboard_with_log_button(request: Request, q: str = ""):
-    # Deze route staat vóór de oorspronkelijke dashboardroute en voegt alleen
-    # de Logs-knop toe. De overige dashboardinhoud blijft uit app.main komen.
-    from .main import _dashboard_data
-
-    context = _dashboard_data(q)
-    context["request"] = request
-    html = templates.get_template("index.html").render(**context)
-    marker = '<div class="actions header-actions">'
-    button = '<a href="/logs"><button type="button" class="secondary">Logs</button></a>'
-    html = html.replace(marker, marker + button, 1)
-    return HTMLResponse(html)
+    return [{
+        "id": f"track-{row['id']}-{row['updated_at']}",
+        "source": "download",
+        "level": "error",
+        "message": (
+            f"{row['updated_at']} · {row['artist']} — {row['title']} · "
+            f"poging {row['download_attempts']}: {row['error_message']}"
+        ),
+    } for row in records]
 
 
 @router.get("/logs", response_class=HTMLResponse)
@@ -130,25 +100,20 @@ def logs_api(
 ):
     journal, journal_error = _journal_lines(limit)
     rows = _database_failures(min(limit, 200)) + journal
-
     query = q.strip().casefold()
     if query:
         rows = [row for row in rows if query in row["message"].casefold()]
     if level != "all":
         rows = [row for row in rows if row["level"] == level]
-
     rows = rows[-limit:]
     counts = {"info": 0, "warning": 0, "error": 0}
     for row in rows:
         counts[row["level"]] = counts.get(row["level"], 0) + 1
-
-    return JSONResponse(
-        {
-            "ok": journal_error is None,
-            "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-            "rows": rows,
-            "counts": counts,
-            "journal_error": journal_error,
-            "units": list(UNITS),
-        }
-    )
+    return JSONResponse({
+        "ok": journal_error is None,
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "rows": rows,
+        "counts": counts,
+        "journal_error": journal_error,
+        "units": list(UNITS),
+    })
