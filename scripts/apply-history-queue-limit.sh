@@ -9,7 +9,7 @@ BACKUP="$APP/backups/history_queue_limit_$STAMP"
 cd "$APP"
 
 echo "=== Backup maken ==="
-sudo mkdir -p "$BACKUP"
+sudo install -d -o top40archiver -g top40archiver -m 750 "$BACKUP"
 sudo cp -a app/service_history.py app/templates/index.html "$BACKUP/"
 
 if [[ -f "$DB" ]]; then
@@ -38,8 +38,6 @@ if 'queue_gate = _history_queue_gate(settings)' not in text:
         raise SystemExit('FOUT: invoegpunt voor wachtrijcontrole niet gevonden')
     text = text.replace(needle, replacement, 1)
 
-# Controleer opnieuw vóór iedere lijst, omdat de Top 40-import de grens kan vullen
-# voordat de Tipparade in dezelfde run begint.
 loop_needle = '''    for chart_type in ("top40", "tipparade"):\n        with connect() as con:\n            chart_settings = get_settings(con)\n'''
 loop_replacement = '''    for chart_type in ("top40", "tipparade"):\n        with connect() as con:\n            chart_settings = get_settings(con)\n\n        queue_gate = _history_queue_gate(chart_settings)\n        if queue_gate:\n            results[chart_type] = queue_gate\n            break\n'''
 if 'results[chart_type] = queue_gate' not in text:
