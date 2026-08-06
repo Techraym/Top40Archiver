@@ -1,0 +1,18 @@
+[Unit]
+Description=Top40Archiver bounded AI recovery cycle
+After=network-online.target top40-archiver-download.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/top40-archiver
+Environment=TOP40_APP_DIR=/opt/top40-archiver
+Environment=TOP40_DATA_DIR=/var/lib/top40-archiver
+ExecStart=/opt/top40-archiver/venv/bin/python3 -m app.ai_recovery
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/top40-archiver
