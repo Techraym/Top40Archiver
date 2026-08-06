@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 from datetime import date
+import re
 import time
 
-from .db import connect, get_settings, now_iso, set_settings
+from .db import (
+    connect,
+    get_settings,
+    now_iso,
+    recover_stale_missing_history,
+    set_settings,
+)
 from .top40 import (
     ChartType,
     chart_label,
@@ -90,13 +97,68 @@ def _history_keys(chart_type: ChartType) -> dict[str, str]:
 
 
 def _http_status_from_exception(exc: Exception) -> int | None:
-    """Read an HTTP status without tying the history service to requests internals."""
-    response = getattr(exc, "response", None)
-    status = getattr(response, "status_code", None)
-    try:
-        return int(status) if status is not None else None
-    except (TypeError, ValueError):
-        return None
+    """Read HTTP status from attributes, wrapped exceptions or error text."""
+    current: BaseException | None = exc
+    seen: set[int] = set()
+
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        response = getattr(current, "response", None)
+        candidates = (
+            getattr(current, "status_code", None),
+            getattr(response, "status_code", None),
+            getattr(response, "status", None),
+        )
+        for candidate in candidates:
+            try:
+                if candidate is not None:
+                    return int(candidate)
+            except (TypeError, ValueError):
+                pass
+
+        match = re.search(r"(?<!\d)(404|410)(?!\d)", str(current))
+        if match:
+            return int(match.group(1))
+
+        current = current.__cause__ or current.__context__
+
+    return None
+
+
+def _skip_missing_history_cursor(
+    chart_type: ChartType,
+    settings: dict,
+    status_code: int,
+) -> dict:
+    """Advance one historical cursor without pretending the edition was imported."""
+    keys = _history_keys(chart_type)
+    year = int(settings[keys["next_year"]])
+    week = int(settings[keys["next_week"]])
+    edition_key = f"{year}-W{week:02d}"
+    next_year, next_week = _next_week(year, week)
+    warning = (
+        f"{chart_label(chart_type)} {edition_key} ontbreekt op de historische bron "
+        f"(HTTP {status_code}). De editie is overgeslagen en de verwerking gaat "
+        "automatisch verder."
+    )
+    set_settings(
+        {
+            keys["next_year"]: next_year,
+            keys["next_week"]: next_week,
+            keys["status"]: "running",
+            keys["error"]: "",
+            keys["completed_at"]: "",
+            "history_enabled": "1",
+        }
+    )
+    return {
+        "chart_type": chart_type,
+        "completed": False,
+        "imported": [],
+        "warnings": [warning],
+        "skipped": [edition_key],
+        "next": f"{next_year}-W{next_week:02d}",
+    }
 
 
 def _run_chart_history(
@@ -159,28 +221,36 @@ def _run_chart_history(
                 raise
 
             if missing_source_page:
-                warning = (
-                    f"{chart_label(chart_type)} {edition_key} ontbreekt op de "
-                    f"historische bron (HTTP {status_code}). De editie is "
-                    "overgeslagen en de verwerking gaat automatisch verder."
+                skipped_result = _skip_missing_history_cursor(
+                    chart_type,
+                    {
+                        **settings,
+                        keys["next_year"]: year,
+                        keys["next_week"]: week,
+                    },
+                    int(status_code),
                 )
+                warning = skipped_result["warnings"][0]
             else:
                 warning = (
                     f"{message} Editie {edition_key} is overgeslagen; "
                     "de historische verwerking gaat automatisch verder."
                 )
+                next_year, next_week = _next_week(year, week)
+                set_settings(
+                    {
+                        keys["next_year"]: next_year,
+                        keys["next_week"]: next_week,
+                        keys["status"]: "running",
+                        keys["error"]: "",
+                        keys["completed_at"]: "",
+                        "history_enabled": "1",
+                    }
+                )
 
             warnings.append(warning)
             skipped.append(edition_key)
             year, week = _next_week(year, week)
-            set_settings(
-                {
-                    keys["next_year"]: year,
-                    keys["next_week"]: week,
-                    keys["status"]: "running",
-                    keys["error"]: "",
-                }
-            )
             if delay:
                 time.sleep(delay)
             continue
@@ -256,6 +326,11 @@ def _finish_combined_history() -> dict:
 
 
 def run_history_batch():
+    # Herstel eerst cursors die door een oudere versie op een ontbrekende pagina
+    # zijn achtergelaten. Dit wordt iedere batch herhaald en is dus niet afhankelijk
+    # van alleen de applicatiestart.
+    recover_stale_missing_history()
+
     with connect() as con:
         settings = get_settings(con)
 
@@ -277,7 +352,7 @@ def run_history_batch():
     errors: dict[str, str] = {}
 
     # Top 40 en Tipparade worden onafhankelijk verwerkt. Een tijdelijke fout in
-    # één lijst mag de voortgang van de andere lijst niet meer blokkeren.
+    # één lijst mag de voortgang van de andere lijst niet blokkeren.
     for chart_type in ("top40", "tipparade"):
         with connect() as con:
             chart_settings = get_settings(con)
@@ -306,6 +381,17 @@ def run_history_batch():
             )
         except Exception as exc:
             message = str(exc)[-3000:]
+            status_code = _http_status_from_exception(exc)
+            if status_code in MISSING_HISTORICAL_HTTP_STATUSES:
+                with connect() as con:
+                    current_settings = get_settings(con)
+                results[chart_type] = _skip_missing_history_cursor(
+                    chart_type,
+                    current_settings,
+                    int(status_code),
+                )
+                continue
+
             set_settings(
                 {
                     keys["status"]: "running",
@@ -338,8 +424,7 @@ def run_history_batch():
     if errors:
         response["errors"] = errors
 
-    # Downloads worden bewust door de permanente downloadtimer afgehandeld.
-    # Daardoor kan de historische import zonder wachttijd door naar de volgende batch.
+    # Downloads worden door de permanente downloadservice afgehandeld.
     response["downloads"] = 0
-    response["download_queue"] = "top40-archiver-download.timer"
+    response["download_queue"] = "top40-archiver-download.service"
     return response
