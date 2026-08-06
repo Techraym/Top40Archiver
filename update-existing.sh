@@ -46,6 +46,30 @@ on_exit() {
 }
 trap on_exit EXIT
 
+schedule_reboot() {
+  local reboot_unit="top40-archiver-reboot-after-update-${STAMP}"
+
+  if command -v systemd-run >/dev/null 2>&1 && [ -x /usr/bin/systemctl ]; then
+    systemd-run --quiet \
+      --unit="$reboot_unit" \
+      --on-active=1min \
+      --timer-property=AccuracySec=1s \
+      --collect \
+      /usr/bin/systemctl --no-wall reboot
+    echo "Automatische herstart is gepland over één minuut."
+    return 0
+  fi
+
+  if command -v shutdown >/dev/null 2>&1; then
+    shutdown -r +1 "Top40Archiver-update $VERSION is geïnstalleerd"
+    echo "Automatische herstart is gepland over één minuut."
+    return 0
+  fi
+
+  echo "WAARSCHUWING: update is geïnstalleerd, maar automatisch herstarten kon niet worden ingepland."
+  return 1
+}
+
 mkdir -p /var/lib/top40-archiver/download-temp "$STATE_DIR"
 chmod 755 "$STATE_DIR"
 
@@ -148,9 +172,12 @@ fi
 # De nieuwe versie draait; de oude app blijft als terugvalbackup bewaard.
 SWAPPED=0
 
+# Alle permanente onderdelen worden expliciet ingeschakeld. Daardoor starten de
+# webinterface en timers na de geplande herstart automatisch opnieuw.
 systemctl enable --now \
   top40-archiver-download.timer \
   top40-archiver-history.timer \
+  top40-archiver-check.timer \
   top40-archiver-auto-update.timer
 systemctl restart top40-archiver-download.timer 2>/dev/null || true
 systemctl restart top40-archiver-history.timer 2>/dev/null || true
@@ -177,4 +204,11 @@ echo "Update naar Top 40 Archiver $VERSION gereed."
 echo "Dashboard-healthcheck is geslaagd."
 echo "De permanente downloadtimer is actief en verwerkt maximaal twintig tracks per ronde."
 echo "De historie verwerkt Top 40 en Tipparade doorlopend tot de actuele week."
-echo "De webinterface was alleen tijdens de korte applicatiewissel offline."
+echo "Na de herstart controleert de auto-updater na tien minuten en daarna iedere 24 uur."
+
+# Plan de herstart pas nadat code, database, healthcheck, timers en update-status
+# succesvol zijn verwerkt. De minuut vertraging geeft de bovenliggende updater
+# tijd om de geïnstalleerde SHA en versie nog te verifiëren.
+if ! schedule_reboot; then
+  echo "De NUC moet handmatig opnieuw worden gestart om de update volledig af te ronden."
+fi
