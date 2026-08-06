@@ -17,10 +17,13 @@ PYTHONDONTWRITEBYTECODE=1 "$APP/venv/bin/python" -m py_compile \
   app/id3_cover.py app/main.py app/db.py app/service.py
 
 install -m 0755 scripts/safe-update.sh /usr/local/sbin/top40-archiver-safe-update
+install -m 0644 systemd/top40-archiver-auto-update.service /etc/systemd/system/
+install -m 0644 systemd/top40-archiver-auto-update.timer /etc/systemd/system/
 install -m 0644 systemd/top40-archiver-id3-cover.service /etc/systemd/system/
 install -m 0644 systemd/top40-archiver-id3-cover.timer /etc/systemd/system/
 
 systemctl daemon-reload
+systemctl enable --now top40-archiver-auto-update.timer
 systemctl enable --now top40-archiver-id3-cover.timer
 
 sudo -u top40archiver PYTHONDONTWRITEBYTECODE=1 \
@@ -36,4 +39,5 @@ fi
 
 echo "KLAAR: Top40Archiver 1.15.1 geïnstalleerd."
 echo "Veilige updater: sudo /usr/local/sbin/top40-archiver-safe-update"
+echo "Auto-update timer: top40-archiver-auto-update.timer"
 echo "ID3-coverworker: top40-archiver-id3-cover.timer"
