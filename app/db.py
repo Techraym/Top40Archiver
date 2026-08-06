@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from .config import DATA_DIR, DB_PATH, DEFAULT_DOWNLOAD_DIR
 
@@ -174,6 +175,90 @@ def _ensure_columns(con: sqlite3.Connection, table: str, columns: dict[str, str]
             con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
 
+def _setting_value(con: sqlite3.Connection, key: str, default: str = "") -> str:
+    row = con.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return str(row["value"]) if row is not None else default
+
+
+def _write_settings(con: sqlite3.Connection, values: dict[str, object]) -> None:
+    for key, value in values.items():
+        con.execute(
+            """
+            INSERT INTO settings(key,value) VALUES(?,?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+            """,
+            (key, str(value)),
+        )
+
+
+def _recover_stale_missing_history(con: sqlite3.Connection) -> list[str]:
+    """Advance cursors left behind by pre-1.9.7 historical 404/410 failures."""
+    recovered: list[str] = []
+    charts = (
+        {
+            "label": "top40",
+            "url_part": "top40",
+            "year": "history_next_year",
+            "week": "history_next_week",
+            "status": "history_status",
+            "error": "history_last_error",
+            "completed_at": "history_completed_at",
+        },
+        {
+            "label": "tipparade",
+            "url_part": "tipparade",
+            "year": "tip_history_next_year",
+            "week": "tip_history_next_week",
+            "status": "tip_history_status",
+            "error": "tip_history_last_error",
+            "completed_at": "tip_history_completed_at",
+        },
+    )
+
+    for chart in charts:
+        error = _setting_value(con, chart["error"])
+        if not re.search(r"\b(?:404|410)\s+Client\s+Error\b", error, flags=re.I):
+            continue
+        if _setting_value(con, chart["status"]) == "completed":
+            continue
+
+        try:
+            year = int(_setting_value(con, chart["year"]))
+            week = int(_setting_value(con, chart["week"]))
+            current = date.fromisocalendar(year, week, 1)
+        except (TypeError, ValueError):
+            continue
+
+        url_match = re.search(
+            rf"/{chart['url_part']}/(\d{{4}})/week-(\d{{1,2}})(?:\D|$)",
+            error,
+            flags=re.I,
+        )
+        if url_match and (int(url_match.group(1)), int(url_match.group(2))) != (
+            year,
+            week,
+        ):
+            # Wis of verplaats nooit een andere cursor dan de editie die in de
+            # opgeslagen foutmelding staat.
+            continue
+
+        next_iso = (current + timedelta(days=7)).isocalendar()
+        _write_settings(
+            con,
+            {
+                chart["year"]: next_iso.year,
+                chart["week"]: next_iso.week,
+                chart["status"]: "running",
+                chart["error"]: "",
+                chart["completed_at"]: "",
+                "history_enabled": "1",
+            },
+        )
+        recovered.append(f"{chart['label']}:{year}-W{week:02d}")
+
+    return recovered
+
+
 def init_db():
     with connect() as con:
         con.executescript(SCHEMA)
@@ -196,6 +281,11 @@ def init_db():
                 "INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",
                 (key, value),
             )
+
+        # Herstel een vóór versie 1.9.7 opgeslagen 404/410-cursor tijdens iedere
+        # applicatiestart. Hierdoor is geen handmatige SQLite-ingreep nodig wanneer
+        # de nieuwe servicecode nog niet aan bod kwam.
+        _recover_stale_missing_history(con)
 
         # Migreer alleen de oude meegeleverde standaard. Een zelf ingestelde
         # zoektemplate blijft bewust onaangetast.
@@ -257,14 +347,7 @@ def get_settings(con=None):
 
 def set_settings(values):
     with connect() as con:
-        for key, value in values.items():
-            con.execute(
-                """
-                INSERT INTO settings(key,value) VALUES(?,?)
-                ON CONFLICT(key) DO UPDATE SET value=excluded.value
-                """,
-                (key, str(value)),
-            )
+        _write_settings(con, values)
 
 
 def now_iso():
