@@ -8,7 +8,7 @@
     downloading: "Bezig",
     downloaded: "Gedownload",
     failed: "Mislukt",
-    unavailable: "Niet meer beschikbaar",
+    unavailable: "Niet online beschikbaar",
   };
 
   function escapeHtml(value) {
@@ -74,7 +74,7 @@
     setText("metric-queue-count", (counts.pending ?? 0) + (counts.downloading ?? 0));
     setText("metric-queue-summary", `${counts.pending ?? 0} wachtend · ${counts.downloading ?? 0} bezig`);
     setText("metric-failed-count", counts.failed ?? 0);
-    setText("metric-failed-summary", `${counts.unavailable ?? 0} niet meer beschikbaar`);
+    setText("metric-failed-summary", `${counts.unavailable ?? 0} niet online beschikbaar`);
     setText("queue-count", (counts.pending ?? 0) + (counts.downloading ?? 0));
     setText("failed-count", counts.failed ?? 0);
     setText("unavailable-count", counts.unavailable ?? 0);
@@ -153,7 +153,7 @@
           <tr class="${row.is_new ? "new" : ""}">
             <td><span class="position">${escapeHtml(row.position)}</span></td>
             <td><b>${escapeHtml(row.artist)}</b></td>
-            <td>${escapeHtml(row.title)} ${row.is_new ? '<span class="new-label">NIEUW VOOR ARCHIEF</span>' : ""}</td>
+            <td>${escapeHtml(row.title)} ${row.is_new ? '<span class="new-label">NIEUW</span>' : ""}</td>
             <td><span class="status-badge status-${escapeHtml(row.download_status)}">${escapeHtml(statusLabels[row.download_status] || row.download_status)}</span></td>
           </tr>`).join("")
       : '<tr><td colspan="4" class="empty">Nog geen editie verwerkt.</td></tr>';
@@ -197,11 +197,11 @@
           const query = row.custom_search_query || `${row.artist} - ${row.title}`;
           return `<article>
             <div class="failed-head"><div><b>${escapeHtml(row.artist)} — ${escapeHtml(row.title)}</b><small>${escapeHtml(row.download_attempts)} poging(en) · Spotify: ${escapeHtml(row.spotify_status || "unchecked")}</small></div><span class="status-badge status-failed">Mislukt</span></div>
-            <details><summary>Foutmelding en gebruikte zoekvarianten</summary><pre>${escapeHtml(row.error_message || "Geen foutmelding opgeslagen")}</pre></details>
+            <details><summary>Technische details tonen</summary><pre>${escapeHtml(row.error_message || "Geen foutmelding opgeslagen")}</pre></details>
             <form method="post" action="/track/${encodeURIComponent(row.id)}/query" class="retry-form">
               <input name="custom_search_query" value="${escapeHtml(query)}">
-              <button>Autonoom opnieuw zoeken</button>
-              <button type="submit" class="unavailable" formaction="/track/${encodeURIComponent(row.id)}/unavailable" formnovalidate>Niet meer beschikbaar</button>
+              <button>Opnieuw zoeken</button>
+              <button type="submit" class="unavailable" formaction="/track/${encodeURIComponent(row.id)}/unavailable" formnovalidate>Niet online beschikbaar</button>
             </form>
           </article>`;
         }).join("")
@@ -216,7 +216,7 @@
     const html = rows.length
       ? rows.map((row) => `<article>
           <div><b>${escapeHtml(row.artist)}</b><span>${escapeHtml(row.title)}</span></div>
-          <form method="post" action="/track/${encodeURIComponent(row.id)}/restore"><button class="secondary">Toch opnieuw proberen</button></form>
+          <form method="post" action="/track/${encodeURIComponent(row.id)}/restore"><button class="secondary">Opnieuw in wachtrij</button></form>
         </article>`).join("")
       : "";
     updateHtml("unavailable-list", JSON.stringify(rows), html, true);
