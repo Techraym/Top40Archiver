@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse
 
 from . import ai_memory
+from .ai_code_improvement import STATE_FILE as CODE_IMPROVEMENT_STATE
 from .ai_code_repair import STATE_FILE as CODE_REPAIR_STATE
 from .ai_learning import autonomy_report
 from .backup_health import backup_health
@@ -36,11 +37,12 @@ def _recent_actions(limit: int) -> list[dict]:
     return items
 
 
-def _code_repair_state() -> dict:
+def _json_state(path) -> dict:
     try:
-        return json.loads(CODE_REPAIR_STATE.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
     except Exception:
-        return {"active": None, "seen": {}}
+        return {}
 
 
 @router.get("/api/ai/learning")
@@ -50,7 +52,8 @@ def learning_api(limit: int = Query(100, ge=1, le=500)):
         "autonomy": autonomy_report(7),
         "backup": backup_health(),
         "charts": freshness_status(),
-        "code_repair": _code_repair_state(),
+        "code_repair": _json_state(CODE_REPAIR_STATE),
+        "code_improvement": _json_state(CODE_IMPROVEMENT_STATE),
         "recent_actions": _recent_actions(limit),
         "policy": {
             "audio_delete_allowed": False,
