@@ -56,6 +56,22 @@ RuntimeError: nope
     assert ai_code_repair._exception_candidate(unsafe) is None
 
 
+def test_code_repair_model_context_and_runtime_are_bounded(monkeypatch, tmp_path):
+    app_root = tmp_path / "repo"
+    source_dir = app_root / "app"
+    source_dir.mkdir(parents=True)
+    (source_dir / "big.py").write_text("x = 1\n" * 20_000, encoding="utf-8")
+    monkeypatch.setattr(ai_code_repair, "APP_DIR", app_root)
+
+    text = ai_code_repair._read_sources(["app/big.py"])
+
+    assert len(text) <= ai_code_repair.MODEL_SOURCE_BUDGET
+    assert ai_code_repair.MODEL_SOURCE_BUDGET <= 32_000
+    assert ai_code_repair.MODEL_SOURCE_FILE_LIMIT <= 14_000
+    assert ai_code_repair.MODEL_EVIDENCE_LIMIT <= 16_000
+    assert ai_code_repair.MODEL_TIMEOUT_SECONDS <= 60
+
+
 def test_improvement_source_map_excludes_monitoring_and_safety_code():
     assert ai_code_improvement._mapped_sources("downloads:retry_failed_downloads")
     assert ai_code_improvement._mapped_sources("download:no_search_results")
