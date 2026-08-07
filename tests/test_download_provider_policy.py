@@ -43,8 +43,8 @@ def test_provider_ai_cannot_promote_youtube_or_bypass_external_safeguards():
 
 def test_safe_action_has_no_provider_bypass_action():
     source = (ROOT / "scripts/top40-safe-action").read_text(encoding="utf-8").casefold()
-    assert "captcha_bypass_allowed\": false" in source
-    assert "proxy_rotation_allowed\": false" in source
-    assert "rate_limit_bypass_allowed\": false" in source
+    assert '"captcha_bypass_allowed": false' in source
+    assert '"proxy_rotation_allowed": false' in source
+    assert '"rate_limit_bypass_allowed": false' in source
     assert "rotate_proxy" not in source
     assert "solve_captcha" not in source
