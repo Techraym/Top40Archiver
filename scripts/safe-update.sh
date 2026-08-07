@@ -61,6 +61,8 @@ required=(
   VERSION
   update-existing.sh
   scripts/safe-update.sh
+  scripts/create-version-backup.sh
+  scripts/restore-version-backup.sh
   systemd/top40-archiver-web.service
 )
 for file in "${required[@]}"; do
@@ -105,6 +107,8 @@ git reset --hard "$TARGET_SHA"
 # De updater die deze update heeft uitgevoerd kan nog de oude versie zijn. Zet
 # daarom expliciet de gevalideerde updater uit de nieuwe commit voor de volgende run.
 install -m 0755 "$WORKTREE/scripts/safe-update.sh" /usr/local/sbin/top40-archiver-safe-update
+install -m 0755 "$WORKTREE/scripts/create-version-backup.sh" /usr/local/sbin/top40-version-backup
+install -m 0755 "$WORKTREE/scripts/restore-version-backup.sh" /usr/local/sbin/top40-version-rollback
 
 # Nog één externe controle nadat checkout en geïnstalleerde versie gelijklopen.
 curl -fsS http://127.0.0.1:8040/health >/dev/null

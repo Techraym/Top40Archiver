@@ -29,6 +29,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
+echo "=== Verifieerbare versie-rollbackbackup ==="
+ROLLBACK_BACKUP=$(bash "$SRC/scripts/create-version-backup.sh")
+[ -n "$ROLLBACK_BACKUP" ] || { echo "FOUT: rollback-backuppad ontbreekt"; exit 1; }
+[ -f "$ROLLBACK_BACKUP/BACKUP_OK" ] || { echo "FOUT: rollback-backup is niet geverifieerd"; exit 1; }
+export TOP40_VERSION_BACKUP_REF="$ROLLBACK_BACKUP"
+echo "Rollback-backup: $ROLLBACK_BACKUP"
+
 cp "$BASE" "$GENERATED"
 chmod 0755 "$GENERATED"
 
@@ -52,6 +59,8 @@ old_tests = '''      tests/test_ai_recovery_strategies.py \\
 new_tests = '''      tests/test_ai_recovery_strategies.py \\
       tests/test_cover_drain_worker.py \\
       tests/test_ai_operations_worker.py \\
+      tests/test_ai_learning.py \
+      tests/test_version_backup_contract.py \
       tests/test_auto_update_contract.py'''
 if old_tests not in text:
     raise SystemExit("FOUT: regressietestlijst in updatebasis niet gevonden")
@@ -82,6 +91,26 @@ systemctl start --no-block top40-archiver-cover-art.service
 if marker not in text:
     raise SystemExit("FOUT: finale AI-timercontrole in updatebasis niet gevonden")
 text = text.replace(marker, extra, 1)
+
+
+# Installeer ook de geverifieerde backup/rollbacktools voor volgende releases.
+install_marker = 'install -m 0755 "$SRC/scripts/safe-update.sh" "$SAFE_UPDATER"\n'
+install_extra = install_marker + 'install -m 0755 "$SRC/scripts/create-version-backup.sh" /usr/local/sbin/top40-version-backup\ninstall -m 0755 "$SRC/scripts/restore-version-backup.sh" /usr/local/sbin/top40-version-rollback\n'
+if install_marker not in text:
+    raise SystemExit("FOUT: safe updater installatiemarkering ontbreekt")
+text = text.replace(install_marker, install_extra, 1)
+
+health_marker = 'assert x.get("production_write") is False\n'
+health_extra = health_marker + 'assert x.get("closed_loop_learning") is True\nassert x.get("audio_delete_allowed") is False\nassert x.get("verified_version_backups") is True\n'
+if health_marker not in text:
+    raise SystemExit("FOUT: AI health policy marker ontbreekt")
+text = text.replace(health_marker, health_extra, 1)
+
+route_marker = 'curl -fsS http://127.0.0.1:8041/api/ai/recovery >/dev/null\n'
+route_extra = route_marker + 'curl -fsS http://127.0.0.1:8041/api/ai/learning >/dev/null\n'
+if route_marker not in text:
+    raise SystemExit("FOUT: AI learning route marker ontbreekt")
+text = text.replace(route_marker, route_extra, 1)
 
 path.write_text(text, encoding="utf-8")
 PY

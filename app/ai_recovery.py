@@ -8,6 +8,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from .ai_learning import choose_action
 from .config import DATA_DIR
 from .db import connect, get_settings, now_iso, set_settings
 from .rejection_log import classify_rejection
@@ -153,14 +154,18 @@ def _repair_strategy(item: dict, recovery_count: int) -> tuple[str, str | None]:
     if category in TRANSIENT:
         return "backoff_retry", None
     if category in SEARCH_FAILURES:
-        phase = recovery_count % 4
-        if phase == 0:
-            return "canonical_search", None
-        if phase == 1:
-            return "simplified_artist", f"{primary_artist} - {plain_title}".strip(" -")
-        if phase == 2:
-            return "title_first", f"{plain_title} {primary_artist}".strip()
-        return "audio_fallback", f"{primary_artist} {plain_title} audio".strip()
+        strategy = choose_action(
+            f"download:{category}",
+            ["canonical_search", "simplified_artist", "title_first", "audio_fallback"],
+            exploration_index=recovery_count,
+        )
+        if strategy == "canonical_search":
+            return strategy, None
+        if strategy == "simplified_artist":
+            return strategy, f"{primary_artist} - {plain_title}".strip(" -")
+        if strategy == "title_first":
+            return strategy, f"{plain_title} {primary_artist}".strip()
+        return strategy, f"{primary_artist} {plain_title} audio".strip()
     return "clean_retry", None
 
 
@@ -416,7 +421,7 @@ def run_cycle() -> dict:
                 for x in skipped_limit[:20]
             ],
         },
-        "mode": "adaptive-bounded-autorecovery",
+        "mode": "learned-adaptive-bounded-autorecovery",
         "limits": {
             "transient_batch": TRANSIENT_BATCH_LIMIT,
             "search_batch": SEARCH_BATCH_LIMIT,

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import requests
 
+from .ai_learning import learning_context
 from .config import DATA_DIR
 from .service_watchdog import service_monitor, unhealthy_services
 
@@ -93,7 +94,7 @@ def _model_assessment(critical: list[dict]) -> dict:
         "door een vaste veiligheidslaag begrensd. Geef in maximaal 3 Nederlandse zinnen aan "
         "wat nog fout is, waarom dat relevant is en wat de beheerder moet controleren. "
         "Verzin geen shellcommando's en wijzig niets zelf.\n\n"
-        + json.dumps(compact, ensure_ascii=False)
+        + json.dumps({"afwijkingen": compact, "geleerde_acties": compact_learning}, ensure_ascii=False)
     )
     try:
         response = requests.post(
