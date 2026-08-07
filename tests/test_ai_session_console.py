@@ -54,15 +54,39 @@ def test_recovery_cycle_streams_work_and_respects_operator_holds():
     assert 'scope_held("ui")' in source
     assert 'skipped_operator_hold' in source
     assert 'Bestaande canaries worden altijd geverifieerd' in source
+    assert 'report_preview' in source
+    assert 'preview_limit = 12_000' in source
+    assert '"report": report' not in source
+
+
+def test_all_exposed_operator_holds_have_real_mutation_guards():
+    downloads = Path("app/ai_recovery.py").read_text(encoding="utf-8")
+    services = Path("app/service_recovery.py").read_text(encoding="utf-8")
+    storage = Path("app/ai_storage_recovery.py").read_text(encoding="utf-8")
+    charts = Path("app/chart_freshness.py").read_text(encoding="utf-8")
+    operations = Path("app/ai_operations_worker.py").read_text(encoding="utf-8")
+    recovery_entry = Path("app/ai_recovery_entry.py").read_text(encoding="utf-8")
+
+    assert 'scope_held("downloads")' in downloads
+    assert '"status": "operator_hold"' in downloads
+    assert 'scope_held("services")' in services
+    assert 'scope_held("storage")' in storage
+    assert 'scope_held("charts")' in charts
+    assert 'scope_held("operations")' in operations
+    assert 'scope_held("covers")' in operations
+    assert 'scope_held("code")' in recovery_entry
+    assert 'scope_held("ui")' in recovery_entry
 
 
 def test_qwen_prompts_receive_operator_guidance():
     operations = Path("app/ai_operations_worker.py").read_text(encoding="utf-8")
     repair = Path("app/ai_code_repair.py").read_text(encoding="utf-8")
     improvement = Path("app/ai_code_improvement.py").read_text(encoding="utf-8")
+    services = Path("app/service_recovery.py").read_text(encoding="utf-8")
     assert 'operator_context("operations")' in operations
     assert 'operator_context("code")' in repair
     assert 'operator_context("code")' in improvement
+    assert 'operator_context("services")' in services
     assert '"app/ai_session_console.py"' in repair
 
 
