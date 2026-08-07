@@ -111,6 +111,29 @@ CREATE TABLE IF NOT EXISTS ui_telemetry (
  detail_json TEXT NOT NULL DEFAULT '{}',
  created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ai_session_event (
+ id INTEGER PRIMARY KEY,
+ cycle_id TEXT,
+ event_type TEXT NOT NULL,
+ domain TEXT NOT NULL DEFAULT 'system',
+ role TEXT NOT NULL DEFAULT 'assistant',
+ title TEXT NOT NULL,
+ message TEXT NOT NULL,
+ status TEXT,
+ metadata_json TEXT NOT NULL DEFAULT '{}',
+ created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS operator_guidance (
+ id INTEGER PRIMARY KEY,
+ scope TEXT NOT NULL DEFAULT 'global',
+ mode TEXT NOT NULL DEFAULT 'guidance',
+ instruction TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'active',
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ last_applied_at TEXT,
+ closed_at TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_history_created ON history(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_metrics_name_created ON metrics(metric, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_action_execution_started ON action_execution(started_at DESC);
@@ -119,6 +142,9 @@ CREATE INDEX IF NOT EXISTS idx_action_execution_cycle ON action_execution(cycle_
 CREATE INDEX IF NOT EXISTS idx_autonomy_cycle_started ON autonomy_cycle(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ui_revision_revision ON ui_revision(revision DESC);
 CREATE INDEX IF NOT EXISTS idx_ui_telemetry_revision_created ON ui_telemetry(revision,created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_session_event_created ON ai_session_event(id DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_session_cycle ON ai_session_event(cycle_id,id DESC);
+CREATE INDEX IF NOT EXISTS idx_operator_guidance_status ON operator_guidance(status,scope,id DESC);
 """
 
 

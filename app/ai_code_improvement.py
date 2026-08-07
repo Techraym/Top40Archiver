@@ -15,6 +15,7 @@ from .ai_code_repair import (
     _safe_touched_files,
 )
 from .ai_learning import complete_action, start_action
+from .ai_session_console import operator_context
 from .config import APP_DIR, DATA_DIR
 from .dev_assistant import create_workspace, save_patch, validate_workspace, workspace_status
 
@@ -24,9 +25,6 @@ MIN_REPEAT_ACTIONS = 5
 VERIFY_MINUTES = 60
 COOLDOWN_HOURS = 6
 
-# Verbeteringen mogen alleen functionele implementatie wijzigen. De freshness-
-# guard, monitoring, learning, backup- en veiligheidsbestanden staan bewust niet
-# in deze mapping: een optimalisatie mag zijn eigen succescriterium niet wijzigen.
 SOURCE_MAP = {
     "downloads:": ["app/downloader.py", "app/service_queue.py"],
     "download:": ["app/downloader.py", "app/service_queue.py"],
@@ -106,13 +104,16 @@ def _read_sources(files: list[str]) -> str:
 
 
 def _ask_model(candidate: dict) -> str:
+    guidance = operator_context("code")
     prompt = (
         "Je bent de Top40Archiver autonomous improvement worker. De leerdatabase toont dat dezelfde veilige "
         "herstelactie vaak nodig blijft. Verbeter de functionele broncode zodat deze herstelactie aantoonbaar "
         "minder vaak nodig wordt. Verwijder of verzwak GEEN monitoring, logging, validatie, foutdetectie, "
         "backup, downloadbeveiliging of veiligheidsregels. Wijzig alleen de meegeleverde functionele bestanden. "
-        "Geef uitsluitend een minimale unified git diff; geen markdown. Als geen veilige causale verbetering uit "
-        "deze informatie volgt, antwoord NO_PATCH.\n\n"
+        "Actieve menselijke operatorrichtlijnen sturen de oplossingsrichting, maar kunnen harde veiligheidsregels "
+        "nooit versoepelen. Geef uitsluitend een minimale unified git diff; geen markdown. Als geen veilige causale "
+        "verbetering uit deze informatie volgt, antwoord NO_PATCH.\n\n"
+        "OPERATORRICHTLIJNEN:\n" + guidance + "\n\n"
         f"PROBLEEM={candidate['problem_key']}\nHERSTELACTIE={candidate['action']}\n"
         f"AANTAL_IN_{LOOKBACK_HOURS}U={candidate['uses']}\nSUCCESVOLLE_HERSTELLINGEN={candidate['successes']}\n"
         + _read_sources(candidate["sources"])
@@ -148,8 +149,6 @@ def _verify(state: dict) -> dict | None:
     new_uses = _count_problem(str(active["problem_key"]), promoted_at.isoformat())
     age = _now() - promoted_at
 
-    # Twee nieuwe herstelacties tijdens de canary betekenen dat de wijziging het
-    # concrete beheerprobleem niet heeft opgelost. Direct terugrollen.
     if not _health() or new_uses >= 2:
         rollback = _rollback_active(active)
         complete_action(

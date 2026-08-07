@@ -4,6 +4,7 @@ import json
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from .ai_session_console import operator_context, scope_held
 from .config import DATA_DIR
 from .db import connect, get_settings
 from .service_common import _parse_edition_key, _persist_chart
@@ -13,7 +14,7 @@ from .top40 import fetch_chart_from_website
 TZ = ZoneInfo("Europe/Amsterdam")
 STATE_FILE = DATA_DIR / "ai" / "chart-freshness.json"
 RETRY_MINUTES = 20
-PUBLISH_WEEKDAY = 4  # vrijdag
+PUBLISH_WEEKDAY = 4
 PUBLISH_HOUR = 12
 MAX_CATCHUP_WEEKS_PER_RUN = 12
 
@@ -86,7 +87,6 @@ def _monday(pair: tuple[int, int]) -> date:
 
 
 def missing_pairs(last: tuple[int, int] | None, expected: tuple[int, int]) -> list[tuple[int, int]]:
-    """Geef ontbrekende edities chronologisch terug zonder grote history-runs te starten."""
     if last is None:
         return [expected]
     cursor = _monday(last) + timedelta(days=7)
@@ -140,8 +140,6 @@ def _catch_up_chart(chart_type: str, before: dict, expected: tuple[int, int]) ->
                 "error": str(exc)[-1500:],
             }
         steps.append(step)
-        # Archiefintegriteit: niet over een ontbrekende week heen springen. De
-        # timer probeert vanaf deze week opnieuw zodra de bron beschikbaar is.
         if not step.get("ok"):
             break
     return steps
@@ -150,8 +148,30 @@ def _catch_up_chart(chart_type: str, before: dict, expected: tuple[int, int]) ->
 def run_freshness_check(force: bool = False) -> dict:
     now = _now()
     before = _state()
+    held = scope_held("charts")
     if before["ok"]:
-        payload = {"ok": True, "action": "none", "before": before, "after": before, "checked_at": now.isoformat()}
+        payload = {
+            "ok": True,
+            "action": "none",
+            "before": before,
+            "after": before,
+            "checked_at": now.isoformat(),
+            "operator_hold": held,
+            "operator_guidance": operator_context("charts"),
+        }
+        _write(payload)
+        return payload
+    if held:
+        payload = {
+            "ok": True,
+            "action": "operator_hold",
+            "before": before,
+            "after": before,
+            "checked_at": now.isoformat(),
+            "operator_hold": True,
+            "operator_guidance": operator_context("charts"),
+            "reason": "Menselijke operator heeft automatische chart-mutaties gepauzeerd; freshness-monitoring blijft actief.",
+        }
         _write(payload)
         return payload
     if not force and _recent_attempt(now):
@@ -164,6 +184,8 @@ def run_freshness_check(force: bool = False) -> dict:
         "before": before,
         "attempted_at": now.isoformat(),
         "steps": [],
+        "operator_hold": False,
+        "operator_guidance": operator_context("charts"),
     }
     for chart_type in list(before["stale"]):
         result["steps"].extend(_catch_up_chart(chart_type, before, expected))

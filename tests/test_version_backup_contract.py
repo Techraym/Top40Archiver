@@ -55,7 +55,7 @@ def test_ai_safe_action_has_no_audio_delete_capability():
 
 def test_ai_platform_advertises_hard_safety_and_continuous_learning_contract():
     platform = (ROOT / "app/ai_platform.py").read_text(encoding="utf-8")
-    assert 'VERSION = "1.16.5"' in platform
+    assert 'VERSION = "1.16.6"' in platform
     assert '"closed_loop_learning": True' in platform
     assert '"continuous_online_learning": True' in platform
     assert '"learning_starts_at_action": 1' in platform
@@ -67,4 +67,10 @@ def test_ai_platform_advertises_hard_safety_and_continuous_learning_contract():
     assert '"ai_control_room": True' in platform
     assert '"local_ai_owned_control_room_html_css": True' in platform
     assert '"control_room_safe_runtime": True' in platform
-    assert "/ai-learning" in platform
+    assert '"ai_session_console": True' in platform
+    assert '"operator_guidance": True' in platform
+    assert '"operator_domain_hold": True' in platform
+    assert '"raw_chain_of_thought_exposed": False' in platform
+    assert '"decision_summaries_exposed": True' in platform
+    assert '/ai-learning' in platform
+    assert '/ai-session' in platform

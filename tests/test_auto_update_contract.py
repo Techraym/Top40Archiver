@@ -38,6 +38,10 @@ def test_normal_updater_installs_and_validates_complete_ai_stack():
         "/api/ai/chart-freshness",
         "/api/ai/code-repair",
         "/api/ai/control-room",
+        "/api/ai/session/status",
+        "/api/ai/session/events",
+        "/api/ai/session/guidance",
+        "/ai-session",
         "/ai-actions",
         "backup_configuration",
         "restore_configuration",
@@ -58,10 +62,17 @@ def test_normal_updater_installs_and_validates_complete_ai_stack():
     assert "tests/test_chart_freshness.py" in updater
     assert "tests/test_ai_code_repair_policy.py" in updater
     assert "tests/test_ai_control_room.py" in updater
+    assert "tests/test_ai_session_console.py" in updater
     assert "systemctl start --no-block top40-ai-recovery.service" in updater
     assert 'assert x.get("ai_control_room") is True' in updater
     assert 'assert x.get("local_ai_owned_control_room_html_css") is True' in updater
+    assert 'assert x.get("ai_session_console") is True' in updater
+    assert 'assert x.get("operator_guidance") is True' in updater
+    assert 'assert x.get("operator_domain_hold") is True' in updater
+    assert 'assert x.get("human_approval_per_cycle_required") is False' in updater
     assert "http://127.0.0.1:8041/api/ai/control-room?limit=25" in updater
+    assert "http://127.0.0.1:8041/api/ai/session/status" in updater
+    assert "http://127.0.0.1:8041/ai-session" in updater
 
 
 def test_service_watchdog_units_and_entrypoint_are_release_managed():

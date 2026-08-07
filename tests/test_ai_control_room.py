@@ -53,24 +53,28 @@ def test_control_room_routes_and_ai_platform_contract_are_release_managed():
     recovery = (ROOT / "app/ai_recovery_entry.py").read_text(encoding="utf-8")
     memory = (ROOT / "app/ai_memory.py").read_text(encoding="utf-8")
 
-    assert 'VERSION = "1.16.5"' in sidecar
+    assert 'VERSION = "1.16.6"' in sidecar
     assert "control_room_response()" in sidecar
     assert "app.include_router(control_room_router)" in sidecar
-    assert 'VERSION = "1.16.5"' in platform
+    assert 'VERSION = "1.16.6"' in platform
     assert '"local_ai_owned_control_room_html_css": True' in platform
     assert '"control_room_safe_runtime": True' in platform
     assert '"control_room_browser_telemetry": True' in platform
     assert '"control_room_continuous_ui_learning": True' in platform
+    assert '"ai_session_console": True' in platform
     assert "run_ui_designer(cycle_id)" in recovery
     assert "control_room_ui" in recovery
     assert "CREATE TABLE IF NOT EXISTS ui_revision" in memory
     assert "CREATE TABLE IF NOT EXISTS ui_telemetry" in memory
+    assert "CREATE TABLE IF NOT EXISTS ai_session_event" in memory
+    assert "CREATE TABLE IF NOT EXISTS operator_guidance" in memory
 
 
 def test_control_room_policy_code_cannot_be_self_rewritten_by_code_repair():
     for blocked in (
         "app/ai_control_room.py",
         "app/ai_ui_designer.py",
+        "app/ai_session_console.py",
         "app/ai_platform.py",
         "app/ai_sidecar.py",
         "app/ai_recovery_entry.py",
