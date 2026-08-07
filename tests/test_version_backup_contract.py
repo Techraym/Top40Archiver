@@ -47,17 +47,21 @@ def test_ai_safe_action_has_no_audio_delete_capability():
     wrapper = (ROOT / "scripts/top40-safe-action").read_text(encoding="utf-8")
     assert 'FORBIDDEN_EXECUTABLES = {"rm", "unlink", "shred"}' in wrapper
     assert '"audio_delete_allowed": False' in wrapper
-    # De vaste acties mogen geen bestandsverwijderaar als uitvoerbaar programma bevatten.
     action_section = wrapper.split("ACTIONS =", 1)[1].split("FORBIDDEN_EXECUTABLES", 1)[0]
     assert '["rm"' not in action_section
     assert '["unlink"' not in action_section
     assert '["shred"' not in action_section
 
 
-def test_ai_platform_advertises_hard_safety_and_learning_contract():
+def test_ai_platform_advertises_hard_safety_and_continuous_learning_contract():
     platform = (ROOT / "app/ai_platform.py").read_text(encoding="utf-8")
-    assert 'VERSION = "1.16.3"' in platform
+    assert 'VERSION = "1.16.4"' in platform
     assert '"closed_loop_learning": True' in platform
+    assert '"continuous_online_learning": True' in platform
+    assert '"learning_starts_at_action": 1' in platform
+    assert '"chart_freshness_guard": True' in platform
+    assert '"autonomous_code_repair": True' in platform
+    assert '"code_repair_requires_verified_backup": True' in platform
     assert '"verified_version_backups": True' in platform
     assert '"audio_delete_allowed": False' in platform
     assert "/ai-learning" in platform
