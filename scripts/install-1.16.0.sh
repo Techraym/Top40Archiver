@@ -34,3 +34,9 @@ fi
 
 chmod +x "$TMP/update-existing.sh"
 TOP40_SOURCE_SHA="$SHA" bash "$TMP/update-existing.sh"
+
+# De updater waarmee we hier binnenkwamen kan nog de oude 1.15-lijn zijn.
+# Vervang hem pas nadat de transactionele 1.16-installatie volledig is geslaagd.
+install -m 0755 "$TMP/scripts/safe-update.sh" /usr/local/sbin/top40-archiver-safe-update
+
+echo "1.16.0 bootstrap voltooid; volgende updates gebruiken de transactionele updater."
