@@ -1,0 +1,16 @@
+[Unit]
+Description=Top40Archiver actuele Top 40 en Tipparade freshness check
+After=network-online.target top40-archiver-web.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=top40archiver
+Group=top40archiver
+WorkingDirectory=/opt/top40-archiver
+Environment=TOP40_APP_DIR=/opt/top40-archiver
+Environment=TOP40_DATA_DIR=/var/lib/top40-archiver
+EnvironmentFile=-/etc/top40-archiver.env
+ExecStart=/opt/top40-archiver/venv/bin/python -m app.cli freshness
+TimeoutStartSec=4h
+Nice=5
