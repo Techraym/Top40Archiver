@@ -2,6 +2,33 @@
 
 Alle noemenswaardige wijzigingen worden in dit bestand bijgehouden.
 
+## [1.16.7] - 2026-08-07
+
+### Opgelost
+
+- Timer-gestuurde oneshot-services met een eerdere mislukte run worden niet meer als permanent kritiek gezien wanneer hun gekoppelde retry-timer gezond actief is.
+- De auto-updater geeft root-aangemaakte `.git`-objecten na iedere update of rollback terug aan de repository-eigenaar, zodat handmatige Git-opdrachten als beheeraccount blijven werken.
+- Root Git registreert alleen `/opt/top40-archiver` als veilige repository wanneer dat nodig is.
+- De actuele chart-freshnesscontrole probeert voor de nieuwste verwachte editie eerst de live Top40.nl-pagina en daarna de gerichte week-URL, zonder ooit een weekmismatch op te slaan.
+
+### Gewijzigd
+
+- De freshness-cooldown is verlaagd van 20 naar 10 minuten.
+- `top40-archiver-freshness.timer` controleert iedere 10 minuten na de vorige run in plaats van iedere 30 minuten.
+- Gezonde operations-cycli slaan een overbodige Qwen-call over.
+- Operations- en service-diagnose hebben een modeltimeout van 45 seconden en een begrensde output.
+- Autonome code-repair gebruikt maximaal 16 kB foutbewijs, 32 kB broncontext en 60 seconden modeltijd.
+- Tijdelijke Qwen-timeouts bij aanvullende diagnose of code-analyse blokkeren een verder geldige autonome policycyclus niet en wijzigen geen productiecode.
+- De transactionele updater voert de nieuwe watchdog-regressietests tijdens de release-installatie uit.
+
+### Veiligheid
+
+- De dirty-worktreecontrole blijft onbekende lokale wijzigingen blokkeren; alleen aantoonbare actieve AI-canaries volgen het bestaande gecontroleerde handoff-pad.
+- Gedownloade audio blijft uitgesloten van autonome verwijderacties.
+- Vrije shelltoegang voor het model blijft uitgeschakeld.
+- Autonome codepromotie vereist nog steeds sandboxvalidatie, een geverifieerde versiebackup en canary/rollbackcontrole.
+- De geïnstalleerde commit-SHA wordt pas na de finale 8040/8041/8042-healthchecks gepromoveerd.
+
 ## [1.9.0] - 2026-08-04
 
 ### Toegevoegd

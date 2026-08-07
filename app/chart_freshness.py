@@ -13,7 +13,7 @@ from .top40 import fetch_chart_from_website
 
 TZ = ZoneInfo("Europe/Amsterdam")
 STATE_FILE = DATA_DIR / "ai" / "chart-freshness.json"
-RETRY_MINUTES = 20
+RETRY_MINUTES = 10
 PUBLISH_WEEKDAY = 4
 PUBLISH_HOUR = 12
 MAX_CATCHUP_WEEKS_PER_RUN = 12
@@ -99,29 +99,71 @@ def missing_pairs(last: tuple[int, int] | None, expected: tuple[int, int]) -> li
     return result
 
 
-def _fetch_target_week(chart_type: str, pair: tuple[int, int]) -> dict:
+def _fetch_target_week(
+    chart_type: str,
+    pair: tuple[int, int],
+    *,
+    prefer_current: bool = False,
+) -> dict:
+    requested = f"{pair[0]}-W{pair[1]:02d}"
     target = _monday(pair)
-    chart = fetch_chart_from_website(target, chart_type)
-    actual = (chart.year, chart.week)
-    if actual != pair:
+    sources: list[tuple[str, date | None]] = []
+    if prefer_current:
+        # Voor de nieuwste gepubliceerde editie eerst de ongedateerde live pagina
+        # proberen. Top40.nl kan de live pagina eerder actualiseren dan een
+        # expliciete /jaar/week-N URL of die URL tijdelijk omleiden.
+        sources.append(("current", None))
+    sources.append(("targeted_week", target))
+
+    attempts: list[dict] = []
+    for source, source_target in sources:
+        try:
+            chart = fetch_chart_from_website(source_target, chart_type)
+        except Exception as exc:
+            attempts.append({
+                "source": source,
+                "ok": False,
+                "error": str(exc)[-1000:],
+            })
+            continue
+
+        actual = (chart.year, chart.week)
+        if actual != pair:
+            attempts.append({
+                "source": source,
+                "ok": False,
+                "actual": chart.edition_key,
+                "reason": "edition_mismatch",
+            })
+            continue
+
+        persisted = _persist_chart(chart, False)
+        ids = list(persisted.get("new_track_ids", []) or [])
+        downloads = process_queue(track_ids=ids) if ids else []
         return {
-            "ok": False,
+            "ok": True,
             "chart_type": chart_type,
-            "requested": f"{pair[0]}-W{pair[1]:02d}",
+            "requested": requested,
             "actual": chart.edition_key,
-            "reason": "edition_mismatch",
+            "source": source,
+            "source_url": chart.source_url,
+            "new_track_ids": ids,
+            "downloads": len(downloads),
+            "persist": persisted,
+            "attempts": attempts,
         }
-    persisted = _persist_chart(chart, False)
-    ids = list(persisted.get("new_track_ids", []) or [])
-    downloads = process_queue(track_ids=ids) if ids else []
+
+    last_actual = next(
+        (str(item.get("actual")) for item in reversed(attempts) if item.get("actual")),
+        None,
+    )
     return {
-        "ok": True,
+        "ok": False,
         "chart_type": chart_type,
-        "requested": f"{pair[0]}-W{pair[1]:02d}",
-        "actual": chart.edition_key,
-        "new_track_ids": ids,
-        "downloads": len(downloads),
-        "persist": persisted,
+        "requested": requested,
+        "actual": last_actual,
+        "reason": "current_edition_not_available",
+        "attempts": attempts,
     }
 
 
@@ -131,7 +173,11 @@ def _catch_up_chart(chart_type: str, before: dict, expected: tuple[int, int]) ->
     steps: list[dict] = []
     for pair in missing_pairs(last, expected):
         try:
-            step = _fetch_target_week(chart_type, pair)
+            step = _fetch_target_week(
+                chart_type,
+                pair,
+                prefer_current=pair == expected,
+            )
         except Exception as exc:
             step = {
                 "ok": False,
@@ -175,7 +221,14 @@ def run_freshness_check(force: bool = False) -> dict:
         _write(payload)
         return payload
     if not force and _recent_attempt(now):
-        return {"ok": False, "action": "cooldown", "before": before, "after": before, "checked_at": now.isoformat()}
+        return {
+            "ok": False,
+            "action": "cooldown",
+            "before": before,
+            "after": before,
+            "checked_at": now.isoformat(),
+            "retry_in_minutes": RETRY_MINUTES,
+        }
 
     expected = (int(before["expected_year"]), int(before["expected_week"]))
     result: dict = {

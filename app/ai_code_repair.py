@@ -58,6 +58,10 @@ EXCEPTION_RE = re.compile(
 SOURCE_RE = re.compile(r"/opt/top40-archiver/(app/[A-Za-z0-9_./-]+\.py)")
 VERIFY_MINUTES = 10
 REPAIR_COOLDOWN_MINUTES = 30
+MODEL_TIMEOUT_SECONDS = 60
+MODEL_SOURCE_BUDGET = 32_000
+MODEL_SOURCE_FILE_LIMIT = 14_000
+MODEL_EVIDENCE_LIMIT = 16_000
 
 
 def _now() -> datetime:
@@ -106,21 +110,29 @@ def _exception_candidate(log: str) -> dict | None:
             files.append(path)
     if not files:
         return None
-    return {"fingerprint": _fingerprint(block), "evidence": block[-30_000:], "files": files[:4]}
+    return {
+        "fingerprint": _fingerprint(block),
+        "evidence": block[-MODEL_EVIDENCE_LIMIT:],
+        "files": files[:4],
+    }
 
 
 def _read_sources(files: list[str]) -> str:
     chunks: list[str] = []
-    budget = 80_000
+    used = 0
     for rel in files:
         path = APP_DIR / rel
         if not path.is_file():
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")[:35_000]
-        part = f"\n### {rel}\n{text}\n"
-        if sum(len(x) for x in chunks) + len(part) > budget:
+        remaining = MODEL_SOURCE_BUDGET - used
+        if remaining <= 0:
             break
+        text = path.read_text(encoding="utf-8", errors="replace")[: min(MODEL_SOURCE_FILE_LIMIT, remaining)]
+        part = f"\n### {rel}\n{text}\n"
+        if len(part) > remaining:
+            part = part[:remaining]
         chunks.append(part)
+        used += len(part)
     return "".join(chunks)
 
 
@@ -138,8 +150,14 @@ def _ask_model(candidate: dict) -> str:
     )
     response = requests.post(
         os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate"),
-        json={"model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"), "prompt": prompt, "stream": False, "keep_alive": "30m"},
-        timeout=120,
+        json={
+            "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+            "prompt": prompt,
+            "stream": False,
+            "keep_alive": "30m",
+            "options": {"temperature": 0.1, "num_predict": 768},
+        },
+        timeout=MODEL_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
     text = str(response.json().get("response") or "").strip()
@@ -380,6 +398,42 @@ def run_code_repair(cycle_id: str) -> dict:
         }
         _save_state(state)
         return {"ok": True, "action": "promoted_canary", "candidate": candidate["fingerprint"], "promotion": promotion}
+    except requests.Timeout as exc:
+        try:
+            complete_action(
+                analysis_id,
+                success=False,
+                result={"reason": "model_timeout", "error": str(exc)[-1000:]},
+                effect_score=0.0,
+            )
+        except Exception:
+            pass
+        _save_state(state)
+        return {
+            "ok": True,
+            "action": "model_timeout",
+            "candidate": candidate["fingerprint"],
+            "retry_in_minutes": REPAIR_COOLDOWN_MINUTES,
+            "reason": "Qwen bereikte de begrensde analysetijd; er is geen productiecode gewijzigd en de autonome cyclus gaat verder.",
+        }
+    except requests.RequestException as exc:
+        try:
+            complete_action(
+                analysis_id,
+                success=False,
+                result={"reason": "model_unavailable", "error": str(exc)[-1000:]},
+                effect_score=0.0,
+            )
+        except Exception:
+            pass
+        _save_state(state)
+        return {
+            "ok": True,
+            "action": "model_unavailable",
+            "candidate": candidate["fingerprint"],
+            "retry_in_minutes": REPAIR_COOLDOWN_MINUTES,
+            "reason": "Qwen was tijdelijk niet beschikbaar; er is geen productiecode gewijzigd en de autonome cyclus gaat verder.",
+        }
     except Exception as exc:
         try:
             complete_action(analysis_id, success=False, result={"error": str(exc)[-2000:]}, effect_score=0.0)

@@ -59,6 +59,7 @@ def test_normal_updater_installs_and_validates_complete_ai_stack():
     assert "top40-archiver-incident-scan.timer" in updater
     assert "tests/test_cover_drain_worker.py" in updater
     assert "tests/test_ai_operations_worker.py" in updater
+    assert "tests/test_service_watchdog.py" in updater
     assert "tests/test_chart_freshness.py" in updater
     assert "tests/test_ai_code_repair_policy.py" in updater
     assert "tests/test_ai_control_room.py" in updater
@@ -106,11 +107,12 @@ def test_service_watchdog_units_and_entrypoint_are_release_managed():
     assert freshness_timer.exists()
     cover_service_text = cover_service.read_text(encoding="utf-8")
     cover_timer_text = cover_timer.read_text(encoding="utf-8")
+    freshness_timer_text = freshness_timer.read_text(encoding="utf-8")
     assert "Type=oneshot" in cover_service_text
     assert "--drain" in cover_service_text
     assert "TimeoutStartSec=infinity" in cover_service_text
     assert "OnUnitInactiveSec=30min" in cover_timer_text
-    assert "OnUnitInactiveSec=30min" in freshness_timer.read_text(encoding="utf-8")
+    assert "OnUnitInactiveSec=10min" in freshness_timer_text
     assert "app.ai_recovery_entry" in recovery_service
     assert "ReadWritePaths=/var/lib/top40-archiver /etc/systemd/system /opt/top40-archiver/app" in recovery_service
     assert "/opt/top40-archiver/downloads" not in recovery_service
@@ -124,6 +126,7 @@ def test_service_watchdog_units_and_entrypoint_are_release_managed():
     assert "top40-archiver-cover-art.timer" in watchdog
     assert "top40-archiver-freshness.timer" in watchdog
     assert "paired_timer" in watchdog
+    assert "retry gepland" in watchdog
 
 
 def test_update_marks_installed_sha_only_after_final_healthchecks():
@@ -141,6 +144,17 @@ def test_safe_updater_keeps_live_checkout_on_old_sha_until_install_succeeds():
     assert 'BRANCH="${TOP40_UPDATE_BRANCH:-main}"' in updater
     assert "git worktree add --detach" in updater
     assert "rollback" in updater
+
+
+def test_safe_updater_restores_git_ownership_and_root_safe_directory():
+    updater = (ROOT / "scripts/safe-update.sh").read_text(encoding="utf-8")
+    assert "restore_git_ownership" in updater
+    assert 'REPO_OWNER="$(stat -c \'%U\' "$APP")"' in updater
+    assert 'REPO_GROUP="$(stat -c \'%G\' "$APP")"' in updater
+    assert 'git config --system --add safe.directory "$APP"' in updater
+    assert 'chown -R "$REPO_OWNER:$REPO_GROUP" "$APP/.git"' in updater
+    assert "trap restore_git_ownership EXIT" in updater
+    assert "restore_git_ownership" in updater[updater.index("cleanup()") :]
 
 
 def test_safe_updater_recognizes_only_active_ai_managed_dirty_code():

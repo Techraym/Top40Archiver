@@ -34,6 +34,8 @@ PROPERTIES = (
     "NRestarts", "ActiveEnterTimestamp", "MemoryCurrent", "CPUUsageNSec", "TasksCurrent",
 )
 
+FAILED_RESULTS = {"failed", "timeout", "exit-code", "signal", "core-dump"}
+
 
 def _as_int(value: object, default: int = 0) -> int:
     try:
@@ -96,10 +98,28 @@ def _logical_state(unit: str, state: dict[str, str], all_states: dict[str, dict[
     paired = str(policy.get("paired_timer") or "")
     paired_state = all_states.get(paired, {})
     paired_active = (paired_state.get("ActiveState") or "").casefold() == "active"
+    failed_last_run = active == "failed" or result in FAILED_RESULTS
+
     if active in {"active", "activating"}:
         return "healthy", "bezig", "Oneshot-taak is op dit moment actief."
-    if active == "failed" or result in {"failed", "timeout", "exit-code", "signal", "core-dump"}:
-        return "critical", "mislukt", "Laatste uitvoering van deze oneshot-taak is mislukt."
+
+    # Een timer-gestuurde oneshot mag na een mislukte uitvoering in systemd op
+    # 'failed' blijven staan. Zolang de gekoppelde timer gezond is, bestaat er
+    # een automatische retry-route en is dit een aandachtspunt, geen defecte
+    # permanente component. Dit voorkomt onder meer een vals kritiek alarm voor
+    # de auto-updater na een eerdere mislukte updatecontrole.
+    if failed_last_run and paired_active:
+        return (
+            "attention",
+            "laatste run mislukt; retry gepland",
+            "De laatste oneshot-uitvoering mislukte, maar de gekoppelde timer is actief en plant automatisch een nieuwe poging.",
+        )
+    if failed_last_run and not paired_active:
+        return (
+            "critical",
+            "mislukt zonder actieve retry",
+            "De laatste oneshot-uitvoering mislukte en de gekoppelde timer is niet actief; automatische retry ontbreekt.",
+        )
     if active == "inactive" and paired_active:
         return "healthy", "stand-by", "Normaal voor een oneshot-service: de gekoppelde timer is actief en start hem wanneer nodig."
     if active == "inactive" and not paired_active:
