@@ -22,6 +22,9 @@ def test_mobile_dashboard_uses_compact_cards_and_full_width_controls():
 
     assert "grid-template-columns:repeat(2,minmax(0,1fr))" in css
     assert "#history-controls{display:grid" in css
-    assert ".header-actionsform,.header-actionsbutton{width:100%}" in css
+    assert ".header-actions" in css
+    assert "width:100%" in css
+    assert ".retry-formbutton" in css
+    assert ".search-formbutton" in css
     assert "env(safe-area-inset-bottom)" in css
     assert "@media(max-width:390px)" in css
