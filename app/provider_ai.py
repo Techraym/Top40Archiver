@@ -10,7 +10,8 @@ import requests
 from .ai_learning import complete_action, start_action
 from .ai_session_console import operator_context, scope_held
 from .db import connect, now_iso
-from .download_db import provider_dashboard, set_ai_provider_adjustment
+from .download_db import set_ai_provider_adjustment
+from .download_metrics import provider_dashboard
 from .providers import PROVIDER_CLASSES
 
 MODEL_TIMEOUT_SECONDS = 30
@@ -69,14 +70,18 @@ def _needs_ai(snapshot: dict[str, Any]) -> bool:
         or int(item.get("consecutive_errors") or 0) > 0
         for item in providers
     )
-    dependency = float(snapshot.get("youtube_dependency_percent") or 0)
-    return unhealthy or attempts >= 10 or (attempts >= 5 and dependency >= 10)
+    direct_dependency = float(snapshot.get("youtube_dependency_percent") or 0)
+    family_dependency = float(snapshot.get("youtube_family_dependency_percent") or 0)
+    return unhealthy or attempts >= 10 or (attempts >= 5 and (direct_dependency >= 10 or family_dependency >= 25))
 
 
 def _ask_qwen(snapshot: dict[str, Any]) -> dict[str, Any]:
     compact = {
-        "goal": "YouTube-family dependency below 10 percent without bypassing provider safeguards",
+        "goal": "direct YouTube dependency below 10 percent; YouTube Music remains a separate fallback metric",
         "youtube_dependency_percent": snapshot.get("youtube_dependency_percent"),
+        "youtube_family_dependency_percent": snapshot.get("youtube_family_dependency_percent"),
+        "youtube_24h": snapshot.get("youtube_24h"),
+        "youtube_music_24h": snapshot.get("youtube_music_24h"),
         "providers": [
             {
                 "provider": item.get("provider"),
@@ -100,6 +105,7 @@ def _ask_qwen(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
     prompt = (
         "Je bent de lokale Top40Archiver provider-tuning assistent. Analyseer alleen de meegegeven gemeten providerdata. "
+        "De primaire KPI is directe YouTube-afhankelijkheid onder 10%; YouTube Music wordt apart gemeten maar blijft eveneens fallback. "
         "De vaste coordinator en circuit breakers blijven leidend. Je mag GEEN accounts, cookies, captcha-omzeiling, "
         "proxyrotatie, rate-limit-bypass, shellcommando's of nieuwe providers voorstellen. YouTube Music en YouTube "
         "blijven fallback en mogen nooit eerder worden geplaatst dan niet-YouTube-providers. Geef uitsluitend JSON: "
@@ -145,9 +151,10 @@ def run_provider_ai_tuning(cycle_id: str) -> dict[str, Any]:
         domain="downloads",
         problem_key="downloads:provider_mix",
         action="qwen_provider_tuning",
-        reason="Gemeten providerresultaten en YouTube-afhankelijkheid begrensd laten meewegen in de provider-volgorde.",
+        reason="Gemeten providerresultaten en directe YouTube-afhankelijkheid begrensd laten meewegen in de provider-volgorde.",
         before={
             "youtube_dependency_percent": snapshot.get("youtube_dependency_percent"),
+            "youtube_family_dependency_percent": snapshot.get("youtube_family_dependency_percent"),
             "providers": snapshot.get("providers"),
         },
         reversible=True,
@@ -197,6 +204,7 @@ def run_provider_ai_tuning(cycle_id: str) -> dict[str, Any]:
             success=True,
             after={
                 "youtube_dependency_percent": after.get("youtube_dependency_percent"),
+                "youtube_family_dependency_percent": after.get("youtube_family_dependency_percent"),
                 "providers": after.get("providers"),
             },
             result={"summary": suggestion.get("summary"), "applied": applied},
