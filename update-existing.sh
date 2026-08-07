@@ -7,11 +7,13 @@ set -Eeuo pipefail
 # nadat een zelfstandig geverifieerd rollbackpakket van de huidige versie bestaat.
 # Contract-markers voor CI: top40-safe-action top40-log-reader.service
 # top40-archiver-ai.service top40-ai-recovery.service top40-ai-recovery.timer
+# top40-download-manager.service top40-provider-ai.service top40-provider-ai.timer
 # top40-archiver-freshness.service top40-archiver-freshness.timer
 # http://127.0.0.1:8040/health http://127.0.0.1:8041/healthz
 # http://127.0.0.1:8042/healthz /api/development/workspaces /api/ai/recovery
 # /api/ai/learning /api/ai/chart-freshness /api/ai/code-repair /api/ai/control-room
 # /api/ai/session/status /api/ai/session/events /api/ai/session/guidance /ai-session
+# /api/download/status /api/download/jobs /api/download/providers /download-providers
 # /ai-actions backup_configuration restore_configuration rollback_app
 # last-recovery-report.json webinterface finale controle installed_commit_sha
 
@@ -65,6 +67,37 @@ if old_version not in text:
 text = text.replace(old_version, new_version, 1)
 text = text.replace('echo "=== Preflight 1.16.0 ==="', f'echo "=== Preflight {version} ==="', 1)
 
+# 1.16.8 vervangt de oude YouTube-centrische daemon door één centrale manager.
+old_download_decl = "DOWNLOAD_SERVICE=top40-archiver-download.service\nDOWNLOAD_TIMER=top40-archiver-download.timer\n"
+new_download_decl = "LEGACY_DOWNLOAD_SERVICE=top40-archiver-download.service\nDOWNLOAD_SERVICE=top40-download-manager.service\nDOWNLOAD_TIMER=top40-archiver-download.timer\n"
+if old_download_decl not in text:
+    raise SystemExit("FOUT: downloadservice-markering in updatebasis ontbreekt")
+text = text.replace(old_download_decl, new_download_decl, 1)
+
+old_recover_download = '  systemctl start "$DOWNLOAD_SERVICE" 2>/dev/null || true\n'
+new_recover_download = (
+    '  if systemctl cat "$DOWNLOAD_SERVICE" >/dev/null 2>&1; then\n'
+    '    systemctl start "$DOWNLOAD_SERVICE" 2>/dev/null || true\n'
+    '  else\n'
+    '    systemctl start "$LEGACY_DOWNLOAD_SERVICE" 2>/dev/null || true\n'
+    '  fi\n'
+)
+if old_recover_download not in text:
+    raise SystemExit("FOUT: download rollback-startmarkering ontbreekt")
+text = text.replace(old_recover_download, new_recover_download, 1)
+
+old_stop = 'systemctl stop "$DOWNLOAD_SERVICE" 2>/dev/null || true\n'
+new_stop = 'systemctl stop "$LEGACY_DOWNLOAD_SERVICE" "$DOWNLOAD_SERVICE" 2>/dev/null || true\n'
+if old_stop not in text:
+    raise SystemExit("FOUT: download stopmarkering ontbreekt")
+text = text.replace(old_stop, new_stop, 1)
+
+final_marker = '# Download- en onderhoudsservices pas na geslaagde 8040/8041/8042-validatie\n# definitief inschakelen.\nsystemctl disable --now "$DOWNLOAD_TIMER" 2>/dev/null || true\n'
+final_extra = final_marker + 'systemctl disable --now "$LEGACY_DOWNLOAD_SERVICE" 2>/dev/null || true\n'
+if final_marker not in text:
+    raise SystemExit("FOUT: finale downloadservice-markering ontbreekt")
+text = text.replace(final_marker, final_extra, 1)
+
 old_tests = "\n".join([
     "      tests/test_ai_recovery_strategies.py " + bs,
     "      tests/test_auto_update_contract.py",
@@ -81,6 +114,9 @@ new_tests = "\n".join([
     "      tests/test_ai_session_console.py " + bs,
     "      tests/test_ai_update_handoff.py " + bs,
     "      tests/test_version_backup_contract.py " + bs,
+    "      tests/test_download_matching.py " + bs,
+    "      tests/test_download_provider_policy.py " + bs,
+    "      tests/test_download_manager_contract.py " + bs,
     "      tests/test_auto_update_contract.py",
 ])
 if old_tests not in text:
@@ -99,6 +135,7 @@ new_timers = "\n".join([
     "  top40-archiver-cover-art.timer " + bs,
     "  top40-archiver-id3-cover.timer " + bs,
     "  top40-archiver-incident-scan.timer " + bs,
+    "  top40-provider-ai.timer " + bs,
     "  top40-archiver-auto-update.timer " + bs,
 ]) + "\n"
 if old_timers not in text:
@@ -112,6 +149,7 @@ extra = (
     + "systemctl is-active --quiet top40-archiver-cover-art.timer\n"
     + "systemctl is-active --quiet top40-archiver-id3-cover.timer\n"
     + "systemctl is-active --quiet top40-archiver-incident-scan.timer\n"
+    + "systemctl is-active --quiet top40-provider-ai.timer\n"
     + "systemctl start --no-block top40-ai-recovery.service\n"
     + "systemctl start --no-block top40-archiver-freshness.service\n"
     + "systemctl start --no-block top40-archiver-cover-art.service\n"
@@ -153,6 +191,17 @@ health_extra = (
     + 'assert x.get("raw_chain_of_thought_exposed") is False\n'
     + 'assert x.get("decision_summaries_exposed") is True\n'
     + 'assert x.get("human_approval_per_cycle_required") is False\n'
+    + 'assert x.get("multi_source_download_engine") is True\n'
+    + 'assert x.get("download_manager_service") == "top40-download-manager.service"\n'
+    + 'assert x.get("provider_circuit_breakers") is True\n'
+    + 'assert x.get("provider_ai_tuning") is True\n'
+    + 'assert x.get("youtube_last_resort") is True\n'
+    + 'assert x.get("youtube_max_concurrent") == 1\n'
+    + 'assert x.get("youtube_dependency_target_percent") == 10\n'
+    + 'assert x.get("provider_personal_cookies_allowed") is False\n'
+    + 'assert x.get("captcha_bypass_allowed") is False\n'
+    + 'assert x.get("rate_limit_bypass_allowed") is False\n'
+    + 'assert x.get("proxy_rotation_allowed") is False\n'
 )
 if health_marker not in text:
     raise SystemExit("FOUT: AI health policy marker ontbreekt")
@@ -167,6 +216,10 @@ route_extra = (
     + 'curl -fsS "http://127.0.0.1:8041/api/ai/control-room?limit=25" >/dev/null\n'
     + 'curl -fsS http://127.0.0.1:8041/api/ai/session/status >/dev/null\n'
     + 'curl -fsS "http://127.0.0.1:8041/api/ai/session/events?limit=10" >/dev/null\n'
+    + 'curl -fsS http://127.0.0.1:8041/api/download/status >/dev/null\n'
+    + 'curl -fsS http://127.0.0.1:8041/api/download/providers >/dev/null\n'
+    + 'curl -fsS "http://127.0.0.1:8041/api/download/jobs?limit=5" >/dev/null\n'
+    + 'curl -fsS http://127.0.0.1:8041/download-providers >/dev/null\n'
     + 'curl -fsS http://127.0.0.1:8041/ai-session >/dev/null\n'
     + 'curl -fsS http://127.0.0.1:8041/ >/dev/null\n'
 )
@@ -174,9 +227,6 @@ if route_marker not in text:
     raise SystemExit("FOUT: AI learning route marker ontbreekt")
 text = text.replace(route_marker, route_extra, 1)
 
-# Een release wordt gevalideerd op code, database-init, HTTP-contracten en
-# systemd-units. De inhoudelijke autonome recovery-uitkomst is operationele
-# runtime-state en mag een verder gezonde softwarepromotie niet terugrollen.
 old_recovery_gate = "\n".join([
     'systemctl enable "$RECOVERY_TIMER" >/dev/null 2>&1',
     'systemctl start "$RECOVERY_SERVICE"',
