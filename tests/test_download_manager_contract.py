@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from app import download_manager
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +47,28 @@ def test_post_download_validation_is_required_before_completion():
     assert "ffprobe" in source
     assert "silencedetect" in source
     assert "MIN_FILE_BYTES" in source
+
+
+def test_existing_audio_is_never_overwritten(tmp_path):
+    source = tmp_path / "new.mp3"
+    destination = tmp_path / "existing.mp3"
+    source.write_bytes(b"n" * download_manager.MIN_FILE_BYTES)
+    original = b"o" * download_manager.MIN_FILE_BYTES
+    destination.write_bytes(original)
+
+    with pytest.raises(download_manager.DownloadValidationError, match="existing_target_conflict"):
+        download_manager._copy_atomic(source, destination)
+
+    assert destination.read_bytes() == original
+    assert not destination.with_suffix(".mp3.partial").exists()
+
+
+def test_atomic_write_uses_create_only_link_to_close_race_window():
+    source = (ROOT / "app/download_manager.py").read_text(encoding="utf-8")
+    assert "if destination.exists():" in source
+    assert "os.link(temporary, destination)" in source
+    assert "existing_target_conflict" in source
+    assert "temporary.replace(destination)" not in source
 
 
 def test_source_quality_is_recorded_separately_from_output_quality():
