@@ -4,23 +4,12 @@ import json
 import os
 import shutil
 import sqlite3
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .config import DATA_DIR, DB_PATH
-
-SERVICE_GROUPS = {
-    "web": ["top40-archiver-web.service"],
-    "download": ["top40-archiver-download.service"],
-    "cover": ["top40-archiver-cover-art.service", "top40-archiver-id3-cover.service"],
-    "ai": ["top40-archiver-ai.service"],
-    "ollama": ["ollama.service"],
-    "database": ["top40-archiver-check.service", "top40-archiver-history.service"],
-    "updater": ["top40-archiver-auto-update.service"],
-    "system": ["top40-log-reader.service", "top40-archiver-incident-scan.service"],
-}
+from .service_watchdog import service_monitor
 
 
 def _as_int(value: object, default: int = 0) -> int:
@@ -31,63 +20,6 @@ def _as_int(value: object, default: int = 0) -> int:
         return int(text)
     except (TypeError, ValueError, OverflowError):
         return default
-
-
-def _show(unit: str) -> dict[str, str]:
-    props = [
-        "ActiveState", "SubState", "Result", "MainPID", "NRestarts",
-        "ActiveEnterTimestamp", "MemoryCurrent", "CPUUsageNSec", "TasksCurrent",
-    ]
-    try:
-        proc = subprocess.run(
-            ["systemctl", "show", unit, "--property=" + ",".join(props)],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        return {"ActiveState": "unknown", "SubState": "unknown", "Result": "error", "Error": str(exc)}
-    values = {
-        key: value
-        for line in (proc.stdout or "").splitlines()
-        if "=" in line
-        for key, value in [line.split("=", 1)]
-    }
-    if proc.returncode and not values:
-        values.update({"ActiveState": "unknown", "SubState": "unknown", "Result": "error"})
-        values["Error"] = (proc.stderr or "systemctl show mislukt")[-500:]
-    return values
-
-
-def service_monitor() -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    for group, units in SERVICE_GROUPS.items():
-        for unit in units:
-            try:
-                state = _show(unit)
-                result.append({
-                    "group": group,
-                    "unit": unit,
-                    "status": state.get("ActiveState") or "unknown",
-                    "substatus": state.get("SubState") or "unknown",
-                    "result": state.get("Result") or "unknown",
-                    "pid": _as_int(state.get("MainPID")),
-                    "restarts": _as_int(state.get("NRestarts")),
-                    "last_restart": state.get("ActiveEnterTimestamp") or None,
-                    "ram_mb": round(_as_int(state.get("MemoryCurrent")) / 1048576, 1),
-                    "cpu_seconds": round(_as_int(state.get("CPUUsageNSec")) / 1_000_000_000, 1),
-                    "threads": _as_int(state.get("TasksCurrent")),
-                    "error": state.get("Error"),
-                })
-            except Exception as exc:
-                result.append({
-                    "group": group, "unit": unit, "status": "unknown",
-                    "substatus": "unknown", "result": "error", "pid": 0,
-                    "restarts": 0, "last_restart": None, "ram_mb": 0.0,
-                    "cpu_seconds": 0.0, "threads": 0, "error": str(exc)[-500:],
-                })
-    return result
 
 
 def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
@@ -197,18 +129,14 @@ def health_score() -> dict[str, Any]:
     reasons: list[str] = []
     penalties = 0
 
-    failed = sum(1 for item in services if item["status"] == "failed")
-    inactive = sum(
-        1 for item in services
-        if item["status"] not in {"active", "activating"}
-        and item["group"] in {"web", "ai", "download"}
-    )
-    if failed:
-        penalties += min(35, failed * 12)
-        reasons.append(f"{failed} services mislukt")
-    if inactive:
-        penalties += min(20, inactive * 7)
-        reasons.append(f"{inactive} kernservices niet actief")
+    critical = [item for item in services if item.get("health") == "critical"]
+    attention = [item for item in services if item.get("health") == "attention"]
+    if critical:
+        penalties += min(40, len(critical) * 10)
+        reasons.append(f"{len(critical)} vereiste services/timers vragen herstel")
+    if attention:
+        penalties += min(12, len(attention) * 3)
+        reasons.append(f"{len(attention)} services zijn aan het starten of vragen aandacht")
     if db.get("health") not in {"ok", "missing"}:
         penalties += 25
         reasons.append("databasecontrole niet OK")
@@ -232,6 +160,8 @@ def health_score() -> dict[str, Any]:
         "score": score,
         "label": "Gezond" if score >= 90 else "Aandacht" if score >= 70 else "Kritiek",
         "reasons": reasons,
+        "service_critical": len(critical),
+        "service_attention": len(attention),
         "disk_free_percent": round(free_pct, 1),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

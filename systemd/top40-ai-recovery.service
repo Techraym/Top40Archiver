@@ -1,5 +1,5 @@
 [Unit]
-Description=Top40Archiver bounded AI recovery cycle
+Description=Top40Archiver bounded AI recovery and service watchdog cycle
 After=network-online.target top40-archiver-download.service
 Wants=network-online.target
 
@@ -10,9 +10,9 @@ Group=root
 WorkingDirectory=/opt/top40-archiver
 Environment=TOP40_APP_DIR=/opt/top40-archiver
 Environment=TOP40_DATA_DIR=/var/lib/top40-archiver
-ExecStart=/opt/top40-archiver/venv/bin/python3 -m app.ai_recovery
+ExecStart=/opt/top40-archiver/venv/bin/python3 -m app.ai_recovery_entry
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/top40-archiver
+ReadWritePaths=/var/lib/top40-archiver /etc/systemd/system

@@ -1,0 +1,17 @@
+[Unit]
+Description=Top40Archiver cover art worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=top40archiver
+Group=top40archiver
+WorkingDirectory=/opt/top40-archiver
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/top40-archiver/venv/bin/python -m app.cover_art --limit 40
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=45min
