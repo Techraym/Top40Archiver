@@ -40,6 +40,23 @@ def test_normal_updater_installs_and_validates_complete_ai_stack():
         assert marker in updater, f"auto-updatecontract mist: {marker}"
 
 
+def test_service_watchdog_units_and_entrypoint_are_release_managed():
+    cover_service = ROOT / "systemd/top40-archiver-cover-art.service"
+    cover_timer = ROOT / "systemd/top40-archiver-cover-art.timer"
+    recovery_service = (ROOT / "systemd/top40-ai-recovery.service").read_text(encoding="utf-8")
+    safe_action = (ROOT / "scripts/top40-safe-action").read_text(encoding="utf-8")
+    watchdog = (ROOT / "app/service_watchdog.py").read_text(encoding="utf-8")
+
+    assert cover_service.exists()
+    assert cover_timer.exists()
+    assert "Type=oneshot" in cover_service.read_text(encoding="utf-8")
+    assert "OnUnitActiveSec=30min" in cover_timer.read_text(encoding="utf-8")
+    assert "app.ai_recovery_entry" in recovery_service
+    assert "repair_cover_timer" in safe_action
+    assert "top40-archiver-cover-art.timer" in watchdog
+    assert "paired_timer" in watchdog
+
+
 def test_update_marks_installed_sha_only_after_final_healthchecks():
     updater = (ROOT / "update-existing.sh").read_text(encoding="utf-8")
     final_health = updater.index("webinterface finale controle")
