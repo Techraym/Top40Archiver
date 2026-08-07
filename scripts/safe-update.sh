@@ -102,14 +102,18 @@ TOP40_SOURCE_SHA="$TARGET_SHA" \
 cd "$APP"
 git reset --hard "$TARGET_SHA"
 
+# De updater die deze update heeft uitgevoerd kan nog de oude versie zijn. Zet
+# daarom expliciet de gevalideerde updater uit de nieuwe commit voor de volgende run.
+install -m 0755 "$WORKTREE/scripts/safe-update.sh" /usr/local/sbin/top40-archiver-safe-update
+
 # Nog één externe controle nadat checkout en geïnstalleerde versie gelijklopen.
 curl -fsS http://127.0.0.1:8040/health >/dev/null
 if [ -f "$APP/app/ai_platform.py" ]; then
   RESPONSE="$(curl -fsS http://127.0.0.1:8041/healthz)"
-  printf '%s' "$RESPONSE" | "$APP/venv/bin/python" - "$NEW_VERSION" <<'PY'
-import json,sys
+  TOP40_AI_HEALTH="$RESPONSE" "$APP/venv/bin/python" - "$NEW_VERSION" <<'PY'
+import json,os,sys
 expected=sys.argv[1]
-data=json.load(sys.stdin)
+data=json.loads(os.environ['TOP40_AI_HEALTH'])
 assert data.get('ok') is True
 assert data.get('version') == expected
 PY
