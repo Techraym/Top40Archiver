@@ -35,6 +35,12 @@ id "$SERVICE_USER" >/dev/null 2>&1 || SERVICE_USER=top40
 chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/ai/development" "$DATA_DIR/ai/quarantine"
 chmod 0750 "$DATA_DIR/ai/development" "$DATA_DIR/ai/quarantine"
 
+# 1.16 gebruikt dezelfde begrensde herstelservice als 1.15.5, maar met de
+# nieuwe adaptieve herstelstrategieën. Installeer de units opnieuw zodat een
+# incomplete eerdere upgrade geen oude timer/service achterlaat.
+install -m 0644 systemd/top40-ai-recovery.service /etc/systemd/system/top40-ai-recovery.service
+install -m 0644 systemd/top40-ai-recovery.timer /etc/systemd/system/top40-ai-recovery.timer
+
 mkdir -p "$(dirname "$DROPIN")"
 cat >"$DROPIN" <<EOF
 [Service]
@@ -44,10 +50,21 @@ Environment=TOP40_AI_GITHUB_WRITE=0
 ReadWritePaths=$DATA_DIR/ai/development $DATA_DIR/ai/quarantine
 EOF
 
-"$VENV_PY" -m py_compile app/dev_assistant.py app/dev_assistant_api.py app/ai_platform.py
-TOP40_APP_DIR="$APP_DIR" TOP40_DATA_DIR="$DATA_DIR" PYTHONPATH="$APP_DIR" "$VENV_PY" -m pytest -q tests/test_dev_assistant.py tests/test_operations_center.py
+"$VENV_PY" -m py_compile \
+  app/dev_assistant.py \
+  app/dev_assistant_api.py \
+  app/ai_platform.py \
+  app/ai_operations_app.py \
+  app/ai_recovery.py
+
+TOP40_APP_DIR="$APP_DIR" TOP40_DATA_DIR="$DATA_DIR" PYTHONPATH="$APP_DIR" \
+  "$VENV_PY" -m pytest -q \
+    tests/test_dev_assistant.py \
+    tests/test_operations_center.py \
+    tests/test_ai_recovery_strategies.py
 
 systemctl daemon-reload
+systemctl enable --now top40-ai-recovery.timer
 systemctl restart top40-archiver-ai.service
 
 for i in $(seq 1 30); do
@@ -57,11 +74,20 @@ done
 
 grep -q '"version":"1.16.0"\|"version": "1.16.0"' /tmp/top40-1.16-health.json
 curl -fsS http://127.0.0.1:8041/api/development/workspaces >/dev/null
+curl -fsS http://127.0.0.1:8041/api/ai/recovery >/dev/null
+curl -fsS http://127.0.0.1:8041/ai-actions >/dev/null
+
+# Voer meteen één analyse/herstelcyclus uit; de gebruiker hoeft niet op de
+# eerste timer-run te wachten.
+systemctl start top40-ai-recovery.service
 
 COMPLETE=1
 trap - ERR
 
 echo "Top40Archiver 1.16.0 is geïnstalleerd."
-echo "Development Assistant: http://$(hostname -I | awk '{print $1}'):8041/development"
+echo "Operations Center:      http://$(hostname -I | awk '{print $1}'):8041/"
+echo "AI-herstelactiviteiten: http://$(hostname -I | awk '{print $1}'):8041/ai-actions"
+echo "Development Assistant:  http://$(hostname -I | awk '{print $1}'):8041/development"
+echo "AI-herstelcyclus: iedere vijf minuten via top40-ai-recovery.timer"
 echo "GitHub-writes staan standaard uit: TOP40_AI_GITHUB_WRITE=0"
 echo "Backup: $BACKUP_DIR"
