@@ -10,7 +10,7 @@ set -Eeuo pipefail
 # top40-archiver-freshness.service top40-archiver-freshness.timer
 # http://127.0.0.1:8040/health http://127.0.0.1:8041/healthz
 # http://127.0.0.1:8042/healthz /api/development/workspaces /api/ai/recovery
-# /api/ai/learning /api/ai/chart-freshness /api/ai/code-repair
+# /api/ai/learning /api/ai/chart-freshness /api/ai/code-repair /api/ai/control-room
 # /ai-actions backup_configuration restore_configuration rollback_app
 # last-recovery-report.json webinterface finale controle installed_commit_sha
 
@@ -75,6 +75,7 @@ new_tests = "\n".join([
     "      tests/test_ai_learning.py " + bs,
     "      tests/test_chart_freshness.py " + bs,
     "      tests/test_ai_code_repair_policy.py " + bs,
+    "      tests/test_ai_control_room.py " + bs,
     "      tests/test_ai_update_handoff.py " + bs,
     "      tests/test_version_backup_contract.py " + bs,
     "      tests/test_auto_update_contract.py",
@@ -108,6 +109,7 @@ extra = (
     + "systemctl is-active --quiet top40-archiver-cover-art.timer\n"
     + "systemctl is-active --quiet top40-archiver-id3-cover.timer\n"
     + "systemctl is-active --quiet top40-archiver-incident-scan.timer\n"
+    + "systemctl start --no-block top40-ai-recovery.service\n"
     + "systemctl start --no-block top40-archiver-freshness.service\n"
     + "systemctl start --no-block top40-archiver-cover-art.service\n"
 )
@@ -138,6 +140,11 @@ health_extra = (
     + 'assert x.get("code_repair_requires_verified_backup") is True\n'
     + 'assert x.get("audio_delete_allowed") is False\n'
     + 'assert x.get("verified_version_backups") is True\n'
+    + 'assert x.get("ai_control_room") is True\n'
+    + 'assert x.get("local_ai_owned_control_room_html_css") is True\n'
+    + 'assert x.get("control_room_safe_runtime") is True\n'
+    + 'assert x.get("control_room_browser_telemetry") is True\n'
+    + 'assert x.get("control_room_continuous_ui_learning") is True\n'
 )
 if health_marker not in text:
     raise SystemExit("FOUT: AI health policy marker ontbreekt")
@@ -149,6 +156,8 @@ route_extra = (
     + 'curl -fsS http://127.0.0.1:8041/api/ai/learning >/dev/null\n'
     + 'curl -fsS http://127.0.0.1:8041/api/ai/chart-freshness >/dev/null\n'
     + 'curl -fsS http://127.0.0.1:8041/api/ai/code-repair >/dev/null\n'
+    + 'curl -fsS http://127.0.0.1:8041/api/ai/control-room?limit=25 >/dev/null\n'
+    + 'curl -fsS http://127.0.0.1:8041/ >/dev/null\n'
 )
 if route_marker not in text:
     raise SystemExit("FOUT: AI learning route marker ontbreekt")

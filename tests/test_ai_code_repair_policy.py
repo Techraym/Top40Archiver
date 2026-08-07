@@ -12,6 +12,13 @@ def test_autonomous_code_repair_only_allows_functional_python_under_app():
         "app/ai_code_repair.py",
         "app/ai_code_improvement.py",
         "app/ai_learning.py",
+        "app/ai_learning_api.py",
+        "app/ai_recovery_entry.py",
+        "app/ai_platform.py",
+        "app/ai_sidecar.py",
+        "app/ai_control_room.py",
+        "app/ai_ui_designer.py",
+        "app/ai_update_handoff.py",
         "app/service_watchdog.py",
         "app/config.py",
         "app/db.py",
@@ -59,6 +66,8 @@ def test_improvement_source_map_excludes_monitoring_and_safety_code():
         "app/service_watchdog.py",
         "app/chart_freshness.py",
         "app/ai_code_repair.py",
+        "app/ai_control_room.py",
+        "app/ai_ui_designer.py",
         "app/db.py",
     ):
         assert forbidden not in flattened

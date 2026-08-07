@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import grp
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -87,17 +89,62 @@ CREATE TABLE IF NOT EXISTS autonomy_cycle (
  operator_needed INTEGER NOT NULL DEFAULT 0,
  report_json TEXT NOT NULL DEFAULT '{}'
 );
+CREATE TABLE IF NOT EXISTS ui_revision (
+ id INTEGER PRIMARY KEY,
+ revision INTEGER UNIQUE NOT NULL,
+ status TEXT NOT NULL,
+ model TEXT NOT NULL,
+ reason TEXT NOT NULL,
+ html_sha256 TEXT NOT NULL,
+ structural_score REAL NOT NULL DEFAULT 0,
+ validation_json TEXT NOT NULL DEFAULT '{}',
+ generated_at TEXT NOT NULL,
+ promoted_at TEXT,
+ superseded_at TEXT,
+ rollback_reason TEXT
+);
+CREATE TABLE IF NOT EXISTS ui_telemetry (
+ id INTEGER PRIMARY KEY,
+ revision INTEGER NOT NULL DEFAULT 0,
+ event_type TEXT NOT NULL,
+ duration_ms REAL,
+ detail_json TEXT NOT NULL DEFAULT '{}',
+ created_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_history_created ON history(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_metrics_name_created ON metrics(metric, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_action_execution_started ON action_execution(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_action_execution_problem ON action_execution(problem_key,action,status);
 CREATE INDEX IF NOT EXISTS idx_action_execution_cycle ON action_execution(cycle_id);
 CREATE INDEX IF NOT EXISTS idx_autonomy_cycle_started ON autonomy_cycle(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ui_revision_revision ON ui_revision(revision DESC);
+CREATE INDEX IF NOT EXISTS idx_ui_telemetry_revision_created ON ui_telemetry(revision,created_at DESC);
 """
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _ensure_shared_permissions() -> None:
+    """Root recovery en top40archiver webproces delen dezelfde SQLite/WAL-state."""
+    if os.geteuid() != 0:
+        return
+    try:
+        gid = grp.getgrnam("top40archiver").gr_gid
+    except KeyError:
+        return
+    for path in (
+        AI_MEMORY_PATH,
+        Path(str(AI_MEMORY_PATH) + "-wal"),
+        Path(str(AI_MEMORY_PATH) + "-shm"),
+    ):
+        try:
+            if path.exists():
+                os.chown(path, -1, gid)
+                os.chmod(path, 0o664)
+        except OSError:
+            pass
 
 
 @contextmanager
@@ -107,10 +154,12 @@ def connect() -> Iterator[sqlite3.Connection]:
     conn.row_factory = sqlite3.Row
     try:
         conn.executescript(SCHEMA)
+        _ensure_shared_permissions()
         yield conn
         conn.commit()
     finally:
         conn.close()
+        _ensure_shared_permissions()
 
 
 def remember_event(event_type: str, message: str, service: str | None = None, metadata: dict | None = None) -> None:
