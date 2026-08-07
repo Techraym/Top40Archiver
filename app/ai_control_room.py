@@ -35,6 +35,7 @@ CODE_IMPROVEMENT_STATE = DATA_DIR / "ai" / "code-improvement-state.json"
 RECOVERY_REPORT = DATA_DIR / "ai" / "last-recovery-report.json"
 OPERATIONS_REPORT = DATA_DIR / "ai" / "last-operations-worker-report.json"
 LOG_READER = os.getenv("TOP40_LOG_READER_URL", "http://127.0.0.1:8042")
+VERSION_FILE = Path(__file__).resolve().parents[1] / "VERSION"
 
 REQUIRED_SECTION_IDS = (
     "cr-summary",
@@ -69,6 +70,13 @@ FORBIDDEN_HTML_MARKERS = (
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _release_version() -> str:
+    try:
+        return VERSION_FILE.read_text(encoding="utf-8").strip() or "unknown"
+    except OSError:
+        return "unknown"
 
 
 def _load_json(path: Path, default: Any = None) -> Any:
@@ -281,7 +289,7 @@ def control_room_snapshot(action_limit: int = 200) -> dict[str, Any]:
     return {
         "ok": True,
         "generated_at": _now(),
-        "version": "1.16.5",
+        "version": _release_version(),
         "health": health_score(),
         "ollama": _ollama(),
         "autonomy": autonomy_report(7),
