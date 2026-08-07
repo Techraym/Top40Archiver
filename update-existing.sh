@@ -173,6 +173,35 @@ if route_marker not in text:
     raise SystemExit("FOUT: AI learning route marker ontbreekt")
 text = text.replace(route_marker, route_extra, 1)
 
+# Een release wordt gevalideerd op code, database-init, HTTP-contracten en
+# systemd-units. De inhoudelijke autonome recovery-uitkomst is operationele
+# runtime-state en mag een verder gezonde softwarepromotie niet terugrollen.
+old_recovery_gate = "\n".join([
+    'systemctl enable "$RECOVERY_TIMER" >/dev/null 2>&1',
+    'systemctl start "$RECOVERY_SERVICE"',
+    'systemctl enable --now "$RECOVERY_TIMER"',
+    '',
+    '[ -f "$AI_DIR/last-recovery-report.json" ] || {',
+    '  echo "FOUT: AI-herstelcyclus schreef geen herstelrapport."',
+    '  exit 1',
+    '}',
+    '"$VENV_PY" - "$AI_DIR/last-recovery-report.json" <<\'PY\'',
+    'import json,sys',
+    'with open(sys.argv[1], encoding=\'utf-8\') as f:',
+    '    report=json.load(f)',
+    "assert report.get('ok') is True",
+    "assert 'decision' in report",
+    "assert 'actions' in report",
+    'PY',
+]) + "\n"
+new_recovery_gate = "\n".join([
+    'systemctl enable --now "$RECOVERY_TIMER"',
+    'echo "AI-herstelcyclus is ingepland; operationele AI-uitkomst blokkeert softwarepromotie niet."',
+]) + "\n"
+if old_recovery_gate not in text:
+    raise SystemExit("FOUT: synchrone AI-recovery release-gate niet gevonden")
+text = text.replace(old_recovery_gate, new_recovery_gate, 1)
+
 path.write_text(text, encoding="utf-8")
 PY
 
