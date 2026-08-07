@@ -5,7 +5,7 @@ from typing import Any
 
 SERVICE_POLICIES: dict[str, dict[str, Any]] = {
     "top40-archiver-web.service": {"group": "web", "kind": "daemon", "required": True, "repair_action": "restart_web"},
-    "top40-archiver-download.service": {"group": "download", "kind": "daemon", "required": True, "repair_action": "restart_download"},
+    "top40-download-manager.service": {"group": "download", "kind": "daemon", "required": True, "repair_action": "restart_download"},
     "top40-archiver-ai.service": {"group": "ai", "kind": "daemon", "required": True, "repair_action": "restart_ai"},
     "ollama.service": {"group": "ollama", "kind": "daemon", "required": True, "repair_action": "restart_ollama"},
     "top40-log-reader.service": {"group": "system", "kind": "daemon", "required": True, "repair_action": "restart_log_reader"},
@@ -103,11 +103,6 @@ def _logical_state(unit: str, state: dict[str, str], all_states: dict[str, dict[
     if active in {"active", "activating"}:
         return "healthy", "bezig", "Oneshot-taak is op dit moment actief."
 
-    # Een timer-gestuurde oneshot mag na een mislukte uitvoering in systemd op
-    # 'failed' blijven staan. Zolang de gekoppelde timer gezond is, bestaat er
-    # een automatische retry-route en is dit een aandachtspunt, geen defecte
-    # permanente component. Dit voorkomt onder meer een vals kritiek alarm voor
-    # de auto-updater na een eerdere mislukte updatecontrole.
     if failed_last_run and paired_active:
         return (
             "attention",
