@@ -23,6 +23,11 @@ ACTIONS = {
     "run_id3_cover": ["systemctl", "start", "--no-block", "top40-archiver-id3-cover.service"],
     "run_database_check": ["systemctl", "start", "--no-block", "top40-archiver-check.service"],
     "run_history_sync": ["systemctl", "start", "--no-block", "top40-archiver-history.service"],
+    "cleanup_stale_download_temp": [
+        "/opt/top40-archiver/venv/bin/python3",
+        "-m",
+        "app.safe_temp_cleanup",
+    ],
     "diagnostics": ["systemctl", "is-system-running"],
 }
 
@@ -60,7 +65,11 @@ def main() -> int:
         "returncode": completed.returncode,
         "stdout": completed.stdout[-2000:],
         "stderr": completed.stderr[-2000:],
-        "policy": {"audio_delete_allowed": False, "free_shell": False},
+        "policy": {
+            "audio_delete_allowed": False,
+            "free_shell": False,
+            "temporary_partial_cleanup_allowed": True,
+        },
     }))
     return completed.returncode
 
