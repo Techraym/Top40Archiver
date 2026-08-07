@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import DATA_DIR, DB_PATH
-from .download_db import provider_dashboard
+from .download_metrics import provider_dashboard
 from .service_watchdog import service_monitor
 
 
@@ -128,6 +128,7 @@ def download_dashboard() -> dict[str, Any]:
             "providers": [],
             "jobs": {},
             "youtube_dependency_percent": state.get("youtube_dependency_percent", 0),
+            "youtube_family_dependency_percent": state.get("youtube_family_dependency_percent", 0),
             "target_youtube_dependency_percent": 10.0,
             "error": str(exc)[-500:],
         }
@@ -146,8 +147,12 @@ def download_dashboard() -> dict[str, Any]:
         "eta_seconds": state.get("eta_seconds"),
         "downloads_24h": provider_data.get("downloads_24h", 0),
         "without_youtube_24h": provider_data.get("without_youtube_24h", 0),
+        "without_youtube_family_24h": provider_data.get("without_youtube_family_24h", 0),
+        "youtube_music_24h": provider_data.get("youtube_music_24h", 0),
+        "youtube_24h": provider_data.get("youtube_24h", 0),
         "youtube_family_24h": provider_data.get("youtube_family_24h", 0),
         "youtube_dependency_percent": provider_data.get("youtube_dependency_percent", 0),
+        "youtube_family_dependency_percent": provider_data.get("youtube_family_dependency_percent", 0),
         "youtube_dependency_target_percent": provider_data.get("target_youtube_dependency_percent", 10.0),
         "youtube_dependency_target_met": provider_data.get("target_met"),
         "providers": provider_data.get("providers", []),
@@ -238,7 +243,7 @@ def health_score() -> dict[str, Any]:
     dependency = float(downloads.get("youtube_dependency_percent") or 0)
     if total_24h >= 10 and dependency >= 10:
         penalties += 5
-        reasons.append(f"YouTube-afhankelijkheid {dependency:.1f}% ligt boven doel <10%")
+        reasons.append(f"Directe YouTube-afhankelijkheid {dependency:.1f}% ligt boven doel <10%")
     if _as_int(covers.get("eligible_queue")) > 0 and not covers.get("running"):
         penalties += 5
         reasons.append(f"{covers['eligible_queue']} covers wachten nog op verwerking")
@@ -263,6 +268,7 @@ def health_score() -> dict[str, Any]:
         "service_attention": len(attention),
         "cover_queue": _as_int(covers.get("eligible_queue")),
         "youtube_dependency_percent": dependency,
+        "youtube_family_dependency_percent": float(downloads.get("youtube_family_dependency_percent") or 0),
         "youtube_dependency_target_percent": 10.0,
         "disk_free_percent": round(free_pct, 1),
         "generated_at": datetime.now(timezone.utc).isoformat(),
