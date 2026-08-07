@@ -77,8 +77,8 @@ def test_normal_updater_installs_and_validates_complete_ai_stack():
 
 def test_generated_updater_quotes_urls_with_query_strings():
     updater = (ROOT / "update-existing.sh").read_text(encoding="utf-8")
-    assert 'curl -fsS \\"http://127.0.0.1:8041/api/ai/control-room?limit=25\\" >/dev/null' in updater
-    assert 'curl -fsS \\"http://127.0.0.1:8041/api/ai/session/events?limit=10\\" >/dev/null' in updater
+    assert 'curl -fsS "http://127.0.0.1:8041/api/ai/control-room?limit=25" >/dev/null' in updater
+    assert 'curl -fsS "http://127.0.0.1:8041/api/ai/session/events?limit=10" >/dev/null' in updater
     assert "shopt -s nullglob" in (ROOT / "scripts/update-existing-1.16-base.sh").read_text(encoding="utf-8")
 
 
