@@ -20,6 +20,20 @@ STATE_FILE = DATA_DIR / "ai" / "code-repair-state.json"
 BACKUP_DIR = DATA_DIR / "ai" / "code-repair" / "file-backups"
 ALLOWED_PRODUCTION_PREFIX = "app/"
 ALLOWED_PRODUCTION_SUFFIXES = {".py"}
+BLOCKED_PRODUCTION_FILES = {
+    "app/ai_code_repair.py",
+    "app/ai_code_improvement.py",
+    "app/ai_learning.py",
+    "app/ai_memory.py",
+    "app/dev_assistant.py",
+    "app/dev_assistant_api.py",
+    "app/backup_health.py",
+    "app/safe_temp_cleanup.py",
+    "app/ai_storage_recovery.py",
+    "app/service_watchdog.py",
+    "app/config.py",
+    "app/db.py",
+}
 SERVICES = (
     "top40-archiver-web.service",
     "top40-archiver-download.service",
@@ -130,6 +144,8 @@ def _safe_touched_files(status: dict) -> list[str]:
         path = Path(item)
         if not item.startswith(ALLOWED_PRODUCTION_PREFIX) or path.suffix.lower() not in ALLOWED_PRODUCTION_SUFFIXES:
             raise ValueError(f"autonome productiepatch niet toegestaan voor {item}")
+        if item in BLOCKED_PRODUCTION_FILES:
+            raise ValueError(f"AI-beheer- of veiligheidsbestand is niet autonoom wijzigbaar: {item}")
         if ".." in path.parts or any(part in {"downloads", "venv", ".git"} for part in path.parts):
             raise ValueError(f"geblokkeerd patchpad: {item}")
     return files

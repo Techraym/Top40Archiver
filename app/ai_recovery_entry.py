@@ -73,7 +73,14 @@ def run_cycle() -> dict:
     # op basis van aantoonbaar terugkerend herstelwerk een functionele optimalisatie
     # testen. Beide routes gebruiken sandboxtests, versiebackup en canary-rollback.
     code_report = run_code_repair(cycle_id)
-    improvement_report = run_code_improvement(cycle_id)
+    if code_report.get("action") == "none":
+        improvement_report = run_code_improvement(cycle_id)
+    else:
+        improvement_report = {
+            "ok": True,
+            "action": "skipped_code_repair_active",
+            "reason": "Runtime-repair en optimalisatie worden nooit tegelijk gepromoveerd.",
+        }
 
     report["service_recovery"] = service_report
     report["storage_recovery"] = storage_report
@@ -113,7 +120,7 @@ def run_cycle() -> dict:
     storage_incidents = 1 if (storage_report.get("actions") or not storage_report.get("ok")) else 0
     chart_incidents = 0 if (freshness_report.get("before") or {}).get("ok") else 1
     code_incidents = 1 if code_report.get("action") not in {"none", "verify_existing_patch"} else 0
-    improvement_incidents = 1 if improvement_report.get("action") not in {"none", "measure_existing_improvement"} else 0
+    improvement_incidents = 1 if improvement_report.get("action") not in {"none", "measure_existing_improvement", "skipped_code_repair_active"} else 0
     incidents_detected = (
         service_incidents
         + download_incidents
