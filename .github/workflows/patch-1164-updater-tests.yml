@@ -1,0 +1,38 @@
+name: Include AI update handoff regression
+
+on:
+  push:
+    branches:
+      - release/1.16.4-continuous-autonomy-chart-freshness
+    paths:
+      - .github/workflows/patch-1164-updater-tests.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/1.16.4-continuous-autonomy-chart-freshness
+          fetch-depth: 0
+      - name: Add handoff regression to generated updater
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('update-existing.sh')
+          text=p.read_text(encoding='utf-8')
+          old='''    "      tests/test_ai_code_repair_policy.py " + bs,\n    "      tests/test_version_backup_contract.py " + bs,\n'''
+          new='''    "      tests/test_ai_code_repair_policy.py " + bs,\n    "      tests/test_ai_update_handoff.py " + bs,\n    "      tests/test_version_backup_contract.py " + bs,\n'''
+          if old not in text:
+              raise SystemExit('regression list marker missing')
+          p.write_text(text.replace(old,new,1),encoding='utf-8')
+          PY
+          git rm .github/workflows/patch-1164-updater-tests.yml
+          git config user.name 'Techraym release automation'
+          git config user.email '104164197+Techraym@users.noreply.github.com'
+          git add update-existing.sh
+          git commit -m 'Run AI update handoff regression before install'
+          git push origin HEAD:release/1.16.4-continuous-autonomy-chart-freshness
