@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .ai_learning import choose_action
+from .ai_session_console import operator_context, scope_held
 from .config import DATA_DIR
 from .db import connect, get_settings, now_iso, set_settings
 from .rejection_log import classify_rejection
@@ -257,6 +258,8 @@ def run_cycle() -> dict:
     failures, counts = _failure_snapshot()
     actions: list[dict] = []
     recommendations: list[str] = []
+    held = scope_held("downloads")
+    guidance = operator_context("downloads")
 
     retryable: list[dict] = []
     skipped_permanent: list[dict] = []
@@ -294,74 +297,95 @@ def run_cycle() -> dict:
         "confidence": 0.98,
     }
 
-    if stale_downloading:
-        with connect() as con:
-            ids = [int(x["id"]) for x in stale_downloading]
-            placeholders = ",".join("?" for _ in ids)
-            cursor = con.execute(
-                f"""
-                UPDATE tracks
-                SET download_status='pending', download_attempts=0, youtube_url=NULL,
-                    error_message='AI-herstel: vastgelopen download opnieuw ingepland.', updated_at=?
-                WHERE id IN ({placeholders})
-                """,
-                [now_iso(), *ids],
-            )
-            stale_released = int(cursor.rowcount or 0)
-        if stale_released:
-            actions.append({"action": "release_stale_downloads", "released": stale_released, "result": "gelukt"})
-
-    if retryable and _cooldown_ready(state, "retry_failed"):
-        first = retryable[0]
-        limit = _batch_limit_for(first)
-        selected: list[dict] = []
-        for item in retryable:
-            if len(selected) >= limit:
-                break
-            # Bij rate limiting niet tegelijk ook tientallen zoekfouten vrijgeven.
-            if first["category"] in TRANSIENT and item["category"] not in TRANSIENT:
-                continue
-            selected.append(item)
-
-        workers_before = None
-        if transient_total:
+    if held:
+        decision = {
+            "status": "operator_hold",
+            "reason": (
+                "Menselijke operator heeft nieuwe automatische downloadmutaties gepauzeerd. "
+                "Fouten, vastgelopen downloads en retrykandidaten worden wel volledig gemonitord."
+            ),
+            "confidence": 1.0,
+        }
+        recommendations.append(
+            f"Download-hold actief: {len(retryable)} retrykandidaten en {len(stale_downloading)} mogelijk vastgelopen downloads blijven ongewijzigd totdat de operator de hold beëindigt."
+        )
+    else:
+        if stale_downloading:
             with connect() as con:
-                settings = get_settings(con)
-            workers_before = int(settings.get("download_workers", "1") or 1)
-            if workers_before != 1:
-                set_settings({"download_workers": "1"})
+                ids = [int(x["id"]) for x in stale_downloading]
+                placeholders = ",".join("?" for _ in ids)
+                cursor = con.execute(
+                    f"""
+                    UPDATE tracks
+                    SET download_status='pending', download_attempts=0, youtube_url=NULL,
+                        error_message='AI-herstel: vastgelopen download opnieuw ingepland.', updated_at=?
+                    WHERE id IN ({placeholders})
+                    """,
+                    [now_iso(), *ids],
+                )
+                stale_released = int(cursor.rowcount or 0)
+            if stale_released:
+                actions.append({"action": "release_stale_downloads", "released": stale_released, "result": "gelukt"})
 
-        released, repair_details = _release_selected(selected, state)
-        restart = _run_safe_action("restart_download") if released else {"ok": True, "skipped": True}
-        action = {
-            "action": "retry_failed_downloads",
-            "released": released,
-            "selected": len(selected),
-            "workers_before": workers_before,
-            "workers_after": 1 if transient_total else workers_before,
-            "restart": restart,
-            "result": "gelukt" if released and restart.get("ok") else "gedeeltelijk" if released else "overgeslagen",
-            "repairs": repair_details[:50],
-        }
-        actions.append(action)
-        state["actions"]["retry_failed"] = _utcnow().isoformat()
-        strategies = Counter(x["strategy"] for x in repair_details)
-        decision = {
-            "status": "recover",
-            "reason": f"{released} downloads opnieuw ingepland met {len(strategies)} herstelstrategie(ën); downloader gecontroleerd herstart.",
-            "confidence": 0.97 if restart.get("ok") else 0.78,
-        }
-        recommendations.append("De AI heeft mislukte downloads opnieuw in de actieve wachtrij geplaatst.")
-        if strategies:
-            recommendations.append("Gebruikte strategieën: " + ", ".join(f"{k}={v}" for k, v in strategies.items()) + ".")
-        if transient_total:
-            recommendations.append("Tijdelijke YouTube/netwerkfouten: belasting teruggebracht naar één worker en kleinere herstelbatch.")
-    elif retryable:
-        decision = {
-            "status": "cooldown",
-            "reason": f"{len(retryable)} herstelbare downloads wachten maximaal {COOLDOWN_MINUTES} minuten om herhaalde bronbelasting te voorkomen.",
-            "confidence": 0.95,
-        }
+        if retryable and _cooldown_ready(state, "retry_failed"):
+            first = retryable[0]
+            limit = _batch_limit_for(first)
+            selected: list[dict] = []
+            for item in retryable:
+                if len(selected) >= limit:
+                    break
+                if first["category"] in TRANSIENT and item["category"] not in TRANSIENT:
+                    continue
+                selected.append(item)
+
+            workers_before = None
+            if transient_total:
+                with connect() as con:
+                    settings = get_settings(con)
+                workers_before = int(settings.get("download_workers", "1") or 1)
+                if workers_before != 1:
+                    set_settings({"download_workers": "1"})
+
+            released, repair_details = _release_selected(selected, state)
+            restart = _run_safe_action("restart_download") if released else {"ok": True, "skipped": True}
+            action = {
+                "action": "retry_failed_downloads",
+                "released": released,
+                "selected": len(selected),
+                "workers_before": workers_before,
+                "workers_after": 1 if transient_total else workers_before,
+                "restart": restart,
+                "result": "gelukt" if released and restart.get("ok") else "gedeeltelijk" if released else "overgeslagen",
+                "repairs": repair_details[:50],
+            }
+            actions.append(action)
+            state["actions"]["retry_failed"] = _utcnow().isoformat()
+            strategies = Counter(x["strategy"] for x in repair_details)
+            decision = {
+                "status": "recover",
+                "reason": f"{released} downloads opnieuw ingepland met {len(strategies)} herstelstrategie(ën); downloader gecontroleerd herstart.",
+                "confidence": 0.97 if restart.get("ok") else 0.78,
+            }
+            recommendations.append("De AI heeft mislukte downloads opnieuw in de actieve wachtrij geplaatst.")
+            if strategies:
+                recommendations.append("Gebruikte strategieën: " + ", ".join(f"{k}={v}" for k, v in strategies.items()) + ".")
+            if transient_total:
+                recommendations.append("Tijdelijke YouTube/netwerkfouten: belasting teruggebracht naar één worker en kleinere herstelbatch.")
+        elif retryable:
+            decision = {
+                "status": "cooldown",
+                "reason": f"{len(retryable)} herstelbare downloads wachten maximaal {COOLDOWN_MINUTES} minuten om herhaalde bronbelasting te voorkomen.",
+                "confidence": 0.95,
+            }
+
+        if stale_downloading and not any(x.get("action") == "retry_failed_downloads" for x in actions):
+            restart = _run_safe_action("restart_download")
+            actions.append({
+                "action": "restart_after_stale_release",
+                "released": len(stale_downloading),
+                "restart": restart,
+                "result": "gelukt" if restart.get("ok") else "gedeeltelijk",
+            })
 
     if skipped_limit:
         recommendations.append(
@@ -371,15 +395,6 @@ def run_cycle() -> dict:
         recommendations.append(
             f"{len(skipped_permanent)} fouten lijken permanent of vereisen menselijke actie; die worden niet blind opnieuw belast."
         )
-
-    if stale_downloading and not any(x.get("action") == "retry_failed_downloads" for x in actions):
-        restart = _run_safe_action("restart_download")
-        actions.append({
-            "action": "restart_after_stale_release",
-            "released": len(stale_downloading),
-            "restart": restart,
-            "result": "gelukt" if restart.get("ok") else "gedeeltelijk",
-        })
 
     with connect() as con:
         status_rows = con.execute(
@@ -398,6 +413,8 @@ def run_cycle() -> dict:
         "decision": decision,
         "actions": actions,
         "recommendations": recommendations,
+        "operator_hold": held,
+        "operator_guidance": guidance,
         "verification": {
             "status_after": status_after,
             "pending_after": status_after.get("pending", 0),
