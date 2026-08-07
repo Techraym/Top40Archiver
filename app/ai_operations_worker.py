@@ -19,6 +19,7 @@ from .service_watchdog import service_monitor
 
 STATE_FILE = DATA_DIR / "ai" / "operations-worker-state.json"
 REPORT_FILE = DATA_DIR / "ai" / "last-operations-worker-report.json"
+MODEL_TIMEOUT_SECONDS = 45
 COOLDOWNS = {
     "run_cover_art": 5,
     "restart_cover_art": 30,
@@ -136,6 +137,57 @@ def collect_snapshot() -> dict[str, Any]:
     }
 
 
+def _model_needed(snapshot: dict, actions: list[dict], recommendations: list[str]) -> bool:
+    services = snapshot.get("services") or {}
+    database = snapshot.get("database") or {}
+    disk = snapshot.get("disk") or {}
+    backup = snapshot.get("backup") or {}
+    return bool(
+        actions
+        or recommendations
+        or services.get("critical")
+        or services.get("attention")
+        or database.get("health") not in {"ok", "missing"}
+        or float(disk.get("free_percent") or 0) < 10
+        or not backup.get("ok")
+    )
+
+
+def _compact_model_snapshot(snapshot: dict) -> dict:
+    covers = snapshot.get("covers") or {}
+    database = snapshot.get("database") or {}
+    downloads = snapshot.get("downloads") or {}
+    backup = snapshot.get("backup") or {}
+    services = snapshot.get("services") or {}
+    return {
+        "services": {
+            "critical": list(services.get("critical") or []),
+            "attention": list(services.get("attention") or []),
+        },
+        "covers": {
+            key: covers.get(key)
+            for key in ("eligible_queue", "without_cover", "running", "updated_at")
+            if key in covers
+        },
+        "database": {
+            key: database.get(key)
+            for key in ("health", "size_mb", "wal", "quick_check")
+            if key in database
+        },
+        "downloads": {
+            key: downloads.get(key)
+            for key in ("queue", "pending", "failed", "youtube_errors", "downloaded")
+            if key in downloads
+        },
+        "disk": snapshot.get("disk"),
+        "backup": {
+            key: backup.get(key)
+            for key in ("ok", "version", "git_sha", "created_at", "verified_at")
+            if key in backup
+        },
+    }
+
+
 def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list[str]) -> dict:
     if not snapshot.get("ollama", {}).get("reachable"):
         return {
@@ -143,15 +195,19 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
             "summary": "Ollama is niet bereikbaar; deterministische veiligheidsregels blijven actief.",
         }
 
-    compact = {
-        "services": snapshot.get("services"),
-        "covers": snapshot.get("covers"),
-        "database": snapshot.get("database"),
-        "downloads": snapshot.get("downloads"),
-        "disk": snapshot.get("disk"),
-        "backup": snapshot.get("backup"),
+    if not _model_needed(snapshot, actions, recommendations):
+        return {
+            "available": True,
+            "skipped": True,
+            "summary": "Deterministische controles zijn gezond; er is geen afwijking waarvoor deze cyclus extra Qwen-analyse nodig heeft.",
+            "risk": "low",
+            "attention": [],
+            "next_check": "volgende autonome cyclus",
+        }
+
+    compact = _compact_model_snapshot(snapshot) | {
         "operator_guidance": operator_context("operations"),
-        "learned_action_outcomes": learning_context(12),
+        "learned_action_outcomes": learning_context(8),
         "actions_already_selected_by_policy": [
             {"action": x.get("action"), "ok": x.get("ok"), "reason": x.get("reason")}
             for x in actions
@@ -159,15 +215,13 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
         "policy_recommendations": recommendations,
     }
     prompt = (
-        "Je bent de lokale Top40Archiver operations-assistent. Analyseer de compacte status NA de "
-        "automatische policy-acties en gebruik de meegegeven eerdere actie-uitkomsten als ervaring. "
-        "Actieve menselijke operatorrichtlijnen hebben prioriteit als lokale voorkeur, maar mogen NOOIT "
-        "harde veiligheidsregels, whitelists, backupregels of audio-bescherming versoepelen. "
+        "Je bent de lokale Top40Archiver operations-assistent. Analyseer uitsluitend de afwijkingen in de "
+        "compacte status NA de automatische policy-acties en gebruik eerdere geverifieerde actie-uitkomsten "
+        "als ervaring. Actieve menselijke operatorrichtlijnen hebben prioriteit als lokale voorkeur, maar "
+        "mogen NOOIT harde veiligheidsregels, whitelists, backupregels of audio-bescherming versoepelen. "
         "Je mag GEEN shellcommando's, verwijderacties voor audio of nieuwe uitvoerbare acties verzinnen; "
-        "uitvoerbare acties worden uitsluitend door de policy-engine bepaald. Retourneer alleen JSON "
-        "met velden summary, risk (low/medium/high), attention (array van korte Nederlandse teksten) "
-        "en next_check. Benoem downloadwachtrij, coververwerking, database, backups, schijfruimte en "
-        "services alleen wanneer ze werkelijk aandacht vragen.\n\n"
+        "uitvoerbare acties worden uitsluitend door de policy-engine bepaald. Retourneer alleen compact JSON "
+        "met summary, risk (low/medium/high), attention (array van korte Nederlandse teksten) en next_check.\n\n"
         + json.dumps(compact, ensure_ascii=False)
     )
     try:
@@ -179,8 +233,9 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
                 "stream": False,
                 "format": "json",
                 "keep_alive": "30m",
+                "options": {"temperature": 0.1, "num_predict": 320},
             },
-            timeout=120,
+            timeout=MODEL_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         text = str(response.json().get("response") or "").strip()
@@ -191,6 +246,14 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
             "available": True,
             "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
             **payload,
+        }
+    except requests.Timeout as exc:
+        return {
+            "available": False,
+            "timed_out": True,
+            "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+            "summary": "Qwen bereikte de tijdslimiet; de policy-engine heeft de veilige controles en acties wel afgerond en de cyclus gaat verder.",
+            "error": str(exc)[-500:],
         }
     except Exception as exc:
         return {
@@ -323,6 +386,8 @@ def run_operations_worker() -> dict:
             "verified_backup_before_version_change": True,
             "operator_guidance_priority": True,
             "operator_hold_supported": True,
+            "routine_model_calls_skipped_when_healthy": True,
+            "model_timeout_seconds": MODEL_TIMEOUT_SECONDS,
         },
     }
     state["last_cycle"] = report["generated_at"]
