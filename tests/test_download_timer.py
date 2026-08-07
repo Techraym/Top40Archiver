@@ -38,12 +38,20 @@ def test_auto_update_runs_two_minutes_after_boot_and_every_day():
     assert "Persistent=true" in content
 
 
-def test_update_schedules_reboot_only_after_successful_install():
+def test_update_schedules_reboot_only_after_all_healthchecks_and_state_commit():
     content = (ROOT / "update-existing.sh").read_text(encoding="utf-8")
 
     assert "schedule_reboot()" in content
     assert "--on-active=1min" in content
-    assert "Dashboard-healthcheck is geslaagd" in content
-    assert content.index("Dashboard-healthcheck is geslaagd") < content.index(
-        "if ! schedule_reboot"
-    )
+    assert "webinterface finale controle" in content
+    assert "AI-platform finale controle" in content
+    assert "logreader finale controle" in content
+    assert "installed_commit_sha" in content
+    assert "UPDATE_COMPLETE=1" in content
+
+    reboot = content.index("if ! schedule_reboot")
+    assert content.index("webinterface finale controle") < reboot
+    assert content.index("AI-platform finale controle") < reboot
+    assert content.index("logreader finale controle") < reboot
+    assert content.index("installed_commit_sha") < reboot
+    assert content.index("UPDATE_COMPLETE=1") < reboot
