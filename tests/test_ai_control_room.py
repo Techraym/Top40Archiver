@@ -52,16 +52,19 @@ def test_control_room_routes_and_ai_platform_contract_are_release_managed():
     platform = (ROOT / "app/ai_platform.py").read_text(encoding="utf-8")
     recovery = (ROOT / "app/ai_recovery_entry.py").read_text(encoding="utf-8")
     memory = (ROOT / "app/ai_memory.py").read_text(encoding="utf-8")
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
-    assert 'VERSION = "1.16.6"' in sidecar
+    assert version == "1.16.8"
+    assert "VERSION = _release_version()" in sidecar
     assert "control_room_response()" in sidecar
     assert "app.include_router(control_room_router)" in sidecar
-    assert 'VERSION = "1.16.6"' in platform
+    assert "VERSION = _release_version()" in platform
     assert '"local_ai_owned_control_room_html_css": True' in platform
     assert '"control_room_safe_runtime": True' in platform
     assert '"control_room_browser_telemetry": True' in platform
     assert '"control_room_continuous_ui_learning": True' in platform
     assert '"ai_session_console": True' in platform
+    assert '"multi_source_download_engine": True' in platform
     assert "run_ui_designer(cycle_id)" in recovery
     assert "control_room_ui" in recovery
     assert "CREATE TABLE IF NOT EXISTS ui_revision" in memory
