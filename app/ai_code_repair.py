@@ -13,6 +13,7 @@ from pathlib import Path
 import requests
 
 from .ai_learning import complete_action, start_action
+from .ai_session_console import operator_context
 from .config import APP_DIR, DATA_DIR
 from .dev_assistant import create_workspace, save_patch, validate_workspace, workspace_status
 
@@ -31,6 +32,7 @@ BLOCKED_PRODUCTION_FILES = {
     "app/ai_sidecar.py",
     "app/ai_control_room.py",
     "app/ai_ui_designer.py",
+    "app/ai_session_console.py",
     "app/ai_update_handoff.py",
     "app/dev_assistant.py",
     "app/dev_assistant_api.py",
@@ -123,11 +125,15 @@ def _read_sources(files: list[str]) -> str:
 
 
 def _ask_model(candidate: dict) -> str:
+    guidance = operator_context("code")
     prompt = (
         "Je bent de autonome Top40Archiver code-repair worker. Herstel uitsluitend de aangetoonde runtimefout. "
         "Maak de kleinst mogelijke veilige wijziging. Verander geen downloadbestanden, database-inhoud, secrets, "
-        "systemd, updatebeleid of beveiligingsregels. Geef UITSLUITEND een unified git diff die met git apply werkt; "
-        "geen markdown en geen uitleg. Als de fout niet veilig aantoonbaar uit deze broncode kan worden hersteld, antwoord NO_PATCH.\n\n"
+        "systemd, updatebeleid of beveiligingsregels. Actieve menselijke operatorrichtlijnen sturen de gewenste "
+        "oplossingsrichting, maar mogen deze harde grenzen nooit versoepelen. Geef UITSLUITEND een unified git diff "
+        "die met git apply werkt; geen markdown en geen uitleg. Als de fout niet veilig aantoonbaar uit deze "
+        "broncode kan worden hersteld, antwoord NO_PATCH.\n\n"
+        "OPERATORRICHTLIJNEN:\n" + guidance + "\n\n"
         "FOUTBEWIJS:\n" + candidate["evidence"] + "\n\nBRONCODE:\n" + _read_sources(candidate["files"])
     )
     response = requests.post(
@@ -278,9 +284,6 @@ def run_code_repair(cycle_id: str) -> dict:
     seen["last_seen"] = _now().isoformat()
     _save_state(state)
 
-    # Als de eerste waarneming al een volledig gevalideerde sandboxpatch opleverde,
-    # hoeft de tweede onafhankelijke foutwaarneming niet opnieuw op Ollama/tests te
-    # wachten. De bestaande patch kan dan direct naar de backup+canary-fase.
     cached_workspace = str(seen.get("validated_workspace") or "")
     if cached_workspace and int(seen.get("samples") or 0) >= 2:
         try:
@@ -324,8 +327,6 @@ def run_code_repair(cycle_id: str) -> dict:
         except ValueError:
             pass
 
-    # Eén fout wordt direct geanalyseerd. Automatische productiepromotie vereist
-    # twee onafhankelijke foutwaarnemingen zodat een eenmalige ruisregel geen code wijzigt.
     analysis_id = start_action(
         cycle_id=cycle_id,
         domain="code",
