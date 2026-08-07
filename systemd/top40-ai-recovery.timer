@@ -1,9 +1,11 @@
 [Unit]
-Description=Run Top40Archiver AI recovery every five minutes
+Description=Run Top40Archiver AI operations cycle every five minutes
+Wants=top40-archiver-cover-art.timer top40-archiver-id3-cover.timer top40-archiver-history.timer top40-archiver-check.timer top40-archiver-incident-scan.timer
+After=top40-archiver-cover-art.timer top40-archiver-id3-cover.timer
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=5min
+OnUnitInactiveSec=5min
 AccuracySec=20s
 Persistent=true
 Unit=top40-ai-recovery.service

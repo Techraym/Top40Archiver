@@ -70,7 +70,11 @@ def _safe_action(action: str) -> dict:
 
 def _model_assessment(critical: list[dict]) -> dict:
     if not critical:
-        return {"available": True, "summary": "Geen vereiste systemd-componenten vragen herstel."}
+        return {
+            "available": True,
+            "summary": "Na de policy-acties zijn geen vereiste systemd-componenten meer defect.",
+        }
+
     model = os.getenv("TOP40_AI_MODEL", "qwen3:4b")
     compact = [
         {
@@ -84,23 +88,34 @@ def _model_assessment(critical: list[dict]) -> dict:
         for item in critical
     ]
     prompt = (
-        "Je bent de lokale Top40Archiver operations-assistent. Analyseer uitsluitend deze "
-        "systemd-afwijkingen. De acties zijn al door een veiligheidsbeleid begrensd. Geef in "
-        "maximaal 3 Nederlandse zinnen aan wat uit staat, waarom dat relevant is en welke "
-        "component het eerst aandacht verdient. Verzin geen shellcommando's.\n\n"
+        "Je bent de lokale Top40Archiver operations-assistent. Analyseer uitsluitend de "
+        "systemd-afwijkingen die NA de automatische policy-acties nog bestaan. De acties zijn "
+        "door een vaste veiligheidslaag begrensd. Geef in maximaal 3 Nederlandse zinnen aan "
+        "wat nog fout is, waarom dat relevant is en wat de beheerder moet controleren. "
+        "Verzin geen shellcommando's en wijzig niets zelf.\n\n"
         + json.dumps(compact, ensure_ascii=False)
     )
     try:
         response = requests.post(
             os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate"),
-            json={"model": model, "prompt": prompt, "stream": False},
-            timeout=12,
+            json={
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "keep_alive": "30m",
+            },
+            timeout=120,
         )
         response.raise_for_status()
         text = str(response.json().get("response") or "").strip()
         return {"available": True, "model": model, "summary": text[:1500]}
     except Exception as exc:
-        return {"available": False, "model": model, "summary": "Modeldiagnose niet beschikbaar; veiligheidsbeleid blijft actief.", "error": str(exc)[-500:]}
+        return {
+            "available": False,
+            "model": model,
+            "summary": "Modeldiagnose niet beschikbaar; de policy-engine heeft de herstelacties wel uitgevoerd.",
+            "error": str(exc)[-500:],
+        }
 
 
 def run_service_recovery() -> dict:
@@ -108,9 +123,10 @@ def run_service_recovery() -> dict:
     state.setdefault("actions", {})
     before = service_monitor()
     critical = unhealthy_services(before)
-    model = _model_assessment(critical)
     actions: list[dict] = []
 
+    # Belangrijk: veilige herstelacties worden eerst uitgevoerd. Ollama is adviserend
+    # en mag het herstel van systemd-componenten nooit blokkeren.
     for item in critical:
         action = str(item.get("repair_action") or "")
         if not action:
@@ -135,10 +151,12 @@ def run_service_recovery() -> dict:
 
     after = service_monitor()
     critical_after = [x for x in after if x.get("health") == "critical"]
+    model = _model_assessment(critical_after)
+
     report = {
         "ok": not critical_after,
         "generated_at": _utcnow().isoformat(),
-        "mode": "policy-guarded-ai-service-recovery",
+        "mode": "policy-first-ai-advisory-service-recovery",
         "model_assessment": model,
         "critical_before": len(critical),
         "critical_after": len(critical_after),

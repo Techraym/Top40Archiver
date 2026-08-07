@@ -31,6 +31,15 @@ def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
         return False
 
 
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    if not _table_exists(conn, table):
+        return False
+    try:
+        return any(str(row[1]) == column for row in conn.execute(f"PRAGMA table_info({table})"))
+    except sqlite3.Error:
+        return False
+
+
 def _count(conn: sqlite3.Connection, table: str, where: str = "1=1") -> int:
     if not _table_exists(conn, table):
         return 0
@@ -42,13 +51,21 @@ def _count(conn: sqlite3.Connection, table: str, where: str = "1=1") -> int:
 
 def database_dashboard() -> dict[str, Any]:
     data: dict[str, Any] = {
-        "path": str(DB_PATH), "exists": DB_PATH.exists(), "tracks": 0,
-        "covers": 0, "duplicates": 0, "empty_artist": 0, "empty_title": 0,
-        "health": "missing", "fragmentation_percent": 0.0,
-        "vacuum_advice": False, "error": None,
+        "path": str(DB_PATH),
+        "exists": DB_PATH.exists(),
+        "tracks": 0,
+        "covers": 0,
+        "duplicates": 0,
+        "empty_artist": 0,
+        "empty_title": 0,
+        "health": "missing",
+        "fragmentation_percent": 0.0,
+        "vacuum_advice": False,
+        "error": None,
     }
     if not DB_PATH.exists():
         return data
+
     try:
         with sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=5) as conn:
             check = conn.execute("PRAGMA quick_check").fetchone()
@@ -60,12 +77,19 @@ def database_dashboard() -> dict[str, Any]:
                 data["empty_artist"] = _count(conn, track_table, "artist IS NULL OR trim(artist)='' ")
                 data["empty_title"] = _count(conn, track_table, "title IS NULL OR trim(title)='' ")
                 try:
-                    data["duplicates"] = _as_int(conn.execute(
-                        f"SELECT COALESCE(SUM(c-1),0) FROM (SELECT COUNT(*) c FROM {track_table} GROUP BY lower(trim(artist)),lower(trim(title)) HAVING c>1)"
-                    ).fetchone()[0])
+                    data["duplicates"] = _as_int(
+                        conn.execute(
+                            f"SELECT COALESCE(SUM(c-1),0) FROM (SELECT COUNT(*) c FROM {track_table} GROUP BY lower(trim(artist)),lower(trim(title)) HAVING c>1)"
+                        ).fetchone()[0]
+                    )
                 except sqlite3.Error:
                     pass
-            data["covers"] = _count(conn, "covers") or _count(conn, "cover_art")
+
+            if track_table == "tracks" and _column_exists(conn, "tracks", "cover_url"):
+                data["covers"] = _count(conn, "tracks", "cover_url IS NOT NULL AND trim(cover_url)<>''")
+            else:
+                data["covers"] = _count(conn, "covers") or _count(conn, "cover_art")
+
             pages = _as_int(conn.execute("PRAGMA page_count").fetchone()[0])
             free = _as_int(conn.execute("PRAGMA freelist_count").fetchone()[0])
             data["fragmentation_percent"] = round((free / pages * 100) if pages else 0, 1)
@@ -105,20 +129,59 @@ def download_dashboard() -> dict[str, Any]:
     }
 
 
+def _cover_counts() -> tuple[int, int, int]:
+    if not DB_PATH.exists():
+        return 0, 0, 0
+    try:
+        with sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=5) as conn:
+            total = _as_int(conn.execute("SELECT COUNT(*) FROM tracks").fetchone()[0])
+            without_cover = _as_int(
+                conn.execute("SELECT COUNT(*) FROM tracks WHERE cover_url IS NULL OR trim(cover_url)='' ").fetchone()[0]
+            )
+            eligible = _as_int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*) FROM tracks
+                    WHERE (cover_url IS NULL OR trim(cover_url)='')
+                      AND (cover_checked_at IS NULL OR cover_checked_at < datetime('now','-14 days'))
+                    """
+                ).fetchone()[0]
+            )
+            return total, without_cover, eligible
+    except sqlite3.Error:
+        db = database_dashboard()
+        total = _as_int(db.get("tracks"))
+        covers = _as_int(db.get("covers"))
+        return total, max(0, total - covers), 0
+
+
 def cover_dashboard() -> dict[str, Any]:
-    db = database_dashboard()
     payload = _load_json(DATA_DIR / "cover_state.json")
     if not isinstance(payload, dict):
         payload = {}
-    total = _as_int(db.get("tracks"))
-    covers = _as_int(db.get("covers"))
+    total, without_cover, eligible = _cover_counts()
     return {
         "total": total,
-        "without_cover": max(0, total - covers),
+        "with_cover": max(0, total - without_cover),
+        "without_cover": without_cover,
+        "eligible_queue": eligible,
+        "processed_without_match": max(0, without_cover - eligible),
+        "running": bool(payload.get("running", False)),
+        "phase": payload.get("phase", "unknown"),
+        "current_artist": payload.get("current_artist"),
+        "current_title": payload.get("current_title"),
+        "processed_total": _as_int(payload.get("processed_total")),
+        "found_total": _as_int(payload.get("found_total")),
+        "missing_total": _as_int(payload.get("missing_total")),
+        "transient_total": _as_int(payload.get("transient_total")),
+        "queue_remaining": _as_int(payload.get("queue_remaining"), eligible),
         "per_minute": payload.get("per_minute", 0),
         "last_cover": payload.get("last_cover"),
-        "retry": _as_int(payload.get("retry")),
-        "api_errors": _as_int(payload.get("api_errors")),
+        "last_cover_at": payload.get("last_cover_at"),
+        "last_error": payload.get("last_error"),
+        "updated_at": payload.get("updated_at"),
+        "started_at": payload.get("started_at"),
+        "finished_at": payload.get("finished_at"),
     }
 
 
@@ -126,6 +189,7 @@ def health_score() -> dict[str, Any]:
     services = service_monitor()
     db = database_dashboard()
     downloads = download_dashboard()
+    covers = cover_dashboard()
     reasons: list[str] = []
     penalties = 0
 
@@ -143,6 +207,9 @@ def health_score() -> dict[str, Any]:
     if _as_int(downloads.get("youtube_errors")) > 10:
         penalties += 10
         reasons.append("veel YouTube-fouten")
+    if _as_int(covers.get("eligible_queue")) > 0 and not covers.get("running"):
+        penalties += 5
+        reasons.append(f"{covers['eligible_queue']} covers wachten nog op verwerking")
 
     try:
         disk = shutil.disk_usage(DATA_DIR if DATA_DIR.exists() else "/")
@@ -162,6 +229,7 @@ def health_score() -> dict[str, Any]:
         "reasons": reasons,
         "service_critical": len(critical),
         "service_attention": len(attention),
+        "cover_queue": _as_int(covers.get("eligible_queue")),
         "disk_free_percent": round(free_pct, 1),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
