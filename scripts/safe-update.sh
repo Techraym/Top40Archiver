@@ -19,8 +19,28 @@ if ! flock -n 9; then
   exit 20
 fi
 
+[ -d "$APP/.git" ] || { echo "FOUT: $APP is geen Git-repository; update afgebroken."; exit 21; }
+REPO_OWNER="$(stat -c '%U' "$APP")"
+REPO_GROUP="$(stat -c '%G' "$APP")"
+
+restore_git_ownership() {
+  if [ -d "$APP/.git" ] && [ -n "$REPO_OWNER" ] && [ "$REPO_OWNER" != "root" ]; then
+    chown -R "$REPO_OWNER:$REPO_GROUP" "$APP/.git" 2>/dev/null || true
+  fi
+}
+
+# De updater draait als root terwijl de live checkout bewust eigendom blijft van
+# de beheeraccount. Registreer uitsluitend het vaste applicatiepad als veilige
+# repository en geef nieuwe root-aangemaakte Git-objecten op ieder exitpad weer
+# terug aan de repository-eigenaar.
+if [ "$(id -u)" -eq 0 ]; then
+  if ! git config --system --get-all safe.directory 2>/dev/null | grep -Fxq "$APP"; then
+    git config --system --add safe.directory "$APP"
+  fi
+fi
+trap restore_git_ownership EXIT
+
 cd "$APP"
-[ -d .git ] || { echo "FOUT: $APP is geen Git-repository; update afgebroken."; exit 21; }
 mkdir -p "$BACKUP"
 
 is_ai_managed_dirty() {
@@ -87,6 +107,7 @@ WORKTREE="$(mktemp -d /tmp/top40-update.XXXXXX)"
 cleanup() {
   git worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
   rm -rf "$WORKTREE" >/dev/null 2>&1 || true
+  restore_git_ownership
 }
 trap cleanup EXIT
 git worktree add --detach "$WORKTREE" "$TARGET_SHA"
@@ -136,6 +157,7 @@ rollback() {
   systemctl start top40-log-reader.service 2>/dev/null || true
   systemctl start top40-archiver-ai.service 2>/dev/null || true
   systemctl start top40-archiver-download.service 2>/dev/null || true
+  restore_git_ownership
   exit "$rc"
 }
 trap rollback ERR
@@ -184,5 +206,6 @@ fi
 trap - ERR
 printf '%s\n' "$TARGET_SHA" > "$BACKUP/installed-sha"
 printf '%s\n' "$NEW_VERSION" > "$BACKUP/installed-version"
+restore_git_ownership
 echo "KLAAR: $CURRENT_SHA -> $TARGET_SHA (versie $NEW_VERSION)"
 echo "Backup: $BACKUP"
