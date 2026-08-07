@@ -26,9 +26,28 @@ def test_download_service_is_independent_from_web_app():
     service = (ROOT / "systemd/top40-download-manager.service").read_text(encoding="utf-8")
     assert "Type=simple" in service
     assert "User=top40archiver" in service
-    assert "-m app.cli download-manager" in service
+    assert "-m app.download_manager_entry" in service
     assert "Restart=always" in service
     assert "NoNewPrivileges=true" in service
+
+
+def test_manager_entry_recovers_interrupted_jobs_and_logs_results():
+    source = (ROOT / "app/download_manager_entry.py").read_text(encoding="utf-8")
+    assert "recover_interrupted_jobs" in source
+    for status in ("searching", "downloading", "validating", "processing"):
+        assert f"'{status}'" in source
+    assert "recovered_after_manager_restart" in source
+    assert '"job_result"' in source
+    assert '"job_exception"' in source
+    assert '"provider_search_error"' in source
+    assert "audio_delete_allowed=False" in source
+    assert "overwrite_existing_audio_allowed=False" in source
+
+
+def test_candidate_only_drm_does_not_degrade_whole_provider_in_service_runtime():
+    source = (ROOT / "app/download_manager_entry.py").read_text(encoding="utf-8")
+    assert 'CANDIDATE_ONLY_ERRORS = {"drm", "unavailable"}' in source
+    assert "candidate_error_not_provider_health_error" in source
 
 
 def test_main_chart_service_only_enqueues_downloads():

@@ -91,6 +91,11 @@ def ytdlp_runtime_args() -> list[str]:
 
 def _category_from_output(text: str) -> str:
     lowered = str(text or "").casefold()
+    # DRM is een eigenschap van deze kandidaat, niet een storing van de hele
+    # provider. Houd deze categorie apart zodat de circuit breaker niet onnodig
+    # de bron als geheel degradeert.
+    if "drm protected" in lowered or "drm-protected" in lowered or "this video is drm" in lowered:
+        return "drm"
     if "429" in lowered or "too many requests" in lowered or "rate limit" in lowered:
         return "rate_limited"
     if "captcha" in lowered:
@@ -225,5 +230,5 @@ def ytdlp_download_original(
 def default_user_agent() -> str:
     return os.getenv(
         "TOP40_PROVIDER_USER_AGENT",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36 Top40Archiver/1.16.8",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36 Top40Archiver/1.16.9",
     )

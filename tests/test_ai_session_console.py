@@ -96,8 +96,9 @@ def test_qwen_prompts_receive_operator_guidance():
 
 def test_platform_advertises_autonomous_session_and_human_override():
     source = Path("app/ai_platform.py").read_text(encoding="utf-8")
+    version = Path("VERSION").read_text(encoding="utf-8").strip()
     assert "VERSION = _release_version()" in source
-    assert Path("VERSION").read_text(encoding="utf-8").strip() == "1.16.8"
+    assert version and version.count(".") == 2
     assert '"ai_session_console": True' in source
     assert '"operator_guidance": True' in source
     assert '"operator_domain_hold": True' in source
