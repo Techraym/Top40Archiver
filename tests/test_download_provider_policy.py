@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from app.providers import DEFAULT_PROVIDER_CONFIG
+from app.providers.base import _category_from_output
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,6 +28,10 @@ def test_primary_providers_have_independent_bounded_capacity():
     assert DEFAULT_PROVIDER_CONFIG["audiomack"]["max_concurrent"] == 2
     assert DEFAULT_PROVIDER_CONFIG["audius"]["max_concurrent"] == 2
     assert DEFAULT_PROVIDER_CONFIG["bandcamp"]["max_concurrent"] == 1
+
+
+def test_drm_is_classified_as_candidate_specific_error():
+    assert _category_from_output("ERROR: This video is DRM protected") == "drm"
 
 
 def test_provider_ai_cannot_promote_youtube_or_bypass_external_safeguards():
