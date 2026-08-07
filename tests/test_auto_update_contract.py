@@ -82,6 +82,14 @@ def test_generated_updater_quotes_urls_with_query_strings():
     assert "shopt -s nullglob" in (ROOT / "scripts/update-existing-1.16-base.sh").read_text(encoding="utf-8")
 
 
+def test_release_promotion_does_not_wait_for_full_ai_recovery_cycle():
+    updater = (ROOT / "update-existing.sh").read_text(encoding="utf-8")
+    assert "old_recovery_gate" in updater
+    assert "new_recovery_gate" in updater
+    assert "operationele AI-uitkomst blokkeert softwarepromotie niet" in updater
+    assert "systemctl start --no-block top40-ai-recovery.service" in updater
+
+
 def test_service_watchdog_units_and_entrypoint_are_release_managed():
     cover_service = ROOT / "systemd/top40-archiver-cover-art.service"
     cover_timer = ROOT / "systemd/top40-archiver-cover-art.timer"
