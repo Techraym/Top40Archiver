@@ -163,9 +163,9 @@ route_extra = (
     + 'curl -fsS http://127.0.0.1:8041/api/ai/learning >/dev/null\n'
     + 'curl -fsS http://127.0.0.1:8041/api/ai/chart-freshness >/dev/null\n'
     + 'curl -fsS http://127.0.0.1:8041/api/ai/code-repair >/dev/null\n'
-    + 'curl -fsS http://127.0.0.1:8041/api/ai/control-room?limit=25 >/dev/null\n'
+    + 'curl -fsS "http://127.0.0.1:8041/api/ai/control-room?limit=25" >/dev/null\n'
     + 'curl -fsS http://127.0.0.1:8041/api/ai/session/status >/dev/null\n'
-    + 'curl -fsS http://127.0.0.1:8041/api/ai/session/events?limit=10 >/dev/null\n'
+    + 'curl -fsS "http://127.0.0.1:8041/api/ai/session/events?limit=10" >/dev/null\n'
     + 'curl -fsS http://127.0.0.1:8041/ai-session >/dev/null\n'
     + 'curl -fsS http://127.0.0.1:8041/ >/dev/null\n'
 )
