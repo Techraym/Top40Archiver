@@ -1,5 +1,266 @@
 # Top40Archiver
 
-Top40Archiver archiveert Nederlandse Top 40- en Tipparade-edities, downloadt muziek, verrijkt metadata en biedt een webdashboard voor beheer, historie en autonome AI-bewaking.
+[![Tests](https://github.com/Techraym/Top40Archiver/actions/workflows/tests.yml/badge.svg)](https://github.com/Techraym/Top40Archiver/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Debian 13](https://img.shields.io/badge/Debian-13-red.svg)](https://www.debian.org/)
 
-Zie de documentatie in `docs/` voor installatie, architectuur, updates en release-informatie.
+Top40Archiver bouwt op Debian automatisch een lokaal muziekarchief op uit de Nederlandse **Top 40 en Tipparade**. SQLite bepaalt permanent welke nummers al zijn verwerkt; alleen werkelijk nieuwe nummers worden gedownload.
+
+## Kernwerking
+
+```text
+Top 40 + Tipparade ophalen
+→ artiest en titel normaliseren
+→ vergelijken met SQLite
+→ Spotify gebruiken als metadata-controle
+→ passende YouTube-versie zoeken
+→ als MP3 downloaden
+→ opslaan per genre en beginteken
+→ permanent registreren in SQLite
+```
+
+Een nummer dat eerst in de Tipparade staat en later in de Top 40 komt, wordt niet opnieuw gedownload. Een MP3 die later van de externe schijf wordt verwijderd, wordt evenmin opnieuw gedownload wanneer SQLite al status `downloaded` bevat.
+
+## Functies
+
+- actuele Top 40 en Tipparade;
+- historische Top 40 vanaf `1965-W01`;
+- historische Tipparade vanaf `1967-W28`;
+- hervatbare historische batches;
+- automatische overgang naar wekelijkse actuele controles;
+- permanente downloadtimer die iedere vijf minuten maximaal twintig wachtende tracks verwerkt;
+- standaard twee parallelle downloadworkers met één globale proceslock;
+- Spotify uitsluitend voor metadata, nooit voor audio;
+- YouTube-download via yt-dlp en FFmpeg;
+- live FastAPI-dashboard op poort `8040`;
+- systemd-services en timers;
+- automatische GitHub-updates bij opstarten en iedere 24 uur;
+- commit-SHA-vergelijking en SHA-256-registratie van updatearchieven;
+- externe USB-C-opslag als Windows-netwerkschijf via Samba;
+- opslag als `Genre/beginletter/Artiest - Titel.mp3`.
+
+## Opslag en database
+
+Database op de interne systeemschijf:
+
+```text
+/var/lib/top40-archiver/top40.sqlite3
+```
+
+Standaard downloadmap:
+
+```text
+/mnt/top40-music/Top40
+```
+
+Voorbeeld:
+
+```text
+/mnt/top40-music/Top40/Pop/A/Adele - Hello.mp3
+/mnt/top40-music/Top40/Dance/2/2 Unlimited - No Limit.mp3
+/mnt/top40-music/Top40/Rock/#/#1 Dads - So Soldier.mp3
+```
+
+## Nieuwe installatie op Debian 13
+
+```bash
+git clone https://github.com/Techraym/Top40Archiver.git
+cd Top40Archiver
+chmod +x install.sh update-existing.sh update-from-github.sh auto-update.sh setup-network-share.sh update-timer.sh
+su -c ./install.sh
+```
+
+Open daarna:
+
+```text
+http://<IP-VAN-DE-NUC>:8040
+```
+
+## Bestaande installatie updaten vanaf GitHub
+
+```bash
+su -
+curl -fL \
+  https://raw.githubusercontent.com/Techraym/Top40Archiver/main/update-from-github.sh \
+  -o /tmp/update-top40-archiver.sh
+chmod +x /tmp/update-top40-archiver.sh
+/tmp/update-top40-archiver.sh
+```
+
+De bestaande database, instellingen, historische voortgang en downloadstatussen blijven behouden.
+
+## Permanente downloadwachtrij
+
+De timer `top40-archiver-download.timer` start vijf minuten na het opstarten. Daarna wordt vijf minuten na het einde van iedere downloadronde opnieuw een batch gestart. Iedere batch verwerkt maximaal twintig tracks. De bestaande globale workerlock voorkomt gelijktijdige verwerking door de downloadtimer, een historische batch en een handmatige retry.
+
+Status bekijken:
+
+```bash
+systemctl status top40-archiver-download.timer --no-pager
+systemctl list-timers --all | grep top40-archiver-download
+```
+
+De actieve of laatste downloadronde bekijken:
+
+```bash
+systemctl status top40-archiver-download.service --no-pager -l
+journalctl -u top40-archiver-download.service -n 100 --no-pager -l
+```
+
+Een ronde direct starten:
+
+```bash
+systemctl start top40-archiver-download.service
+```
+
+De timer uitschakelen of opnieuw inschakelen:
+
+```bash
+systemctl disable --now top40-archiver-download.timer
+systemctl enable --now top40-archiver-download.timer
+```
+
+## Automatische updates en SHA-controle
+
+Na de eerste installatie of update wordt automatisch gecontroleerd:
+
+- twee minuten na iedere systeemstart;
+- vervolgens iedere 24 uur;
+- na een gemiste uitvoering zodra de machine weer actief is.
+
+De updater vergelijkt:
+
+```text
+lokaal geïnstalleerde commit-SHA
+↔ actuele commit-SHA van GitHub main
+```
+
+Alleen wanneer deze verschillen, wordt de ZIP van de exacte GitHub-commit gedownload. Van het archief wordt daarnaast een SHA-256-controlesom berekend en opgeslagen. De lokaal geïnstalleerde SHA wordt pas bijgewerkt nadat de volledige installatie is geslaagd.
+
+Status bekijken:
+
+```bash
+systemctl status top40-archiver-auto-update.timer --no-pager
+systemctl list-timers --all | grep top40-archiver-auto-update
+journalctl -u top40-archiver-auto-update.service -n 100 --no-pager
+```
+
+Handmatig controleren:
+
+```bash
+systemctl start top40-archiver-auto-update.service
+```
+
+Geforceerd de actuele GitHub-commit opnieuw installeren:
+
+```bash
+/opt/top40-archiver/auto-update.sh --force
+```
+
+Updategegevens staan in:
+
+```text
+/var/lib/top40-archiver/update-state/
+```
+
+Zie [de volledige update- en Samba-instructie](docs/UPDATE_AND_SMB.md).
+
+## Spotify als controle instellen
+
+```bash
+nano /etc/top40-archiver.env
+```
+
+```text
+SPOTIFY_CLIENT_ID=jouw_client_id
+SPOTIFY_CLIENT_SECRET=jouw_client_secret
+SPOTIFY_MARKET=NL
+```
+
+Daarna:
+
+```bash
+systemctl restart top40-archiver-web.service
+```
+
+## Externe opslag delen met Windows
+
+De externe schijf moet eerst gekoppeld en schrijfbaar zijn op `/mnt/top40-music`.
+
+```bash
+findmnt /mnt/top40-music
+runuser -u top40archiver -- test -w /mnt/top40-music && echo "Schrijven werkt"
+/opt/top40-archiver/setup-network-share.sh
+```
+
+Windows-pad:
+
+```text
+\\Top40\Top40Music
+```
+
+of:
+
+```text
+\\<IP-VAN-DE-NUC>\Top40Music
+```
+
+Gebruik Linux-/Samba-gebruiker `top40`.
+
+## Diensten en logs
+
+```bash
+systemctl status top40-archiver-web.service --no-pager
+systemctl status top40-archiver-download.timer --no-pager
+systemctl status top40-archiver-check.timer --no-pager
+systemctl status top40-archiver-history.timer --no-pager
+systemctl status top40-archiver-auto-update.timer --no-pager
+systemctl status smbd.service --no-pager
+```
+
+Downloadwachtrij:
+
+```bash
+systemctl start top40-archiver-download.service
+journalctl -u top40-archiver-download.service -f
+```
+
+Actuele controle:
+
+```bash
+systemctl start top40-archiver-check.service
+journalctl -u top40-archiver-check.service -f
+```
+
+Historische batch:
+
+```bash
+systemctl start top40-archiver-history.service
+journalctl -u top40-archiver-history.service -f
+```
+
+## Ontwikkelen en testen
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install pytest
+pytest
+```
+
+## Documentatie
+
+- [Architectuur](docs/ARCHITECTURE.md)
+- [Updaten en Samba](docs/UPDATE_AND_SMB.md)
+- [Changelog](CHANGELOG.md)
+- [Bijdragen](CONTRIBUTING.md)
+- [Security](SECURITY.md)
+
+## Juridisch gebruik
+
+Gebruik downloadfunctionaliteit alleen voor materiaal waarvoor je toestemming of een andere geldige juridische grondslag hebt. De gebruiker blijft verantwoordelijk voor naleving van auteursrecht en de voorwaarden van de gebruikte diensten.
+
+## Licentie
+
+MIT — zie [LICENSE](LICENSE).
