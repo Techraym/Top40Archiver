@@ -1,0 +1,47 @@
+name: Apply fast validated code repair recurrence
+
+on:
+  push:
+    branches:
+      - release/1.16.4-continuous-autonomy-chart-freshness
+    paths:
+      - .github/workflows/patch-1164-fast-code-repair.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/1.16.4-continuous-autonomy-chart-freshness
+          fetch-depth: 0
+      - name: Cache validated patch and promote on second observation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/ai_code_repair.py')
+          text=p.read_text(encoding='utf-8')
+
+          old='''    previous = seen.get("last_attempt")\n    if previous:\n        try:\n            if _now() - datetime.fromisoformat(str(previous)) < timedelta(minutes=REPAIR_COOLDOWN_MINUTES):\n                return {"ok": True, "action": "cooldown", "candidate": candidate["fingerprint"], "samples": seen["samples"]}\n        except ValueError:\n            pass\n\n    # Eén fout wordt direct geanalyseerd. Automatische productiepromotie vereist\n'''
+          new='''    # Als de eerste waarneming al een volledig gevalideerde sandboxpatch opleverde,\n    # hoeft de tweede onafhankelijke foutwaarneming niet opnieuw op Ollama/tests te\n    # wachten. De bestaande patch kan dan direct naar de backup+canary-fase.\n    cached_workspace = str(seen.get("validated_workspace") or "")\n    if cached_workspace and int(seen.get("samples") or 0) >= 2:\n        try:\n            cached = workspace_status(cached_workspace)\n            if (cached.get("validation") or {}).get("ok"):\n                promote_id = start_action(\n                    cycle_id=cycle_id,\n                    domain="code",\n                    problem_key=f"code:{candidate['fingerprint']}",\n                    action="promote_validated_patch",\n                    reason="Tweede onafhankelijke waarneming van dezelfde fout; eerder gevalideerde sandboxpatch wordt direct als canary getest.",\n                    subject=candidate["fingerprint"],\n                    before={"workspace": cached_workspace, "samples": seen["samples"]},\n                    reversible=True,\n                )\n                promotion = _promote(cached_workspace, candidate["fingerprint"])\n                seen.pop("validated_workspace", None)\n                state["active"] = {\n                    "fingerprint": candidate["fingerprint"],\n                    "workspace_id": cached_workspace,\n                    "action_id": promote_id,\n                    "promoted_at": _now().isoformat(),\n                    "files": promotion["files"],\n                    "file_backup": promotion["file_backup"],\n                    "version_backup": promotion["version_backup"],\n                }\n                _save_state(state)\n                return {"ok": True, "action": "promoted_canary", "candidate": candidate["fingerprint"], "promotion": promotion, "reused_validated_workspace": True}\n            seen.pop("validated_workspace", None)\n        except Exception:\n            seen.pop("validated_workspace", None)\n\n    previous = seen.get("last_attempt")\n    if previous:\n        try:\n            parsed = datetime.fromisoformat(str(previous))\n            if parsed.tzinfo is None:\n                parsed = parsed.replace(tzinfo=timezone.utc)\n            if _now() - parsed < timedelta(minutes=REPAIR_COOLDOWN_MINUTES):\n                return {"ok": True, "action": "cooldown", "candidate": candidate["fingerprint"], "samples": seen["samples"]}\n        except ValueError:\n            pass\n\n    # Eén fout wordt direct geanalyseerd. Automatische productiepromotie vereist\n'''
+          if old not in text:
+              raise SystemExit('cooldown block not found')
+          text=text.replace(old,new,1)
+
+          old='''        if not valid or int(seen.get("samples") or 0) < 2:\n            _save_state(state)\n            return {"ok": True, "action": "validated_waiting_for_recurrence" if valid else "validation_failed", "workspace": workspace["id"], "samples": seen["samples"]}\n\n        promote_id = start_action(\n'''
+          new='''        if not valid:\n            seen.pop("validated_workspace", None)\n            _save_state(state)\n            return {"ok": True, "action": "validation_failed", "workspace": workspace["id"], "samples": seen["samples"]}\n        if int(seen.get("samples") or 0) < 2:\n            seen["validated_workspace"] = workspace["id"]\n            _save_state(state)\n            return {"ok": True, "action": "validated_waiting_for_recurrence", "workspace": workspace["id"], "samples": seen["samples"]}\n\n        seen.pop("validated_workspace", None)\n        promote_id = start_action(\n'''
+          if old not in text:
+              raise SystemExit('validation wait block not found')
+          text=text.replace(old,new,1)
+          p.write_text(text,encoding='utf-8')
+          PY
+
+          git rm .github/workflows/patch-1164-fast-code-repair.yml
+          git config user.name 'Techraym release automation'
+          git config user.email '104164197+Techraym@users.noreply.github.com'
+          git add app/ai_code_repair.py
+          git commit -m 'Promote validated code repair on second observation'
+          git push origin HEAD:release/1.16.4-continuous-autonomy-chart-freshness
