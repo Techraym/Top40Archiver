@@ -8,18 +8,27 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 
-VERSION = "1.15.5"
+VERSION = "1.16.0"
 app = FastAPI(title="Top40 Log Reader", version=VERSION, docs_url=None, redoc_url=None)
 
 SERVICE_UNITS = {
     "web": ["top40-archiver-web.service"],
     "download": ["top40-archiver-download.service"],
-    "cover": ["top40-archiver-cover-art.service", "top40-archiver-id3-cover.service"],
-    "ai": ["top40-archiver-ai.service"],
+    "cover": [
+        "top40-archiver-cover-art.service", "top40-archiver-cover-art.timer",
+        "top40-archiver-id3-cover.service", "top40-archiver-id3-cover.timer",
+    ],
+    "ai": ["top40-archiver-ai.service", "top40-ai-recovery.service", "top40-ai-recovery.timer"],
     "ollama": ["ollama.service"],
-    "database": ["top40-archiver-check.service", "top40-archiver-history.service"],
-    "updater": ["top40-archiver-auto-update.service"],
-    "system": ["top40-log-reader.service", "top40-archiver-incident-scan.service"],
+    "database": [
+        "top40-archiver-check.service", "top40-archiver-check.timer",
+        "top40-archiver-history.service", "top40-archiver-history.timer",
+    ],
+    "updater": ["top40-archiver-auto-update.service", "top40-archiver-auto-update.timer"],
+    "system": [
+        "top40-log-reader.service",
+        "top40-archiver-incident-scan.service", "top40-archiver-incident-scan.timer",
+    ],
 }
 LEVEL_RE = re.compile(r"\b(error|failed|failure|critical|exception|traceback|warning|warn|429)\b", re.I)
 
