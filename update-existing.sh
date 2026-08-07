@@ -11,6 +11,7 @@ set -Eeuo pipefail
 # http://127.0.0.1:8040/health http://127.0.0.1:8041/healthz
 # http://127.0.0.1:8042/healthz /api/development/workspaces /api/ai/recovery
 # /api/ai/learning /api/ai/chart-freshness /api/ai/code-repair /api/ai/control-room
+# /api/ai/session/status /api/ai/session/events /api/ai/session/guidance /ai-session
 # /ai-actions backup_configuration restore_configuration rollback_app
 # last-recovery-report.json webinterface finale controle installed_commit_sha
 
@@ -76,6 +77,7 @@ new_tests = "\n".join([
     "      tests/test_chart_freshness.py " + bs,
     "      tests/test_ai_code_repair_policy.py " + bs,
     "      tests/test_ai_control_room.py " + bs,
+    "      tests/test_ai_session_console.py " + bs,
     "      tests/test_ai_update_handoff.py " + bs,
     "      tests/test_version_backup_contract.py " + bs,
     "      tests/test_auto_update_contract.py",
@@ -117,7 +119,6 @@ if marker not in text:
     raise SystemExit("FOUT: finale AI-timercontrole in updatebasis niet gevonden")
 text = text.replace(marker, extra, 1)
 
-# Backup/rollbacktools worden onderdeel van de geïnstalleerde beheerlaag.
 install_marker = 'install -m 0755 "$SRC/scripts/safe-update.sh" "$SAFE_UPDATER"\n'
 install_extra = (
     install_marker
@@ -128,7 +129,6 @@ if install_marker not in text:
     raise SystemExit("FOUT: safe updater installatiemarkering ontbreekt")
 text = text.replace(install_marker, install_extra, 1)
 
-# De update is alleen gezond als 8041 de nieuwe harde veiligheidsregels geladen heeft.
 health_marker = 'assert x.get("production_write") is False\n'
 health_extra = (
     health_marker
@@ -145,6 +145,13 @@ health_extra = (
     + 'assert x.get("control_room_safe_runtime") is True\n'
     + 'assert x.get("control_room_browser_telemetry") is True\n'
     + 'assert x.get("control_room_continuous_ui_learning") is True\n'
+    + 'assert x.get("ai_session_console") is True\n'
+    + 'assert x.get("ai_session_autonomous_worklog") is True\n'
+    + 'assert x.get("operator_guidance") is True\n'
+    + 'assert x.get("operator_domain_hold") is True\n'
+    + 'assert x.get("raw_chain_of_thought_exposed") is False\n'
+    + 'assert x.get("decision_summaries_exposed") is True\n'
+    + 'assert x.get("human_approval_per_cycle_required") is False\n'
 )
 if health_marker not in text:
     raise SystemExit("FOUT: AI health policy marker ontbreekt")
@@ -157,6 +164,9 @@ route_extra = (
     + 'curl -fsS http://127.0.0.1:8041/api/ai/chart-freshness >/dev/null\n'
     + 'curl -fsS http://127.0.0.1:8041/api/ai/code-repair >/dev/null\n'
     + 'curl -fsS http://127.0.0.1:8041/api/ai/control-room?limit=25 >/dev/null\n'
+    + 'curl -fsS http://127.0.0.1:8041/api/ai/session/status >/dev/null\n'
+    + 'curl -fsS http://127.0.0.1:8041/api/ai/session/events?limit=10 >/dev/null\n'
+    + 'curl -fsS http://127.0.0.1:8041/ai-session >/dev/null\n'
     + 'curl -fsS http://127.0.0.1:8041/ >/dev/null\n'
 )
 if route_marker not in text:
