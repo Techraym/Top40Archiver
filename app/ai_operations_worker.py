@@ -31,8 +31,7 @@ def _utcnow() -> datetime:
 
 def _load_json(path: Path, default: Any) -> Any:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-        return value
+        return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return default
 
@@ -94,7 +93,7 @@ def _disk_snapshot() -> dict[str, float]:
 
 
 def _ollama_snapshot() -> dict[str, Any]:
-    url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
+    url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
     base = url[:-13] if url.endswith("/api/generate") else url.rstrip("/")
     try:
         response = requests.get(base + "/api/tags", timeout=3)
@@ -153,10 +152,12 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
         "policy_recommendations": recommendations,
     }
     prompt = (
-        "Je bent de lokale Top40Archiver operations-assistent. Analyseer de compacte status. "
-        "Je mag GEEN shellcommando's of nieuwe acties verzinnen; uitvoerbare acties worden uitsluitend "
-        "door de policy-engine bepaald. Retourneer alleen JSON met velden summary, risk (low/medium/high), "
-        "attention (array van korte Nederlandse teksten) en next_check.\n\n"
+        "Je bent de lokale Top40Archiver operations-assistent. Analyseer de compacte status NA de "
+        "automatische policy-acties. Je mag GEEN shellcommando's of nieuwe acties verzinnen; "
+        "uitvoerbare acties worden uitsluitend door de policy-engine bepaald. Retourneer alleen JSON "
+        "met velden summary, risk (low/medium/high), attention (array van korte Nederlandse teksten) "
+        "en next_check. Benoem downloadwachtrij, coververwerking, database, schijfruimte en services "
+        "alleen wanneer ze werkelijk aandacht vragen.\n\n"
         + json.dumps(compact, ensure_ascii=False)
     )
     try:
@@ -167,15 +168,20 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
                 "prompt": prompt,
                 "stream": False,
                 "format": "json",
+                "keep_alive": "30m",
             },
-            timeout=30,
+            timeout=120,
         )
         response.raise_for_status()
         text = str(response.json().get("response") or "").strip()
         payload = json.loads(text)
         if not isinstance(payload, dict):
             raise ValueError("model gaf geen JSON-object")
-        return {"available": True, "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"), **payload}
+        return {
+            "available": True,
+            "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+            **payload,
+        }
     except Exception as exc:
         return {
             "available": False,
@@ -268,7 +274,10 @@ def run_operations_worker() -> dict:
     after = collect_snapshot()
     model = _model_assessment(after, actions, recommendations)
     report = {
-        "ok": not after["services"]["critical"] and after["database"].get("health") in {"ok", "missing"},
+        "ok": (
+            not after["services"]["critical"]
+            and after["database"].get("health") in {"ok", "missing"}
+        ),
         "generated_at": _utcnow().isoformat(),
         "mode": "bounded-full-operations-worker",
         "before": before,
@@ -281,6 +290,7 @@ def run_operations_worker() -> dict:
             "destructive_actions": False,
             "allowed_executor": "/usr/local/sbin/top40-safe-action",
             "cover_drain_required": True,
+            "model_can_execute": False,
         },
     }
     state["last_cycle"] = report["generated_at"]
