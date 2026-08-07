@@ -6,6 +6,9 @@ ConditionPathExists=/usr/local/sbin/top40-archiver-safe-update
 
 [Service]
 Type=oneshot
+Environment=GIT_CONFIG_COUNT=1
+Environment=GIT_CONFIG_KEY_0=safe.directory
+Environment=GIT_CONFIG_VALUE_0=/opt/top40-archiver
 ExecStart=/usr/local/sbin/top40-archiver-safe-update
 TimeoutStartSec=30min
 Nice=10
