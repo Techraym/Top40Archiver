@@ -72,6 +72,7 @@ def main() -> int:
             "free_shell": False,
             "temporary_partial_cleanup_allowed": True,
             "chart_refresh_allowed": True,
+            "rate_limit_bypass_allowed": False,
             "provider_rate_limit_bypass_allowed": False,
             "provider_cookie_bypass_allowed": False,
             "captcha_bypass_allowed": False,
