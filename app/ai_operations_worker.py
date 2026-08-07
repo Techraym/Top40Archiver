@@ -10,6 +10,8 @@ from typing import Any
 
 import requests
 
+from .ai_learning import learning_context
+from .backup_health import backup_health
 from .config import DATA_DIR
 from .operations_center import cover_dashboard, database_dashboard, download_dashboard
 from .service_watchdog import service_monitor
@@ -129,6 +131,7 @@ def collect_snapshot() -> dict[str, Any]:
         "downloads": download_dashboard(),
         "disk": _disk_snapshot(),
         "ollama": _ollama_snapshot(),
+        "backup": backup_health(),
     }
 
 
@@ -145,6 +148,8 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
         "database": snapshot.get("database"),
         "downloads": snapshot.get("downloads"),
         "disk": snapshot.get("disk"),
+        "backup": snapshot.get("backup"),
+        "learned_action_outcomes": learning_context(12),
         "actions_already_selected_by_policy": [
             {"action": x.get("action"), "ok": x.get("ok"), "reason": x.get("reason")}
             for x in actions
@@ -153,11 +158,12 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
     }
     prompt = (
         "Je bent de lokale Top40Archiver operations-assistent. Analyseer de compacte status NA de "
-        "automatische policy-acties. Je mag GEEN shellcommando's of nieuwe acties verzinnen; "
+        "automatische policy-acties en gebruik de meegegeven eerdere actie-uitkomsten als ervaring. "
+        "Je mag GEEN shellcommando's, verwijderacties voor audio of nieuwe uitvoerbare acties verzinnen; "
         "uitvoerbare acties worden uitsluitend door de policy-engine bepaald. Retourneer alleen JSON "
         "met velden summary, risk (low/medium/high), attention (array van korte Nederlandse teksten) "
-        "en next_check. Benoem downloadwachtrij, coververwerking, database, schijfruimte en services "
-        "alleen wanneer ze werkelijk aandacht vragen.\n\n"
+        "en next_check. Benoem downloadwachtrij, coververwerking, database, backups, schijfruimte en "
+        "services alleen wanneer ze werkelijk aandacht vragen.\n\n"
         + json.dumps(compact, ensure_ascii=False)
     )
     try:
@@ -254,7 +260,7 @@ def run_operations_worker() -> dict:
     disk = before["disk"]
     if float(disk.get("free_percent") or 0) < 5:
         recommendations.append(
-            f"Kritiek weinig vrije schijfruimte: {disk.get('free_percent')}% ({disk.get('free_gb')} GB). AI verwijdert niets automatisch."
+            f"Kritiek weinig vrije schijfruimte: {disk.get('free_percent')}% ({disk.get('free_gb')} GB). AI verwijdert geen gedownloade nummers."
         )
     elif float(disk.get("free_percent") or 0) < 10:
         recommendations.append(
@@ -271,6 +277,12 @@ def run_operations_worker() -> dict:
         })
         state["actions"]["restart_ollama"] = _utcnow().isoformat()
 
+    backup = before.get("backup") or {}
+    if not backup.get("ok"):
+        recommendations.append(
+            "Er is nog geen volledig geverifieerd versie-rollbackpakket beschikbaar. Iedere versie-update wordt geblokkeerd totdat zo'n backup succesvol is gemaakt."
+        )
+
     after = collect_snapshot()
     model = _model_assessment(after, actions, recommendations)
     report = {
@@ -279,18 +291,22 @@ def run_operations_worker() -> dict:
             and after["database"].get("health") in {"ok", "missing"}
         ),
         "generated_at": _utcnow().isoformat(),
-        "mode": "bounded-full-operations-worker",
+        "mode": "learning-bounded-full-operations-worker",
         "before": before,
         "actions": actions,
         "recommendations": recommendations,
         "after": after,
         "model_assessment": model,
+        "learned_action_outcomes": learning_context(20),
         "policy": {
             "shell_access": False,
             "destructive_actions": False,
+            "audio_delete_allowed": False,
             "allowed_executor": "/usr/local/sbin/top40-safe-action",
             "cover_drain_required": True,
             "model_can_execute": False,
+            "learn_from_every_action": True,
+            "verified_backup_before_version_change": True,
         },
     }
     state["last_cycle"] = report["generated_at"]

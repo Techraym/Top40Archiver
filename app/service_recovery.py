@@ -8,6 +8,7 @@ from pathlib import Path
 
 import requests
 
+from .ai_learning import learning_context
 from .config import DATA_DIR
 from .service_watchdog import service_monitor, unhealthy_services
 
@@ -87,13 +88,18 @@ def _model_assessment(critical: list[dict]) -> dict:
         }
         for item in critical
     ]
+    compact_learning = learning_context(10)
     prompt = (
-        "Je bent de lokale Top40Archiver operations-assistent. Analyseer uitsluitend de "
-        "systemd-afwijkingen die NA de automatische policy-acties nog bestaan. De acties zijn "
-        "door een vaste veiligheidslaag begrensd. Geef in maximaal 3 Nederlandse zinnen aan "
-        "wat nog fout is, waarom dat relevant is en wat de beheerder moet controleren. "
-        "Verzin geen shellcommando's en wijzig niets zelf.\n\n"
-        + json.dumps(compact, ensure_ascii=False)
+        "Je bent de lokale Top40Archiver operations-assistent. Gebruik eerdere geverifieerde "
+        "actie-uitkomsten als ervaring. Analyseer uitsluitend de systemd-afwijkingen die NA de "
+        "automatische policy-acties nog bestaan. De acties zijn door een vaste veiligheidslaag "
+        "begrensd. Geef in maximaal 3 Nederlandse zinnen aan wat nog fout is, waarom dat relevant "
+        "is en welke bekende oplossing eerder effectief of ineffectief was. Verzin geen "
+        "shellcommando's en wijzig niets zelf.\n\n"
+        + json.dumps(
+            {"afwijkingen": compact, "geleerde_acties": compact_learning},
+            ensure_ascii=False,
+        )
     )
     try:
         response = requests.post(
@@ -125,8 +131,8 @@ def run_service_recovery() -> dict:
     critical = unhealthy_services(before)
     actions: list[dict] = []
 
-    # Belangrijk: veilige herstelacties worden eerst uitgevoerd. Ollama is adviserend
-    # en mag het herstel van systemd-componenten nooit blokkeren.
+    # Veilige herstelacties worden eerst uitgevoerd. Ollama is adviserend en mag
+    # het herstel van systemd-componenten nooit blokkeren.
     for item in critical:
         action = str(item.get("repair_action") or "")
         if not action:
@@ -156,7 +162,7 @@ def run_service_recovery() -> dict:
     report = {
         "ok": not critical_after,
         "generated_at": _utcnow().isoformat(),
-        "mode": "policy-first-ai-advisory-service-recovery",
+        "mode": "learning-policy-guarded-ai-service-recovery",
         "model_assessment": model,
         "critical_before": len(critical),
         "critical_after": len(critical_after),

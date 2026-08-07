@@ -23,11 +23,26 @@ ACTIONS = {
     "run_id3_cover": ["systemctl", "start", "--no-block", "top40-archiver-id3-cover.service"],
     "run_database_check": ["systemctl", "start", "--no-block", "top40-archiver-check.service"],
     "run_history_sync": ["systemctl", "start", "--no-block", "top40-archiver-history.service"],
+    "cleanup_stale_download_temp": [
+        "/opt/top40-archiver/venv/bin/python3",
+        "-m",
+        "app.safe_temp_cleanup",
+    ],
     "diagnostics": ["systemctl", "is-system-running"],
 }
 
+FORBIDDEN_EXECUTABLES = {"rm", "unlink", "shred"}
+
+
+def _validate_action_policy() -> None:
+    for name, command in ACTIONS.items():
+        executable = str(command[0]).rsplit("/", 1)[-1] if command else ""
+        if executable in FORBIDDEN_EXECUTABLES:
+            raise RuntimeError(f"verboden destructieve AI-actie: {name}")
+
 
 def main() -> int:
+    _validate_action_policy()
     if len(sys.argv) != 2 or sys.argv[1] not in ACTIONS:
         print(json.dumps({
             "ok": False,
@@ -50,6 +65,11 @@ def main() -> int:
         "returncode": completed.returncode,
         "stdout": completed.stdout[-2000:],
         "stderr": completed.stderr[-2000:],
+        "policy": {
+            "audio_delete_allowed": False,
+            "free_shell": False,
+            "temporary_partial_cleanup_allowed": True,
+        },
     }))
     return completed.returncode
 
