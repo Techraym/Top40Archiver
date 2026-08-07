@@ -388,6 +388,12 @@ def _final_path(job: dict[str, Any], track: dict[str, Any]) -> tuple[str, Path, 
 
 
 def _copy_atomic(source: Path, destination: Path) -> None:
+    # Bestaande audio is data, geen tijdelijke download. De manager mag die nooit
+    # vervangen, ook niet wanneer SQLite door een eerdere storing achterloopt.
+    if destination.exists():
+        raise DownloadValidationError(
+            f"existing_target_conflict: bestaande audio wordt niet overschreven: {destination}"
+        )
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(destination.suffix + ".partial")
     temporary.unlink(missing_ok=True)
@@ -398,7 +404,15 @@ def _copy_atomic(source: Path, destination: Path) -> None:
             os.fsync(dst.fileno())
         if temporary.stat().st_size < MIN_FILE_BYTES:
             raise DownloadValidationError("MP3-uitvoer is te klein")
-        temporary.replace(destination)
+        # os.link creëert het doel alleen als het nog niet bestaat. Daardoor is ook
+        # een race tussen de exists-check en deze stap non-destructief.
+        try:
+            os.link(temporary, destination)
+        except FileExistsError as exc:
+            raise DownloadValidationError(
+                f"existing_target_conflict: bestaande audio wordt niet overschreven: {destination}"
+            ) from exc
+        temporary.unlink(missing_ok=True)
     except Exception:
         temporary.unlink(missing_ok=True)
         raise
@@ -521,7 +535,10 @@ def _try_candidate(
             reject_candidate(int(job["track_id"]), provider_name, candidate.url, exc.category, decision.score)
             raise
         except DownloadValidationError as exc:
-            category = "invalid_audio" if str(exc) != "job_cancelled" else "cancelled"
+            if str(exc).startswith("existing_target_conflict:"):
+                category = "existing_target_conflict"
+            else:
+                category = "invalid_audio" if str(exc) != "job_cancelled" else "cancelled"
             record_provider_attempt(
                 job_id=int(job["id"]),
                 track_id=int(job["track_id"]),
@@ -535,7 +552,9 @@ def _try_candidate(
                 error=str(exc),
                 started_at=started_at,
             )
-            if category != "cancelled":
+            # Een padconflict zegt niets over de provider/kandidaat; bewaar de
+            # kandidaat dus niet als fout. De bestaande audio blijft onaangeraakt.
+            if category not in {"cancelled", "existing_target_conflict"}:
                 reject_candidate(int(job["track_id"]), provider_name, candidate.url, category, decision.score)
             raise
 
