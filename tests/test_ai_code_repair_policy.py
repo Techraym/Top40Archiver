@@ -3,14 +3,21 @@ import pytest
 from app import ai_code_improvement, ai_code_repair
 
 
-def test_autonomous_code_repair_only_allows_python_under_app():
+def test_autonomous_code_repair_only_allows_functional_python_under_app():
     assert ai_code_repair._safe_touched_files({"proposal": {"files": ["app/downloader.py"]}}) == ["app/downloader.py"]
-    with pytest.raises(ValueError):
-        ai_code_repair._safe_touched_files({"proposal": {"files": ["scripts/top40-safe-action"]}})
-    with pytest.raises(ValueError):
-        ai_code_repair._safe_touched_files({"proposal": {"files": ["systemd/top40-ai-recovery.service"]}})
-    with pytest.raises(ValueError):
-        ai_code_repair._safe_touched_files({"proposal": {"files": ["app/templates/index.html"]}})
+    for blocked in (
+        "scripts/top40-safe-action",
+        "systemd/top40-ai-recovery.service",
+        "app/templates/index.html",
+        "app/ai_code_repair.py",
+        "app/ai_code_improvement.py",
+        "app/ai_learning.py",
+        "app/service_watchdog.py",
+        "app/config.py",
+        "app/db.py",
+    ):
+        with pytest.raises(ValueError):
+            ai_code_repair._safe_touched_files({"proposal": {"files": [blocked]}})
 
 
 def test_autonomous_code_repair_cannot_touch_downloaded_audio():
@@ -43,9 +50,16 @@ RuntimeError: nope
 
 def test_improvement_source_map_excludes_monitoring_and_safety_code():
     assert ai_code_improvement._mapped_sources("downloads:retry_failed_downloads")
-    assert ai_code_improvement._mapped_sources("charts:current_edition_stale")
+    assert ai_code_improvement._mapped_sources("download:no_search_results")
+    assert ai_code_improvement._mapped_sources("charts:current_edition_stale") == ["app/top40.py", "app/service.py"]
     assert ai_code_improvement._mapped_sources("service:top40-archiver-ai.service") == []
     flattened = {item for items in ai_code_improvement.SOURCE_MAP.values() for item in items}
-    assert "app/ai_learning.py" not in flattened
-    assert "app/service_watchdog.py" not in flattened
+    for forbidden in (
+        "app/ai_learning.py",
+        "app/service_watchdog.py",
+        "app/chart_freshness.py",
+        "app/ai_code_repair.py",
+        "app/db.py",
+    ):
+        assert forbidden not in flattened
     assert not any("safe" in item for item in flattened)
