@@ -1,0 +1,18 @@
+[Unit]
+Description=Top40Archiver bounded Qwen provider tuning
+After=ollama.service top40-download-manager.service
+Wants=ollama.service
+
+[Service]
+Type=oneshot
+User=top40archiver
+Group=top40archiver
+WorkingDirectory=/opt/top40-archiver
+Environment=TOP40_DATA_DIR=/var/lib/top40-archiver
+Environment=PYTHONPATH=/opt/top40-archiver
+EnvironmentFile=-/etc/top40-archiver.env
+ExecStart=/opt/top40-archiver/venv/bin/python -m app.provider_ai_runner
+TimeoutStartSec=45
+Nice=15
+NoNewPrivileges=true
+PrivateTmp=true
