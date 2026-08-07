@@ -87,8 +87,11 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
     found_artist = candidate.get("artist") or candidate.get("uploader") or candidate.get("channel")
     found_title = candidate.get("title") or candidate.get("track")
 
-    artist_points = 30.0 * _ratio(wanted_artist, found_artist or f"{found_artist or ''} {found_title or ''}")
-    title_points = 35.0 * _ratio(wanted_title, found_title)
+    artist_source = found_artist or f"{found_artist or ''} {found_title or ''}"
+    artist_ratio = _ratio(wanted_artist, artist_source)
+    title_ratio = _ratio(wanted_title, found_title)
+    artist_points = 30.0 * artist_ratio
+    title_points = 35.0 * title_ratio
 
     expected_duration = track.get("duration_seconds")
     if not expected_duration and track.get("duration_ms"):
@@ -97,15 +100,18 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
     duration_points, duration_difference = _duration_points(expected_duration, found_duration)
 
     album_points = 0.0
-    if track.get("album") and candidate.get("album"):
+    album_available = bool(track.get("album") and candidate.get("album"))
+    if album_available:
         album_points = 5.0 * _ratio(track.get("album"), candidate.get("album"))
 
+    year_available = bool(track.get("year") and (candidate.get("year") or candidate.get("release_year")))
     year_points = _year_points(track.get("year"), candidate.get("year") or candidate.get("release_year"))
 
     isrc_points = 0.0
     wanted_isrc = re.sub(r"\W", "", str(track.get("isrc") or "")).casefold()
     found_isrc = re.sub(r"\W", "", str(candidate.get("isrc") or "")).casefold()
-    if wanted_isrc and found_isrc and wanted_isrc == found_isrc:
+    isrc_available = bool(wanted_isrc and found_isrc)
+    if isrc_available and wanted_isrc == found_isrc:
         isrc_points = 5.0
 
     raw = " ".join(
@@ -120,6 +126,24 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
             penalty_points += value
             penalties.append({"marker": marker, "points": -value})
 
+    # Providers verschillen sterk in metadata. Ontbrekende duur/album/jaar/ISRC
+    # is geen negatief bewijs en mag een exacte artiest+titel niet automatisch
+    # onhaalbaar maken. Daarom normaliseren we uitsluitend over bewijsvelden die
+    # beide kanten werkelijk aanleveren. Strafpunten blijven absoluut.
+    available_max = 65.0
+    if expected_duration and found_duration:
+        available_max += 20.0
+    if album_available:
+        available_max += 5.0
+    if year_available:
+        available_max += 5.0
+    if isrc_available:
+        available_max += 5.0
+
+    positive_points = artist_points + title_points + duration_points + album_points + year_points + isrc_points
+    normalized_positive = 100.0 * positive_points / max(1.0, available_max)
+    total = max(0.0, min(100.0, normalized_positive - penalty_points))
+
     components = {
         "artist": round(artist_points, 2),
         "title": round(title_points, 2),
@@ -128,8 +152,9 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
         "year": round(year_points, 2),
         "isrc": round(isrc_points, 2),
         "penalty": float(-penalty_points),
+        "available_max": round(available_max, 2),
+        "raw_positive": round(positive_points, 2),
     }
-    total = max(0.0, min(100.0, sum(components.values())))
 
     if duration_difference is not None and duration_difference > 15:
         return MatchDecision(
@@ -142,23 +167,43 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
             components=components,
         )
 
-    if total >= 92:
+    # Als de provider geen duur meldt, mag alleen een zeer sterke identiteit
+    # door naar de downloadfase. De manager valideert daarna verplicht de echte
+    # audiolengte met FFprobe tegen de Top40/Spotify-duur (harde >15s reject).
+    strong_identity_without_duration = (
+        duration_difference is None
+        and bool(expected_duration)
+        and not penalties
+        and artist_ratio >= 0.90
+        and title_ratio >= 0.94
+        and total >= 92
+    )
+
+    if total >= 92 and duration_difference is not None and duration_difference <= 7:
         accepted = True
+        excellent = True
         reason = "excellent_match"
     elif total >= 85 and duration_difference is not None and duration_difference <= 7:
         accepted = True
+        excellent = False
         reason = "good_match_duration_confirmed"
+    elif strong_identity_without_duration:
+        accepted = True
+        excellent = False
+        reason = "strong_identity_verify_after_download"
     elif total >= 75:
         accepted = False
+        excellent = False
         reason = "try_other_provider"
     else:
         accepted = False
+        excellent = False
         reason = "low_match"
 
     return MatchDecision(
         score=round(total, 2),
         accepted=accepted,
-        excellent=total >= 92,
+        excellent=excellent,
         reason=reason,
         duration_difference=round(duration_difference, 2) if duration_difference is not None else None,
         penalties=penalties,
