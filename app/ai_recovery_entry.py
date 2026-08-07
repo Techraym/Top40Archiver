@@ -144,7 +144,7 @@ def run_cycle() -> dict:
         unresolved_after += 1
 
     code_action_count = 1 if code_report.get("action") not in {"none", "cooldown", "verify_existing_patch"} else 0
-    improvement_action_count = 1 if improvement_report.get("action") not in {"none", "cooldown", "measure_existing_improvement"} else 0
+    improvement_action_count = 1 if improvement_report.get("action") not in {"none", "cooldown", "measure_existing_improvement", "skipped_code_repair_active"} else 0
     actions_executed = (
         _count_executed_actions(service_report, operations_report, report)
         + len(storage_report.get("actions") or [])
