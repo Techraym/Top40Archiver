@@ -26,6 +26,7 @@ BACKUP_APP="$APP_ROOT/app.backup_$STAMP"
 VENV_PY="$APP_ROOT/venv/bin/python"
 VENV_PIP="$APP_ROOT/venv/bin/pip"
 SAFE_ACTION=/usr/local/sbin/top40-safe-action
+SAFE_UPDATER=/usr/local/sbin/top40-archiver-safe-update
 SWAPPED=0
 CONFIG_CHANGED=0
 UPDATE_COMPLETE=0
@@ -36,6 +37,7 @@ UPDATE_COMPLETE=0
 [ -x "$VENV_PIP" ] || { echo "pip ontbreekt: $VENV_PIP"; exit 1; }
 [ -d "$SRC/systemd" ] || { echo "systemd-bronmap ontbreekt."; exit 1; }
 [ -f "$SRC/scripts/top40-safe-action" ] || { echo "Veilige actiewrapper ontbreekt."; exit 1; }
+[ -f "$SRC/scripts/safe-update.sh" ] || { echo "Veilige updater ontbreekt."; exit 1; }
 
 SOURCE_UNITS=("$SRC"/systemd/*.service "$SRC"/systemd/*.timer)
 ROOT_FILES=(requirements.txt VERSION update-timer.sh update-from-github.sh auto-update.sh setup-network-share.sh setup-top40-ca-bundle.sh)
@@ -98,6 +100,11 @@ backup_configuration() {
   else
     touch "$BACKUP_DIR/.missing-top40-safe-action"
   fi
+  if [ -e "$SAFE_UPDATER" ]; then
+    cp -a "$SAFE_UPDATER" "$BACKUP_DIR/top40-archiver-safe-update"
+  else
+    touch "$BACKUP_DIR/.missing-top40-archiver-safe-update"
+  fi
 
   # Een consistente DB-backup is beschikbaar voor handmatig herstel zonder
   # tijdens een rollback nieuwe downloadvoortgang stilzwijgend te overschrijven.
@@ -135,6 +142,11 @@ restore_configuration() {
     cp -a "$BACKUP_DIR/top40-safe-action" "$SAFE_ACTION"
   elif [ -e "$BACKUP_DIR/.missing-top40-safe-action" ]; then
     rm -f "$SAFE_ACTION"
+  fi
+  if [ -e "$BACKUP_DIR/top40-archiver-safe-update" ]; then
+    cp -a "$BACKUP_DIR/top40-archiver-safe-update" "$SAFE_UPDATER"
+  elif [ -e "$BACKUP_DIR/.missing-top40-archiver-safe-update" ]; then
+    rm -f "$SAFE_UPDATER"
   fi
 
   systemctl daemon-reload || true
@@ -244,7 +256,7 @@ EOF
 fi
 
 echo "Shell- en Python-syntax controleren..."
-bash -n "$SRC/update-existing.sh" "$SRC/auto-update.sh" "$SRC/install-1.16.0.sh"
+bash -n "$SRC/update-existing.sh" "$SRC/auto-update.sh" "$SRC/install-1.16.0.sh" "$SRC/scripts/safe-update.sh" "$SRC/scripts/install-1.16.0.sh"
 "$VENV_PY" -m compileall -q "$SRC/app"
 
 echo "Regressietests in geïsoleerde testdata uitvoeren..."
@@ -255,7 +267,8 @@ TEST_DATA=$(mktemp -d /tmp/top40-update-tests.XXXXXX)
     "$VENV_PY" -m pytest -q \
       tests/test_operations_center.py \
       tests/test_dev_assistant.py \
-      tests/test_ai_recovery_strategies.py
+      tests/test_ai_recovery_strategies.py \
+      tests/test_auto_update_contract.py
 )
 rm -rf "$TEST_DATA"
 
@@ -283,6 +296,7 @@ chown root:root \
   "$APP_ROOT/setup-top40-ca-bundle.sh"
 
 install -m 0755 "$SRC/scripts/top40-safe-action" "$SAFE_ACTION"
+install -m 0755 "$SRC/scripts/safe-update.sh" "$SAFE_UPDATER"
 for src_unit in "${SOURCE_UNITS[@]}"; do
   install -m 0644 "$src_unit" "/etc/systemd/system/$(basename "$src_unit")"
 done
@@ -391,10 +405,6 @@ systemctl is-active --quiet "$AI_SERVICE"
 systemctl is-active --quiet "$LOG_SERVICE"
 systemctl is-active --quiet "$RECOVERY_TIMER"
 
-# Vanaf hier is rollback niet meer nodig; app.backup blijft bewust beschikbaar.
-SWAPPED=0
-UPDATE_COMPLETE=1
-
 SOURCE_SHA="${TOP40_SOURCE_SHA:-}"
 if [ -z "$SOURCE_SHA" ] && command -v git >/dev/null 2>&1 && [ -d "$SRC/.git" ]; then
   SOURCE_SHA=$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)
@@ -413,12 +423,17 @@ chown -R root:root "$STATE_DIR"
 chmod 755 "$STATE_DIR"
 chmod 644 "$STATE_DIR"/* 2>/dev/null || true
 
+# Vanaf hier zijn code, services, healthchecks én update-status bevestigd.
+SWAPPED=0
+UPDATE_COMPLETE=1
+
 echo "Top40Archiver $VERSION is volledig bijgewerkt."
 echo "8040 webinterface: gezond"
 echo "8041 AI-platform: gezond"
 echo "8042 veilige logreader: gezond"
 echo "AI-herstelcyclus: actief via $RECOVERY_TIMER"
 echo "Development Assistant: beschikbaar, productie-writes uit"
+echo "Veilige updater: $SAFE_UPDATER"
 echo "Rollbackbackup: $BACKUP_DIR"
 echo "Na de herstart controleert de auto-updater na twee minuten en daarna iedere 24 uur."
 
