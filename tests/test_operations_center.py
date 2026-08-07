@@ -38,9 +38,45 @@ def test_health_score_range(monkeypatch):
     assert 0 <= result['score'] <= 100
 
 
+def test_oneshot_cover_worker_is_healthy_while_timer_waits(monkeypatch):
+    from app import service_watchdog as watchdog
+
+    def fake_show(unit):
+        if unit == 'top40-archiver-cover-art.timer':
+            return {'LoadState': 'loaded', 'ActiveState': 'active', 'SubState': 'waiting', 'Result': 'success'}
+        if unit == 'top40-archiver-cover-art.service':
+            return {'LoadState': 'loaded', 'ActiveState': 'inactive', 'SubState': 'dead', 'Result': 'success'}
+        return {'LoadState': 'loaded', 'ActiveState': 'active', 'SubState': 'running', 'Result': 'success'}
+
+    monkeypatch.setattr(watchdog, '_show', fake_show)
+    items = {item['unit']: item for item in watchdog.service_monitor()}
+    cover = items['top40-archiver-cover-art.service']
+    assert cover['health'] == 'healthy'
+    assert cover['status'] == 'active'
+    assert cover['systemd_status'] == 'inactive'
+    assert cover['display_status'] == 'stand-by'
+
+
+def test_inactive_required_timer_has_bounded_repair_action(monkeypatch):
+    from app import service_watchdog as watchdog
+
+    def fake_show(unit):
+        if unit == 'top40-archiver-cover-art.timer':
+            return {'LoadState': 'loaded', 'ActiveState': 'inactive', 'SubState': 'dead', 'Result': 'success'}
+        return {'LoadState': 'loaded', 'ActiveState': 'active', 'SubState': 'running', 'Result': 'success'}
+
+    monkeypatch.setattr(watchdog, '_show', fake_show)
+    broken = watchdog.unhealthy_services()
+    target = next(item for item in broken if item['unit'] == 'top40-archiver-cover-art.timer')
+    assert target['repair_action'] == 'repair_cover_timer'
+    assert target['health'] == 'critical'
+
+
 def test_safe_action_has_no_shell_or_destructive_commands():
     source = Path('scripts/top40-safe-action').read_text()
     assert 'shell=True' not in source
     assert 'rm ' not in source
     assert 'git ' not in source
     assert 'sudo ' not in source
+    assert 'repair_cover_timer' in source
+    assert 'repair_ai_recovery_timer' in source
