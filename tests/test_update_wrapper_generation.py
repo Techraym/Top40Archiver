@@ -25,7 +25,7 @@ def test_release_update_generator_is_valid_python_and_generates_valid_shell(tmp_
         encoding="utf-8",
     )
     completed = subprocess.run(
-        [sys.executable, str(generated), "1.16.3"],
+        [sys.executable, "-", str(generated), "1.16.3"],
         input=source,
         text=True,
         capture_output=True,
