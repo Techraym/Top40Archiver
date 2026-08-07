@@ -84,13 +84,16 @@ def test_history_parser_rejects_only_a_page_without_any_recognizable_entry():
 
 
 @pytest.mark.parametrize("status_code", [404, 410])
-def test_missing_historical_page_advances_to_next_iso_week(
+def test_missing_non_blacklisted_historical_page_advances_to_next_iso_week(
     monkeypatch,
     status_code: int,
 ):
+    # 1970-W53 staat tegenwoordig bewust op de bronblacklist en wordt vóór een
+    # netwerkrequest overgeslagen. Gebruik W52 om het generieke HTTP-herstelpad
+    # afzonderlijk te blijven testen.
     response = Response()
     response.status_code = status_code
-    response.url = "https://www.top40.nl/top40/1970/week-53"
+    response.url = "https://www.top40.nl/top40/1970/week-52"
     error = HTTPError(
         f"{status_code} Client Error",
         response=response,
@@ -116,22 +119,22 @@ def test_missing_historical_page_advances_to_next_iso_week(
         {
             "history_status": "running",
             "history_next_year": "1970",
-            "history_next_week": "53",
-            "history_last_edition": "1970-W52",
+            "history_next_week": "52",
+            "history_last_edition": "1970-W51",
         },
         current_pair=(1971, 1),
         batch=1,
         delay=0,
     )
 
-    assert result["skipped"] == ["1970-W53"]
-    assert result["next"] == "1971-W01"
+    assert result["skipped"] == ["1970-W52"]
+    assert result["next"] == "1970-W53"
     assert result["completed"] is False
     assert f"HTTP {status_code}" in result["warnings"][0]
 
     cursor_update = updates[-1]
-    assert cursor_update["history_next_year"] == 1971
-    assert cursor_update["history_next_week"] == 1
+    assert cursor_update["history_next_year"] == 1970
+    assert cursor_update["history_next_week"] == 53
     assert cursor_update["history_status"] == "running"
     assert cursor_update["history_last_error"] == ""
     assert "history_last_edition" not in cursor_update
