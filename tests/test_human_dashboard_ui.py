@@ -14,7 +14,7 @@ def test_dashboard_loads_current_uncached_assets_and_human_copy():
     assert "Een lokaal muziekarchief" in template
     assert "Mislukte downloads opnieuw proberen" in template
     assert "Niet online beschikbaar" in template
-    assert "AI-herstel bekijken" in template
+    assert 'id="ai-sidecar-link"' in template
 
 
 def test_dashboard_uses_flat_editorial_layout_and_mobile_rules():
