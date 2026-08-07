@@ -50,6 +50,36 @@ def test_candidate_only_drm_does_not_degrade_whole_provider_in_service_runtime()
     assert "candidate_error_not_provider_health_error" in source
 
 
+def test_soft_ranking_rejects_are_rescored_but_hard_rejects_stay_cached():
+    source = (ROOT / "app/download_manager_entry.py").read_text(encoding="utf-8")
+    assert 'SOFT_REJECTION_REASONS = {"try_other_provider"}' in source
+    assert "reason NOT IN ('try_other_provider')" in source
+    assert "soft_candidates_reaccepted" in source
+    assert "download_manager.rejected_urls = _rescorable_rejected_urls" in source
+
+
+def test_global_network_outage_is_guarded_before_provider_burst():
+    source = (ROOT / "app/download_manager_entry.py").read_text(encoding="utf-8")
+    assert "NETWORK_PROBE_HOSTS" in source
+    assert "global_network_unavailable" in source
+    assert "job_waiting_for_network" in source
+    assert "global_network_error_not_provider_health_error" in source
+    assert "network_readiness_guard=True" in source
+
+
+def test_ytdlp_transport_errors_distinguish_network_from_provider_limits():
+    source = (ROOT / "app/providers/base.py").read_text(encoding="utf-8")
+    for marker in (
+        "temporary failure in name resolution",
+        "failed to resolve",
+        "network is unreachable",
+    ):
+        assert marker in source
+    assert 'return "network"' in source
+    assert 'return "forbidden"' in source
+    assert 'return "rate_limited"' in source
+
+
 def test_main_chart_service_only_enqueues_downloads():
     service = (ROOT / "app/service.py").read_text(encoding="utf-8")
     assert "enqueue_track_ids(all_new_ids)" in service
