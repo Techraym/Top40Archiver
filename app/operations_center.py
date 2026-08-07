@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import DATA_DIR, DB_PATH
+from .download_db import provider_dashboard
 from .service_watchdog import service_monitor
 
 
@@ -118,14 +119,40 @@ def download_dashboard() -> dict[str, Any]:
         queue_count = _as_int(queue.get("count"))
     else:
         queue_count = 0
+
+    try:
+        provider_data = provider_dashboard()
+    except Exception as exc:
+        provider_data = {
+            "ok": False,
+            "providers": [],
+            "jobs": {},
+            "youtube_dependency_percent": state.get("youtube_dependency_percent", 0),
+            "target_youtube_dependency_percent": 10.0,
+            "error": str(exc)[-500:],
+        }
+    jobs = provider_data.get("jobs") or {}
+    queue_from_jobs = sum(_as_int(jobs.get(key)) for key in ("queued", "searching"))
+    running_from_jobs = sum(_as_int(jobs.get(key)) for key in ("searching", "downloading", "validating", "processing"))
     return {
-        "workers": _as_int(state.get("workers", os.getenv("TOP40_DOWNLOAD_WORKERS", "1")), 1),
-        "queue": _as_int(state.get("queue"), queue_count),
-        "running": _as_int(state.get("running")),
-        "retry": _as_int(state.get("retry")),
+        "engine": "multi-source",
+        "manager_service": "top40-download-manager.service",
+        "workers": _as_int(state.get("workers", os.getenv("TOP40_DOWNLOAD_WORKERS", "4")), 4),
+        "queue": _as_int(state.get("queue"), queue_from_jobs or queue_count),
+        "running": _as_int(state.get("running"), running_from_jobs),
+        "retry": _as_int(state.get("retry"), jobs.get("waiting_retry", 0)),
         "youtube_errors": _as_int(state.get("youtube_errors")),
         "average_speed": state.get("average_speed", 0),
         "eta_seconds": state.get("eta_seconds"),
+        "downloads_24h": provider_data.get("downloads_24h", 0),
+        "without_youtube_24h": provider_data.get("without_youtube_24h", 0),
+        "youtube_family_24h": provider_data.get("youtube_family_24h", 0),
+        "youtube_dependency_percent": provider_data.get("youtube_dependency_percent", 0),
+        "youtube_dependency_target_percent": provider_data.get("target_youtube_dependency_percent", 10.0),
+        "youtube_dependency_target_met": provider_data.get("target_met"),
+        "providers": provider_data.get("providers", []),
+        "provider_jobs": jobs,
+        "provider_error": provider_data.get("error"),
     }
 
 
@@ -206,7 +233,12 @@ def health_score() -> dict[str, Any]:
         reasons.append("databasecontrole niet OK")
     if _as_int(downloads.get("youtube_errors")) > 10:
         penalties += 10
-        reasons.append("veel YouTube-fouten")
+        reasons.append("veel YouTube-family fouten")
+    total_24h = _as_int(downloads.get("downloads_24h"))
+    dependency = float(downloads.get("youtube_dependency_percent") or 0)
+    if total_24h >= 10 and dependency >= 10:
+        penalties += 5
+        reasons.append(f"YouTube-afhankelijkheid {dependency:.1f}% ligt boven doel <10%")
     if _as_int(covers.get("eligible_queue")) > 0 and not covers.get("running"):
         penalties += 5
         reasons.append(f"{covers['eligible_queue']} covers wachten nog op verwerking")
@@ -230,6 +262,8 @@ def health_score() -> dict[str, Any]:
         "service_critical": len(critical),
         "service_attention": len(attention),
         "cover_queue": _as_int(covers.get("eligible_queue")),
+        "youtube_dependency_percent": dependency,
+        "youtube_dependency_target_percent": 10.0,
         "disk_free_percent": round(free_pct, 1),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
