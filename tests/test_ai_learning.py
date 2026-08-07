@@ -41,11 +41,27 @@ def test_every_completed_action_updates_learning(tmp_path, monkeypatch):
     assert learned["success_rate"] == 1.0
 
 
-def test_strategy_selection_explores_then_prefers_verified_winner(tmp_path, monkeypatch):
+def test_first_result_immediately_changes_next_strategy_choice(tmp_path, monkeypatch):
+    _memory(tmp_path, monkeypatch)
+    candidates = ["canonical_search", "audio_fallback"]
+    record_action(
+        cycle_id="first-result",
+        domain="download_track",
+        problem_key="download:no_search_results",
+        action="audio_fallback",
+        reason="first verified result",
+        success=True,
+        subject="track:1",
+        effect_score=1.0,
+    )
+    # Geen tweemaal-uitproberen of kalenderwachttijd: één geverifieerd resultaat
+    # is al bewijs voor de eerstvolgende keuze.
+    assert choose_action("download:no_search_results", candidates, 0) == "audio_fallback"
+
+
+def test_strategy_selection_prefers_verified_winner_after_more_evidence(tmp_path, monkeypatch):
     _memory(tmp_path, monkeypatch)
     candidates = ["canonical_search", "simplified_artist", "title_first", "audio_fallback"]
-    assert choose_action("download:no_search_results", candidates, 0) == "canonical_search"
-
     for name in candidates:
         for n in range(2):
             success = name == "audio_fallback"
@@ -59,7 +75,6 @@ def test_strategy_selection_explores_then_prefers_verified_winner(tmp_path, monk
                 subject=f"track:{name}:{n}",
                 effect_score=1.0 if success else 0.0,
             )
-
     assert choose_action("download:no_search_results", candidates, 99) == "audio_fallback"
 
 
@@ -105,20 +120,27 @@ def test_cycle_ingest_records_service_operations_and_download_actions(tmp_path, 
     assert pending == 1
 
 
-def test_seven_day_readiness_requires_observation_period(tmp_path, monkeypatch):
+def test_readiness_is_evidence_driven_not_calendar_driven(tmp_path, monkeypatch):
     _memory(tmp_path, monkeypatch)
-    record_action(
-        cycle_id="recent",
-        domain="service",
-        problem_key="service:web",
-        action="restart_web",
-        reason="test",
-        success=True,
-    )
+    # Vijf patronen, ieder vijf succesvolle acties: voldoende operationeel bewijs
+    # terwijl alle acties minuten oud zijn. Readiness mag dus niet zeven dagen wachten.
+    for problem in range(5):
+        for n in range(5):
+            record_action(
+                cycle_id=f"recent-{problem}-{n}",
+                domain="service",
+                problem_key=f"service:test-{problem}",
+                action=f"repair-{problem}",
+                reason="continuous evidence",
+                success=True,
+                effect_score=1.0,
+            )
     report = autonomy_report(7)
-    assert report["target_days"] == 7
-    assert report["ready_to_replace_manual_checks"] is False
+    assert report["trend_window_days"] == 7
+    assert report["learning_mode"] == "continuous-online-from-action-1"
     assert report["days_observed"] < 7
+    assert report["actions"]["total"] >= 25
+    assert report["ready_to_replace_manual_checks"] is True
 
 
 def test_schema_can_represent_old_successful_learning_history(tmp_path, monkeypatch):
