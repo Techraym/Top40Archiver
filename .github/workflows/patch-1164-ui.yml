@@ -1,0 +1,56 @@
+name: Finalize 1.16.4 AI visibility
+
+on:
+  push:
+    branches:
+      - release/1.16.4-continuous-autonomy-chart-freshness
+    paths:
+      - .github/workflows/patch-1164-ui.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/1.16.4-continuous-autonomy-chart-freshness
+          fetch-depth: 0
+      - name: Update dashboard labels and code improvement visibility
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p=Path('app/ai_operations_app.py')
+          text=p.read_text(encoding='utf-8')
+          text=text.replace('Top40Archiver 1.16.3', 'Top40Archiver 1.16.4')
+          text=text.replace("<a class='btn' href='/development'>Development Assistant</a><a class='btn' href='/'>Operations Center</a>", "<a class='btn' href='/ai-learning'>AI Learning Center</a><a class='btn' href='/development'>Development Assistant</a><a class='btn' href='/'>Operations Center</a>")
+          p.write_text(text,encoding='utf-8')
+
+          p=Path('app/ai_worker_dashboard.py')
+          text=p.read_text(encoding='utf-8')
+          text=text.replace('Top40Archiver 1.16.2 · iedere 5 minuten', 'Top40Archiver 1.16.4 · iedere 5 minuten')
+          text=text.replace("<a class='btn' href='/ai-actions'>Downloadherstel</a><a class='btn' href='/'>Operations Center</a>", "<a class='btn' href='/ai-learning'>AI Learning Center</a><a class='btn' href='/ai-actions'>Downloadherstel</a><a class='btn' href='/'>Operations Center</a>")
+          p.write_text(text,encoding='utf-8')
+
+          p=Path('app/ai_learning_api.py')
+          text=p.read_text(encoding='utf-8')
+          marker='from .ai_code_repair import STATE_FILE as CODE_REPAIR_STATE\n'
+          if 'CODE_IMPROVEMENT_STATE' not in text:
+              text=text.replace(marker, 'from .ai_code_improvement import STATE_FILE as CODE_IMPROVEMENT_STATE\n'+marker,1)
+          old='''def _code_repair_state() -> dict:\n    try:\n        return json.loads(CODE_REPAIR_STATE.read_text(encoding="utf-8"))\n    except Exception:\n        return {"active": None, "seen": {}}\n'''
+          new='''def _json_state(path) -> dict:\n    try:\n        value = json.loads(path.read_text(encoding="utf-8"))\n        return value if isinstance(value, dict) else {}\n    except Exception:\n        return {}\n'''
+          if old in text:
+              text=text.replace(old,new,1)
+          text=text.replace('"code_repair": _code_repair_state(),', '"code_repair": _json_state(CODE_REPAIR_STATE),\n        "code_improvement": _json_state(CODE_IMPROVEMENT_STATE),')
+          p.write_text(text,encoding='utf-8')
+          PY
+
+          git rm .github/workflows/patch-1164-ui.yml
+          git config user.name 'Techraym release automation'
+          git config user.email '104164197+Techraym@users.noreply.github.com'
+          git add app/ai_operations_app.py app/ai_worker_dashboard.py app/ai_learning_api.py
+          git commit -m 'Show continuous learning and code improvement activity'
+          git push origin HEAD:release/1.16.4-continuous-autonomy-chart-freshness
