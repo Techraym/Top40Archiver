@@ -1,0 +1,62 @@
+name: Patch 1.16.2 updater migration
+
+on:
+  push:
+    branches:
+      - release/1.16.2-cover-drain-ai-worker
+    paths:
+      - .github/workflows/patch-release-1162.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/1.16.2-cover-drain-ai-worker
+      - name: Make updater version-aware and enable maintenance timers
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('update-existing.sh')
+          text = p.read_text(encoding='utf-8')
+
+          old = 'assert x.get("version") == "1.16.0"'
+          new = 'assert x.get("version") == "\'"$VERSION"\'"'
+          if old not in text:
+              raise SystemExit('expected hard-coded AI version assertion not found')
+          text = text.replace(old, new, 1)
+
+          old_list = '''  top40-archiver-history.timer \\
+  top40-archiver-check.timer \\
+  top40-archiver-auto-update.timer \\
+'''
+          new_list = '''  top40-archiver-history.timer \\
+  top40-archiver-check.timer \\
+  top40-archiver-cover-art.timer \\
+  top40-archiver-id3-cover.timer \\
+  top40-archiver-incident-scan.timer \\
+  top40-archiver-auto-update.timer \\
+'''
+          if old_list not in text:
+              raise SystemExit('final timer enable list not found')
+          text = text.replace(old_list, new_list, 1)
+
+          marker = 'systemctl is-active --quiet "$RECOVERY_TIMER"\n'
+          addition = '''systemctl is-active --quiet "$RECOVERY_TIMER"\nsystemctl is-active --quiet top40-archiver-cover-art.timer\nsystemctl is-active --quiet top40-archiver-id3-cover.timer\nsystemctl is-active --quiet top40-archiver-incident-scan.timer\nsystemctl start --no-block top40-archiver-cover-art.service\n'''
+          if marker not in text:
+              raise SystemExit('final recovery timer check not found')
+          text = text.replace(marker, addition, 1)
+
+          p.write_text(text, encoding='utf-8')
+          PY
+
+          git config user.name 'Techraym release automation'
+          git config user.email '104164197+Techraym@users.noreply.github.com'
+          git add update-existing.sh
+          git commit -m 'Make 1.16 updater version-aware and activate cover drain timers'
+          git push origin HEAD:release/1.16.2-cover-drain-ai-worker
