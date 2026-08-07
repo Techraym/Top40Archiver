@@ -2,6 +2,29 @@
 
 Alle noemenswaardige wijzigingen worden in dit bestand bijgehouden.
 
+## [1.16.9] - 2026-08-08
+
+### Opgelost
+
+- Onderbroken downloadjobs in `searching`, `downloading`, `validating` of `processing` worden bij een herstart van de downloadmanager veilig teruggezet naar de centrale queue, zodat oude workerslots niet permanent blijven hangen.
+- Provider-matchscores worden genormaliseerd over metadata die de provider werkelijk aanlevert; ontbrekende duur, album, jaar of ISRC telt niet meer automatisch als negatief bewijs.
+- Een kandidaat met zeer sterke artiest+titel-identiteit maar zonder providerduur mag naar de downloadfase, waarna FFprobe alsnog verplicht de echte audiolengte tegen de bekende trackduur controleert.
+- DRM op één SoundCloud- of andere providerkandidaat wordt als kandidaat-specifieke fout geclassificeerd en degradeert niet langer de hele provider.
+- De provider user-agent rapporteert de actuele releaseversie 1.16.9.
+
+### Diagnostiek
+
+- `top40-download-manager.service` draait via een recovery/logging-entrypoint en schrijft gestructureerde JSON-events naar journald.
+- Jobresultaten, worker-exceptions, providerzoekfouten en automatisch herstelde jobs zijn terug te lezen met `journalctl -u top40-download-manager.service`.
+- De log vermeldt expliciet dat autonome audioverwijdering en overschrijven van bestaande audio uitgeschakeld blijven.
+
+### Veiligheid
+
+- De harde duration-guard blijft actief: meer dan 15 seconden afwijking wordt na download altijd afgewezen.
+- Karaoke-, cover-, tribute-, nightcore-, sped-up-, slowed-, live-, instrumental-, remix- en ongewenste radio-editversies houden hun strafpunten.
+- Bestaande audio wordt nooit overschreven; de create-only eindschrijfstap uit 1.16.8 blijft ongewijzigd.
+- YouTube en YouTube Music blijven fallbackproviders met maximaal één gelijktijdige provideractie en de bestaande pacing/circuit-breakerregels.
+
 ## [1.16.8] - 2026-08-07
 
 ### Toegevoegd
