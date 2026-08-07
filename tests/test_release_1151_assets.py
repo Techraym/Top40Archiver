@@ -3,8 +3,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_version_is_1151():
-    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "1.15.1"
+def test_1151_assets_are_retained_in_newer_releases():
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    major, minor, patch = (int(part) for part in version.split(".")[:3])
+    assert (major, minor, patch) >= (1, 15, 1)
 
 
 def test_safe_updater_is_transactional():
@@ -13,6 +15,7 @@ def test_safe_updater_is_transactional():
     assert "rollback" in text
     assert "git diff --quiet" in text
     assert "flock -n" in text
+    assert 'bash "$WORKTREE/update-existing.sh"' in text
 
 
 def test_id3_worker_uses_apic_without_audio_transcode():
