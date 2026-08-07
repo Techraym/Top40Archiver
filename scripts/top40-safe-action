@@ -7,7 +7,7 @@ import sys
 
 ACTIONS = {
     "restart_web": ["systemctl", "restart", "top40-archiver-web.service"],
-    "restart_download": ["systemctl", "restart", "top40-archiver-download.service"],
+    "restart_download": ["systemctl", "restart", "top40-download-manager.service"],
     "restart_ai": ["systemctl", "restart", "top40-archiver-ai.service"],
     "restart_ollama": ["systemctl", "restart", "ollama.service"],
     "restart_log_reader": ["systemctl", "restart", "top40-log-reader.service"],
@@ -72,6 +72,10 @@ def main() -> int:
             "free_shell": False,
             "temporary_partial_cleanup_allowed": True,
             "chart_refresh_allowed": True,
+            "provider_rate_limit_bypass_allowed": False,
+            "provider_cookie_bypass_allowed": False,
+            "captcha_bypass_allowed": False,
+            "proxy_rotation_allowed": False,
         },
     }))
     return completed.returncode
