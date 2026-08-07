@@ -10,6 +10,7 @@ from .ai_learning import (
     new_cycle_id,
     resolve_pending_download_actions,
 )
+from .ai_learning_extras import record_recovery_side_effects
 from .ai_operations_worker import run_operations_worker
 from .service_recovery import run_service_recovery
 
@@ -43,6 +44,7 @@ def run_cycle() -> dict:
         operations_report=operations_report,
         recovery_report=report,
     )
+    side_effect_actions = record_recovery_side_effects(cycle_id, report)
 
     report["service_recovery"] = service_report
     report["operations_worker"] = operations_report
@@ -71,13 +73,17 @@ def run_cycle() -> dict:
     if not operations_report.get("ok"):
         unresolved_after += 1
 
-    actions_executed = _count_executed_actions(service_report, operations_report, report)
+    actions_executed = (
+        _count_executed_actions(service_report, operations_report, report)
+        + side_effect_actions
+    )
     operator_needed = unresolved_after
 
     learning_payload = {
         "cycle_id": cycle_id,
         "resolved_previous_actions": delayed_learning,
         "ingested_this_cycle": learning_ingest,
+        "configuration_side_effect_actions": side_effect_actions,
     }
     report["learning"] = learning_payload
 
@@ -98,6 +104,7 @@ def run_cycle() -> dict:
             "download_failure_count": report.get("failure_count", 0),
             "download_retryable_count": report.get("retryable_count", 0),
             "actions_executed": actions_executed,
+            "configuration_side_effect_actions": side_effect_actions,
         },
     )
     report["learning"]["autonomy_7_days"] = autonomy_report(7)
