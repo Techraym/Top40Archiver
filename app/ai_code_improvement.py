@@ -3,9 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import requests
 
@@ -13,7 +11,6 @@ from . import ai_memory
 from .ai_code_repair import (
     _health,
     _promote,
-    _restart_runtime,
     _rollback_active,
     _safe_touched_files,
 )
@@ -27,13 +24,14 @@ MIN_REPEAT_ACTIONS = 5
 VERIFY_MINUTES = 60
 COOLDOWN_HOURS = 6
 
-# Verbeteringen mogen alleen de functionele implementatie wijzigen. Monitoring,
-# learning, backup- en veiligheidsbestanden staan bewust niet in deze mapping.
+# Verbeteringen mogen alleen functionele implementatie wijzigen. De freshness-
+# guard, monitoring, learning, backup- en veiligheidsbestanden staan bewust niet
+# in deze mapping: een optimalisatie mag zijn eigen succescriterium niet wijzigen.
 SOURCE_MAP = {
     "downloads:": ["app/downloader.py", "app/service_queue.py"],
     "download:": ["app/downloader.py", "app/service_queue.py"],
     "covers:": ["app/cover_art.py"],
-    "charts:": ["app/top40.py", "app/service.py", "app/chart_freshness.py"],
+    "charts:": ["app/top40.py", "app/service.py"],
     "service:top40-archiver-download.service": ["app/downloader.py", "app/service_queue.py"],
     "service:top40-archiver-cover-art.service": ["app/cover_art.py"],
 }
@@ -74,7 +72,7 @@ def _candidate() -> dict | None:
                    MAX(started_at) AS last_seen
             FROM action_execution
             WHERE started_at>=? AND status='completed'
-              AND domain IN ('service','operations','download','download_config','charts')
+              AND domain IN ('service','operations','download','download_track','download_config','charts')
             GROUP BY problem_key,action
             HAVING COUNT(*)>=?
             ORDER BY COUNT(*) DESC, MAX(started_at) DESC
@@ -202,10 +200,13 @@ def run_code_improvement(cycle_id: str) -> dict:
     candidate = _candidate()
     if not candidate:
         return {"ok": True, "action": "none", "verification": verification}
-    last = (state.setdefault("last_attempts", {})).get(candidate["problem_key"])
+    last = state.setdefault("last_attempts", {}).get(candidate["problem_key"])
     if last:
         try:
-            if _now() - datetime.fromisoformat(str(last)) < timedelta(hours=COOLDOWN_HOURS):
+            parsed = datetime.fromisoformat(str(last))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            if _now() - parsed < timedelta(hours=COOLDOWN_HOURS):
                 return {"ok": True, "action": "cooldown", "candidate": candidate}
         except ValueError:
             pass
