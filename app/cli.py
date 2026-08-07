@@ -1,5 +1,6 @@
 import argparse
 
+from .chart_freshness import run_freshness_check
 from .db import init_db
 from .service import (
     history_pause,
@@ -19,6 +20,7 @@ def main():
         "command",
         choices=[
             "check",
+            "freshness",
             "retry",
             "download-daemon",
             "init",
@@ -38,6 +40,8 @@ def main():
 
     if args.command == "check":
         print(import_latest(args.force))
+    elif args.command == "freshness":
+        print(run_freshness_check(args.force))
     elif args.command == "retry":
         print(process_queue(args.limit))
     elif args.command == "download-daemon":

@@ -16,12 +16,14 @@ ACTIONS = {
     "repair_id3_cover_timer": ["systemctl", "enable", "--now", "top40-archiver-id3-cover.timer"],
     "repair_history_timer": ["systemctl", "enable", "--now", "top40-archiver-history.timer"],
     "repair_check_timer": ["systemctl", "enable", "--now", "top40-archiver-check.timer"],
+    "repair_freshness_timer": ["systemctl", "enable", "--now", "top40-archiver-freshness.timer"],
     "repair_auto_update_timer": ["systemctl", "enable", "--now", "top40-archiver-auto-update.timer"],
     "repair_ai_recovery_timer": ["systemctl", "enable", "--now", "top40-ai-recovery.timer"],
     "repair_incident_timer": ["systemctl", "enable", "--now", "top40-archiver-incident-scan.timer"],
     "run_cover_art": ["systemctl", "start", "--no-block", "top40-archiver-cover-art.service"],
     "run_id3_cover": ["systemctl", "start", "--no-block", "top40-archiver-id3-cover.service"],
     "run_database_check": ["systemctl", "start", "--no-block", "top40-archiver-check.service"],
+    "run_chart_freshness": ["systemctl", "start", "--no-block", "top40-archiver-freshness.service"],
     "run_history_sync": ["systemctl", "start", "--no-block", "top40-archiver-history.service"],
     "cleanup_stale_download_temp": [
         "/opt/top40-archiver/venv/bin/python3",
@@ -69,6 +71,7 @@ def main() -> int:
             "audio_delete_allowed": False,
             "free_shell": False,
             "temporary_partial_cleanup_allowed": True,
+            "chart_refresh_allowed": True,
         },
     }))
     return completed.returncode

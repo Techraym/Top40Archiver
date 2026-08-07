@@ -27,11 +27,16 @@ def test_normal_updater_installs_and_validates_complete_ai_stack():
         "top40-archiver-ai.service",
         "top40-ai-recovery.service",
         "top40-ai-recovery.timer",
+        "top40-archiver-freshness.service",
+        "top40-archiver-freshness.timer",
         "http://127.0.0.1:8040/health",
         "http://127.0.0.1:8041/healthz",
         "http://127.0.0.1:8042/healthz",
         "/api/development/workspaces",
         "/api/ai/recovery",
+        "/api/ai/learning",
+        "/api/ai/chart-freshness",
+        "/api/ai/code-repair",
         "/ai-actions",
         "backup_configuration",
         "restore_configuration",
@@ -43,16 +48,21 @@ def test_normal_updater_installs_and_validates_complete_ai_stack():
 
     assert "old_version" in updater
     assert "new_version" in updater
+    assert "top40-archiver-freshness.timer" in updater
     assert "top40-archiver-cover-art.timer" in updater
     assert "top40-archiver-id3-cover.timer" in updater
     assert "top40-archiver-incident-scan.timer" in updater
     assert "tests/test_cover_drain_worker.py" in updater
     assert "tests/test_ai_operations_worker.py" in updater
+    assert "tests/test_chart_freshness.py" in updater
+    assert "tests/test_ai_code_repair_policy.py" in updater
 
 
 def test_service_watchdog_units_and_entrypoint_are_release_managed():
     cover_service = ROOT / "systemd/top40-archiver-cover-art.service"
     cover_timer = ROOT / "systemd/top40-archiver-cover-art.timer"
+    freshness_service = ROOT / "systemd/top40-archiver-freshness.service"
+    freshness_timer = ROOT / "systemd/top40-archiver-freshness.timer"
     recovery_service = (ROOT / "systemd/top40-ai-recovery.service").read_text(encoding="utf-8")
     recovery_timer = (ROOT / "systemd/top40-ai-recovery.timer").read_text(encoding="utf-8")
     safe_action = (ROOT / "scripts/top40-safe-action").read_text(encoding="utf-8")
@@ -60,18 +70,27 @@ def test_service_watchdog_units_and_entrypoint_are_release_managed():
 
     assert cover_service.exists()
     assert cover_timer.exists()
+    assert freshness_service.exists()
+    assert freshness_timer.exists()
     cover_service_text = cover_service.read_text(encoding="utf-8")
     cover_timer_text = cover_timer.read_text(encoding="utf-8")
     assert "Type=oneshot" in cover_service_text
     assert "--drain" in cover_service_text
     assert "TimeoutStartSec=infinity" in cover_service_text
     assert "OnUnitInactiveSec=30min" in cover_timer_text
+    assert "OnUnitInactiveSec=30min" in freshness_timer.read_text(encoding="utf-8")
     assert "app.ai_recovery_entry" in recovery_service
+    assert "ReadWritePaths=/var/lib/top40-archiver /etc/systemd/system /opt/top40-archiver/app" in recovery_service
+    assert "/opt/top40-archiver/downloads" not in recovery_service
     assert "top40-archiver-cover-art.timer" in recovery_timer
+    assert "top40-archiver-freshness.timer" in recovery_timer
     assert "repair_cover_timer" in safe_action
     assert "run_cover_art" in safe_action
     assert "restart_cover_art" in safe_action
+    assert "repair_freshness_timer" in safe_action
+    assert "run_chart_freshness" in safe_action
     assert "top40-archiver-cover-art.timer" in watchdog
+    assert "top40-archiver-freshness.timer" in watchdog
     assert "paired_timer" in watchdog
 
 
@@ -92,6 +111,18 @@ def test_safe_updater_keeps_live_checkout_on_old_sha_until_install_succeeds():
     assert "rollback" in updater
 
 
+def test_safe_updater_recognizes_only_active_ai_managed_dirty_code():
+    updater = (ROOT / "scripts/safe-update.sh").read_text(encoding="utf-8")
+    assert "is_ai_managed_dirty" in updater
+    assert "code-repair-state.json" in updater
+    assert "code-improvement-state.json" in updater
+    assert "AI_LOCAL_PATCH" in updater
+    assert "git diff --binary" in updater
+    assert "git apply --check" in updater
+    assert "app.ai_update_handoff" in updater
+    assert "lokale wijzigingen gevonden die niet aantoonbaar" in updater
+
+
 def test_legacy_updater_can_bootstrap_116():
     bootstrap = ROOT / "scripts/install-1.16.0.sh"
     assert bootstrap.exists()
@@ -101,7 +132,7 @@ def test_legacy_updater_can_bootstrap_116():
     assert "/usr/local/sbin/top40-archiver-safe-update" in text
 
 
-def test_github_writes_remain_disabled_in_116():
+def test_github_writes_remain_disabled_for_development_assistant():
     service = (ROOT / "systemd/top40-archiver-ai.service").read_text(encoding="utf-8")
     installer = (ROOT / "install-1.16.0.sh").read_text(encoding="utf-8")
     assert "TOP40_AI_GITHUB_WRITE=0" in service

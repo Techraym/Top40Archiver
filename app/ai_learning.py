@@ -10,7 +10,9 @@ from typing import Any, Iterable
 from . import ai_memory
 from .db import connect as app_connect
 
-TARGET_DAYS = 7
+TARGET_DAYS = 7  # alleen trendvenster; geen wachtdrempel
+MIN_AUTONOMY_ACTIONS = 25
+MIN_LEARNED_PATTERNS = 3
 
 
 def _now() -> datetime:
@@ -259,21 +261,26 @@ def learned_actions(problem_key: str, candidates: Iterable[str] | None = None) -
 
 
 def choose_action(problem_key: str, candidates: list[str], exploration_index: int = 0) -> str:
-    """Exploreer onbekende strategieën eerst; gebruik daarna de bewezen beste oplossing."""
+    """Online learning: ieder resultaat beïnvloedt de eerstvolgende keuze."""
     if not candidates:
         raise ValueError("candidates mag niet leeg zijn")
     stats = {str(x["action"]): x for x in learned_actions(problem_key, candidates)}
-    untried = [name for name in candidates if int(stats.get(name, {}).get("evidence_count", 0)) < 2]
-    if untried:
-        return untried[int(exploration_index) % len(untried)]
 
-    def score(name: str) -> tuple[float, int]:
+    # Nog nooit gebruikte opties krijgen een beperkte exploratiebonus. Vanaf het
+    # eerste resultaat telt de gemeten effectiviteit meteen mee; er is geen fase
+    # waarin eerst dagen of een vast aantal acties afgewacht wordt.
+    def score(name: str) -> tuple[float, float, int]:
         item = stats.get(name, {})
-        confidence = float(item.get("confidence", 0.5))
-        effect = float(item.get("average_effect", 0.0))
-        success_rate = float(item.get("success_rate", 0.0))
         evidence = int(item.get("evidence_count", 0))
-        return (success_rate * 0.55 + confidence * 0.25 + max(0.0, effect) * 0.20, evidence)
+        successes = int(item.get("successes", 0))
+        failures = int(item.get("failures", 0))
+        posterior = (successes + 1.0) / (successes + failures + 2.0)
+        effect = max(-1.0, min(1.0, float(item.get("average_effect", 0.0))))
+        recency_confidence = float(item.get("confidence", 0.5))
+        exploration = 0.22 / math.sqrt(evidence + 1.0)
+        jitter = (((exploration_index + candidates.index(name)) % max(1, len(candidates))) / max(1, len(candidates))) * 0.001
+        value = posterior * 0.58 + ((effect + 1.0) / 2.0) * 0.24 + recency_confidence * 0.18 + exploration + jitter
+        return (value, posterior, evidence)
 
     return max(candidates, key=score)
 
@@ -576,8 +583,11 @@ def autonomy_report(days: int = TARGET_DAYS) -> dict[str, Any]:
         except ValueError:
             pass
 
+    # Readiness is evidence-driven, not calendar-driven. De worker leert vanaf
+    # actie 1; bij duizenden acties per dag kan de score dus binnen uren rijpen.
     ready = (
-        days_observed >= TARGET_DAYS
+        total >= MIN_AUTONOMY_ACTIONS
+        and int(patterns or 0) >= MIN_LEARNED_PATTERNS
         and readiness >= 95.0
         and action_operator == 0
         and cycle_operator == 0
@@ -585,11 +595,13 @@ def autonomy_report(days: int = TARGET_DAYS) -> dict[str, Any]:
     )
     return {
         "window_days": days,
-        "target_days": TARGET_DAYS,
+        "trend_window_days": TARGET_DAYS,
+        "minimum_autonomy_actions": MIN_AUTONOMY_ACTIONS,
         "days_observed": round(days_observed, 2),
         "readiness_score": round(readiness, 1),
         "ready_to_replace_manual_checks": ready,
-        "goal": "Binnen 7 dagen aantoonbaar het normale Top40Archiver-beheer zelfstandig afhandelen.",
+        "goal": "Vanaf de eerste actie online leren en menselijke beheerinteractie zo snel mogelijk overbodig maken.",
+        "learning_mode": "continuous-online-from-action-1",
         "actions": {
             "total": total,
             "completed": completed,

@@ -25,7 +25,7 @@ def test_release_update_generator_is_valid_python_and_generates_valid_shell(tmp_
         encoding="utf-8",
     )
     completed = subprocess.run(
-        [sys.executable, "-", str(generated), "1.16.3"],
+        [sys.executable, "-", str(generated), "1.16.4"],
         input=source,
         text=True,
         capture_output=True,
@@ -43,15 +43,26 @@ def test_release_update_generator_is_valid_python_and_generates_valid_shell(tmp_
 
     text = generated.read_text(encoding="utf-8")
     for marker in (
-        'assert x.get("version") == "1.16.3"',
+        'assert x.get("version") == "1.16.4"',
         'assert x.get("closed_loop_learning") is True',
+        'assert x.get("continuous_online_learning") is True',
+        'assert x.get("learning_starts_at_action") == 1',
+        'assert x.get("chart_freshness_guard") is True',
+        'assert x.get("autonomous_code_repair") is True',
+        'assert x.get("code_repair_requires_verified_backup") is True',
         'assert x.get("audio_delete_allowed") is False',
         'assert x.get("verified_version_backups") is True',
         "tests/test_ai_learning.py",
+        "tests/test_chart_freshness.py",
+        "tests/test_ai_code_repair_policy.py",
         "tests/test_version_backup_contract.py",
         "/api/ai/learning",
+        "/api/ai/chart-freshness",
+        "/api/ai/code-repair",
         "/usr/local/sbin/top40-version-backup",
         "/usr/local/sbin/top40-version-rollback",
+        "top40-archiver-freshness.timer",
         "top40-archiver-cover-art.timer",
+        "systemctl start --no-block top40-archiver-freshness.service",
     ):
         assert marker in text, marker

@@ -2,13 +2,16 @@
 set -Eeuo pipefail
 
 APP="/opt/top40-archiver"
+DATA_DIR="/var/lib/top40-archiver"
 REMOTE="${TOP40_UPDATE_REMOTE:-origin}"
 BRANCH="${TOP40_UPDATE_BRANCH:-main}"
-DB="/var/lib/top40-archiver/top40.sqlite3"
-BACKUP_ROOT="/var/lib/top40-archiver/backups"
+DB="$DATA_DIR/top40.sqlite3"
+BACKUP_ROOT="$DATA_DIR/backups"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 BACKUP="$BACKUP_ROOT/update_${STAMP}"
 LOCK="/run/lock/top40-archiver-update.lock"
+AI_LOCAL_PATCH="$BACKUP/ai-local.patch"
+AI_MANAGED_DIRTY=0
 
 exec 9>"$LOCK"
 if ! flock -n 9; then
@@ -18,15 +21,52 @@ fi
 
 cd "$APP"
 [ -d .git ] || { echo "FOUT: $APP is geen Git-repository; update afgebroken."; exit 21; }
+mkdir -p "$BACKUP"
+
+is_ai_managed_dirty() {
+  [ -z "$(git diff --cached --name-only)" ] || return 1
+  [ -z "$(git ls-files --others --exclude-standard)" ] || return 1
+  local changed
+  changed="$(git diff --name-only)"
+  [ -n "$changed" ] || return 1
+  TOP40_DIRTY_FILES="$changed" "$APP/venv/bin/python" - <<'PY'
+import json, os
+from pathlib import Path
+
+root = Path('/var/lib/top40-archiver/ai')
+allowed = set()
+for name in ('code-repair-state.json', 'code-improvement-state.json'):
+    try:
+        state = json.loads((root / name).read_text(encoding='utf-8'))
+    except Exception:
+        continue
+    active = state.get('active')
+    if isinstance(active, dict):
+        allowed.update(str(x) for x in (active.get('files') or []))
+changed = {x.strip() for x in os.environ.get('TOP40_DIRTY_FILES', '').splitlines() if x.strip()}
+if not changed or not changed.issubset(allowed):
+    raise SystemExit(1)
+if any(not x.startswith('app/') or not x.endswith('.py') or '..' in Path(x).parts for x in changed):
+    raise SystemExit(1)
+PY
+}
+
 if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
-  echo "FOUT: lokale wijzigingen gevonden; update afgebroken."
-  git status --short
-  exit 22
+  if is_ai_managed_dirty; then
+    AI_MANAGED_DIRTY=1
+    git diff --binary > "$AI_LOCAL_PATCH"
+    [ -s "$AI_LOCAL_PATCH" ] || { echo "FOUT: AI-canarypatch kon niet worden vastgelegd."; exit 22; }
+    echo "Gevalideerde AI-canarywijzigingen gevonden; officiële update mag deze gecontroleerd vervangen."
+    echo "Lokale canarypatch: $AI_LOCAL_PATCH"
+  else
+    echo "FOUT: lokale wijzigingen gevonden die niet aantoonbaar van een actieve AI-canary zijn; update afgebroken."
+    git status --short
+    exit 22
+  fi
 fi
 
 CURRENT_SHA="$(git rev-parse HEAD)"
 CURRENT_BRANCH="$(git branch --show-current)"
-mkdir -p "$BACKUP"
 cp -a VERSION "$BACKUP/VERSION" 2>/dev/null || true
 if [ -f "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
   sqlite3 "$DB" ".backup '$BACKUP/top40.sqlite3'" || true
@@ -83,6 +123,14 @@ rollback() {
   echo "FOUT: update naar $TARGET_SHA is mislukt; git-checkout blijft/gaat terug naar $CURRENT_SHA"
   cd "$APP"
   git reset --hard "$CURRENT_SHA" >/dev/null 2>&1 || true
+  if [ "$AI_MANAGED_DIRTY" -eq 1 ] && [ -s "$AI_LOCAL_PATCH" ]; then
+    if git apply --check "$AI_LOCAL_PATCH" >/dev/null 2>&1; then
+      git apply --whitespace=nowarn "$AI_LOCAL_PATCH" || true
+      echo "Actieve AI-canary is na mislukte officiële update teruggezet."
+    else
+      echo "WAARSCHUWING: AI-canarypatch kon niet automatisch opnieuw worden toegepast: $AI_LOCAL_PATCH"
+    fi
+  fi
   systemctl daemon-reload || true
   systemctl start top40-archiver-web.service 2>/dev/null || true
   systemctl start top40-log-reader.service 2>/dev/null || true
@@ -121,6 +169,16 @@ data=json.loads(os.environ['TOP40_AI_HEALTH'])
 assert data.get('ok') is True
 assert data.get('version') == expected
 PY
+fi
+
+# Een officiële, volledig gezonde release vervangt een eventuele lokale AI-canary.
+# Sluit die neutraal af zodat hij geen onterechte succes-/faalscore krijgt en de
+# volgende AI-cyclus niet probeert terug te rollen over de nieuwe versie heen.
+if [ "$AI_MANAGED_DIRTY" -eq 1 ] && [ -f "$APP/app/ai_update_handoff.py" ]; then
+  "$APP/venv/bin/python" -m app.ai_update_handoff "$NEW_VERSION" "$TARGET_SHA" || {
+    echo "FOUT: actieve AI-canary kon niet veilig aan de officiële update worden overgedragen."
+    false
+  }
 fi
 
 trap - ERR

@@ -7,9 +7,11 @@ set -Eeuo pipefail
 # nadat een zelfstandig geverifieerd rollbackpakket van de huidige versie bestaat.
 # Contract-markers voor CI: top40-safe-action top40-log-reader.service
 # top40-archiver-ai.service top40-ai-recovery.service top40-ai-recovery.timer
+# top40-archiver-freshness.service top40-archiver-freshness.timer
 # http://127.0.0.1:8040/health http://127.0.0.1:8041/healthz
 # http://127.0.0.1:8042/healthz /api/development/workspaces /api/ai/recovery
-# /api/ai/learning /ai-actions backup_configuration restore_configuration rollback_app
+# /api/ai/learning /api/ai/chart-freshness /api/ai/code-repair
+# /ai-actions backup_configuration restore_configuration rollback_app
 # last-recovery-report.json webinterface finale controle installed_commit_sha
 
 SRC=$(cd "$(dirname "$0")" && pwd)
@@ -71,6 +73,9 @@ new_tests = "\n".join([
     "      tests/test_cover_drain_worker.py " + bs,
     "      tests/test_ai_operations_worker.py " + bs,
     "      tests/test_ai_learning.py " + bs,
+    "      tests/test_chart_freshness.py " + bs,
+    "      tests/test_ai_code_repair_policy.py " + bs,
+    "      tests/test_ai_update_handoff.py " + bs,
     "      tests/test_version_backup_contract.py " + bs,
     "      tests/test_auto_update_contract.py",
 ])
@@ -86,6 +91,7 @@ old_timers = "\n".join([
 new_timers = "\n".join([
     "  top40-archiver-history.timer " + bs,
     "  top40-archiver-check.timer " + bs,
+    "  top40-archiver-freshness.timer " + bs,
     "  top40-archiver-cover-art.timer " + bs,
     "  top40-archiver-id3-cover.timer " + bs,
     "  top40-archiver-incident-scan.timer " + bs,
@@ -98,9 +104,11 @@ text = text.replace(old_timers, new_timers, 1)
 marker = 'systemctl is-active --quiet "$RECOVERY_TIMER"\n'
 extra = (
     marker
+    + "systemctl is-active --quiet top40-archiver-freshness.timer\n"
     + "systemctl is-active --quiet top40-archiver-cover-art.timer\n"
     + "systemctl is-active --quiet top40-archiver-id3-cover.timer\n"
     + "systemctl is-active --quiet top40-archiver-incident-scan.timer\n"
+    + "systemctl start --no-block top40-archiver-freshness.service\n"
     + "systemctl start --no-block top40-archiver-cover-art.service\n"
 )
 if marker not in text:
@@ -123,6 +131,11 @@ health_marker = 'assert x.get("production_write") is False\n'
 health_extra = (
     health_marker
     + 'assert x.get("closed_loop_learning") is True\n'
+    + 'assert x.get("continuous_online_learning") is True\n'
+    + 'assert x.get("learning_starts_at_action") == 1\n'
+    + 'assert x.get("chart_freshness_guard") is True\n'
+    + 'assert x.get("autonomous_code_repair") is True\n'
+    + 'assert x.get("code_repair_requires_verified_backup") is True\n'
     + 'assert x.get("audio_delete_allowed") is False\n'
     + 'assert x.get("verified_version_backups") is True\n'
 )
@@ -131,7 +144,12 @@ if health_marker not in text:
 text = text.replace(health_marker, health_extra, 1)
 
 route_marker = 'curl -fsS http://127.0.0.1:8041/api/ai/recovery >/dev/null\n'
-route_extra = route_marker + 'curl -fsS http://127.0.0.1:8041/api/ai/learning >/dev/null\n'
+route_extra = (
+    route_marker
+    + 'curl -fsS http://127.0.0.1:8041/api/ai/learning >/dev/null\n'
+    + 'curl -fsS http://127.0.0.1:8041/api/ai/chart-freshness >/dev/null\n'
+    + 'curl -fsS http://127.0.0.1:8041/api/ai/code-repair >/dev/null\n'
+)
 if route_marker not in text:
     raise SystemExit("FOUT: AI learning route marker ontbreekt")
 text = text.replace(route_marker, route_extra, 1)
