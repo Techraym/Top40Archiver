@@ -91,6 +91,19 @@ def ytdlp_runtime_args() -> list[str]:
 
 def _category_from_output(text: str) -> str:
     lowered = str(text or "").casefold()
+    # Lokale DNS/routingproblemen zijn geen bewijs dat een provider ongezond is.
+    # Houd transportfouten daarom los van provider-specifieke circuit breakers.
+    if any(
+        marker in lowered
+        for marker in (
+            "temporary failure in name resolution",
+            "failed to resolve",
+            "name or service not known",
+            "network is unreachable",
+            "no route to host",
+        )
+    ):
+        return "network"
     # DRM is een eigenschap van deze kandidaat, niet een storing van de hele
     # provider. Houd deze categorie apart zodat de circuit breaker niet onnodig
     # de bron als geheel degradeert.
@@ -230,5 +243,5 @@ def ytdlp_download_original(
 def default_user_agent() -> str:
     return os.getenv(
         "TOP40_PROVIDER_USER_AGENT",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36 Top40Archiver/1.16.9",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36 Top40Archiver/1.16.10",
     )
