@@ -75,6 +75,7 @@ new_tests = "\n".join([
     "      tests/test_ai_learning.py " + bs,
     "      tests/test_chart_freshness.py " + bs,
     "      tests/test_ai_code_repair_policy.py " + bs,
+    "      tests/test_ai_update_handoff.py " + bs,
     "      tests/test_version_backup_contract.py " + bs,
     "      tests/test_auto_update_contract.py",
 ])
