@@ -116,6 +116,10 @@ required=(
   app/main.py
   app/db.py
   app/service.py
+  app/download_db.py
+  app/download_manager.py
+  app/download_matching.py
+  app/providers/base.py
   app/templates/index.html
   app/static/style.css
   app/static/live.js
@@ -125,6 +129,7 @@ required=(
   scripts/create-version-backup.sh
   scripts/restore-version-backup.sh
   systemd/top40-archiver-web.service
+  systemd/top40-download-manager.service
 )
 for file in "${required[@]}"; do
   [ -f "$WORKTREE/$file" ] || { echo "FOUT: vereist bestand ontbreekt: $file"; exit 23; }
@@ -156,7 +161,11 @@ rollback() {
   systemctl start top40-archiver-web.service 2>/dev/null || true
   systemctl start top40-log-reader.service 2>/dev/null || true
   systemctl start top40-archiver-ai.service 2>/dev/null || true
-  systemctl start top40-archiver-download.service 2>/dev/null || true
+  if systemctl cat top40-download-manager.service >/dev/null 2>&1; then
+    systemctl start top40-download-manager.service 2>/dev/null || true
+  else
+    systemctl start top40-archiver-download.service 2>/dev/null || true
+  fi
   restore_git_ownership
   exit "$rc"
 }

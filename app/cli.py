@@ -2,6 +2,8 @@ import argparse
 
 from .chart_freshness import run_freshness_check
 from .db import init_db
+from .download_db import init_download_db
+from .download_manager import run_download_manager
 from .service import (
     history_pause,
     history_start,
@@ -23,6 +25,7 @@ def main():
             "freshness",
             "retry",
             "download-daemon",
+            "download-manager",
             "init",
             "history",
             "history-start",
@@ -37,6 +40,7 @@ def main():
     parser.add_argument("--title", default="Dancing Queen")
     args = parser.parse_args()
     init_db()
+    init_download_db()
 
     if args.command == "check":
         print(import_latest(args.force))
@@ -46,6 +50,8 @@ def main():
         print(process_queue(args.limit))
     elif args.command == "download-daemon":
         run_download_daemon(args.limit or 20)
+    elif args.command == "download-manager":
+        run_download_manager(args.limit or 20)
     elif args.command == "history":
         print(run_history_batch())
     elif args.command == "history-start":

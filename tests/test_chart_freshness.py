@@ -82,12 +82,13 @@ def test_latest_week_prefers_current_page_and_persists_only_exact_edition(monkey
 
     monkeypatch.setattr(chart_freshness, "fetch_chart_from_website", fetch)
     monkeypatch.setattr(chart_freshness, "_persist_chart", lambda chart, historical: {"new_track_ids": []})
-    monkeypatch.setattr(chart_freshness, "process_queue", lambda **kwargs: (_ for _ in ()).throw(AssertionError("no new tracks")))
+    monkeypatch.setattr(chart_freshness, "enqueue_track_ids", lambda ids: (_ for _ in ()).throw(AssertionError("no new tracks")))
 
     result = chart_freshness._fetch_target_week("top40", (2026, 32), prefer_current=True)
 
     assert result["ok"] is True
     assert result["source"] == "current"
+    assert result["queued_download_jobs"] == 0
     assert calls == [(None, "top40")]
 
 

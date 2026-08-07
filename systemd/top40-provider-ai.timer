@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodieke bounded Qwen provider tuning
+
+[Timer]
+OnBootSec=8min
+OnUnitInactiveSec=15min
+AccuracySec=1min
+Persistent=true
+Unit=top40-provider-ai.service
+
+[Install]
+WantedBy=timers.target

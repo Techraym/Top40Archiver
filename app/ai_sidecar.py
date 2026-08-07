@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
 import socket
 
 import requests
@@ -13,7 +14,15 @@ from .ai_memory import best_learning, remember_event, timeline
 from .incident_engine import incident_summary, list_incidents, scan_journal
 from .operations_center import cover_dashboard, database_dashboard, download_dashboard, health_score, service_monitor
 
-VERSION = "1.16.6"
+
+def _release_version() -> str:
+    try:
+        return (Path(__file__).resolve().parents[1] / "VERSION").read_text(encoding="utf-8").strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
+VERSION = _release_version()
 LOG_READER = os.getenv("TOP40_LOG_READER_URL", "http://127.0.0.1:8042")
 app = FastAPI(title="Top40Archiver AI Operations Center", version=VERSION)
 

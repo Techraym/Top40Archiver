@@ -7,8 +7,8 @@ from zoneinfo import ZoneInfo
 from .ai_session_console import operator_context, scope_held
 from .config import DATA_DIR
 from .db import connect, get_settings
+from .download_db import enqueue_track_ids
 from .service_common import _parse_edition_key, _persist_chart
-from .service_queue import process_queue
 from .top40 import fetch_chart_from_website
 
 TZ = ZoneInfo("Europe/Amsterdam")
@@ -139,7 +139,7 @@ def _fetch_target_week(
 
         persisted = _persist_chart(chart, False)
         ids = list(persisted.get("new_track_ids", []) or [])
-        downloads = process_queue(track_ids=ids) if ids else []
+        queued = enqueue_track_ids(ids) if ids else 0
         return {
             "ok": True,
             "chart_type": chart_type,
@@ -148,7 +148,9 @@ def _fetch_target_week(
             "source": source,
             "source_url": chart.source_url,
             "new_track_ids": ids,
-            "downloads": len(downloads),
+            "downloads": 0,
+            "queued_download_jobs": queued,
+            "download_manager": "top40-download-manager.service",
             "persist": persisted,
             "attempts": attempts,
         }
