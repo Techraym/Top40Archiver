@@ -80,6 +80,8 @@ def _result(cycle_id: str, domain: str, title: str, report: dict) -> None:
         summary = str(report.get("reason") or report.get("message") or "")
     if not summary:
         summary = f"Resultaat: {action}."
+    raw = json.dumps(report, ensure_ascii=False, default=str)
+    preview_limit = 12_000
     log_session_event(
         event_type="stage_result",
         title=title,
@@ -88,7 +90,13 @@ def _result(cycle_id: str, domain: str, title: str, report: dict) -> None:
         domain=domain,
         role="assistant",
         status="ok" if ok else "attention",
-        metadata={"action": action, "ok": ok, "report": report},
+        metadata={
+            "action": action,
+            "ok": ok,
+            "report_preview": raw[:preview_limit],
+            "report_truncated": len(raw) > preview_limit,
+            "report_bytes": len(raw.encode("utf-8", "ignore")),
+        },
     )
 
 
