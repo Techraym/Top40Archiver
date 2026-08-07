@@ -167,16 +167,30 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
             components=components,
         )
 
-    # Als de provider geen duur meldt, mag alleen een zeer sterke identiteit
-    # door naar de downloadfase. De manager valideert daarna verplicht de echte
-    # audiolengte met FFprobe tegen de Top40/Spotify-duur (harde >15s reject).
-    strong_identity_without_duration = (
+    # Als de provider geen duur meldt maar Top40Archiver wel een referentieduur
+    # kent, mag alleen een zeer sterke identiteit door naar de downloadfase. De
+    # echte audio wordt daarna verplicht met FFprobe tegen die duur gecontroleerd.
+    strong_identity_without_provider_duration = (
         duration_difference is None
         and bool(expected_duration)
         and not penalties
         and artist_ratio >= 0.90
         and title_ratio >= 0.94
         and total >= 92
+    )
+
+    # Veel oudere Top40-records hebben helemaal geen Spotify-/referentieduur.
+    # Productiegegevens uit 1.16.9 bewezen dat officiële resultaten met 96-100
+    # punten daardoor ten onrechte als try_other_provider werden weggegooid.
+    # Zonder referentieduur eisen we daarom een strengere artiest+titel-identiteit
+    # en nul versie-strafpunten. Audio-, stilte- en formaatvalidatie blijven daarna
+    # verplicht; er wordt dus niet simpelweg een lagere globale scoregrens gebruikt.
+    strong_identity_without_reference_duration = (
+        not expected_duration
+        and not penalties
+        and artist_ratio >= 0.94
+        and title_ratio >= 0.97
+        and total >= 96
     )
 
     if total >= 92 and duration_difference is not None and duration_difference <= 7:
@@ -187,10 +201,14 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
         accepted = True
         excellent = False
         reason = "good_match_duration_confirmed"
-    elif strong_identity_without_duration:
+    elif strong_identity_without_provider_duration:
         accepted = True
         excellent = False
         reason = "strong_identity_verify_after_download"
+    elif strong_identity_without_reference_duration:
+        accepted = True
+        excellent = False
+        reason = "strong_identity_without_reference_duration"
     elif total >= 75:
         accepted = False
         excellent = False
