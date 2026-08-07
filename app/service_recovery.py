@@ -16,6 +16,7 @@ from .service_watchdog import service_monitor, unhealthy_services
 STATE_FILE = DATA_DIR / "ai" / "service-recovery-state.json"
 REPORT_FILE = DATA_DIR / "ai" / "last-service-recovery-report.json"
 COOLDOWN_MINUTES = 10
+MODEL_TIMEOUT_SECONDS = 45
 
 
 def _utcnow() -> datetime:
@@ -74,7 +75,8 @@ def _model_assessment(critical: list[dict]) -> dict:
     if not critical:
         return {
             "available": True,
-            "summary": "Na de policy-acties zijn geen vereiste systemd-componenten meer defect.",
+            "skipped": True,
+            "summary": "Na de policy-acties zijn geen vereiste systemd-componenten meer defect; extra modeldiagnose is niet nodig.",
         }
 
     model = os.getenv("TOP40_AI_MODEL", "qwen3:4b")
@@ -89,7 +91,7 @@ def _model_assessment(critical: list[dict]) -> dict:
         }
         for item in critical
     ]
-    compact_learning = learning_context(10)
+    compact_learning = learning_context(8)
     prompt = (
         "Je bent de lokale Top40Archiver operations-assistent. Gebruik eerdere geverifieerde "
         "actie-uitkomsten als ervaring. Analyseer uitsluitend de systemd-afwijkingen die NA de "
@@ -115,12 +117,21 @@ def _model_assessment(critical: list[dict]) -> dict:
                 "prompt": prompt,
                 "stream": False,
                 "keep_alive": "30m",
+                "options": {"temperature": 0.1, "num_predict": 180},
             },
-            timeout=120,
+            timeout=MODEL_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         text = str(response.json().get("response") or "").strip()
         return {"available": True, "model": model, "summary": text[:1500]}
+    except requests.Timeout as exc:
+        return {
+            "available": False,
+            "model": model,
+            "timed_out": True,
+            "summary": "Modeldiagnose bereikte de tijdslimiet; de policy-engine heeft de herstelacties wel uitgevoerd en de cyclus blijft doorlopen.",
+            "error": str(exc)[-500:],
+        }
     except Exception as exc:
         return {
             "available": False,
