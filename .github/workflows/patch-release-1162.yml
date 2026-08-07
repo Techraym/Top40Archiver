@@ -26,10 +26,11 @@ jobs:
           text = p.read_text(encoding='utf-8')
 
           old = 'assert x.get("version") == "1.16.0"'
-          new = 'assert x.get("version") == "\'"$VERSION"\'"'
-          if old not in text:
-              raise SystemExit('expected hard-coded AI version assertion not found')
-          text = text.replace(old, new, 1)
+          new = '''assert x.get("version") == "'"$VERSION"'"'''
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('expected AI version assertion not found')
 
           old_list = '''  top40-archiver-history.timer \\
   top40-archiver-check.timer \\
@@ -42,15 +43,17 @@ jobs:
   top40-archiver-incident-scan.timer \\
   top40-archiver-auto-update.timer \\
 '''
-          if old_list not in text:
+          if old_list in text:
+              text = text.replace(old_list, new_list, 1)
+          elif new_list not in text:
               raise SystemExit('final timer enable list not found')
-          text = text.replace(old_list, new_list, 1)
 
           marker = 'systemctl is-active --quiet "$RECOVERY_TIMER"\n'
           addition = '''systemctl is-active --quiet "$RECOVERY_TIMER"\nsystemctl is-active --quiet top40-archiver-cover-art.timer\nsystemctl is-active --quiet top40-archiver-id3-cover.timer\nsystemctl is-active --quiet top40-archiver-incident-scan.timer\nsystemctl start --no-block top40-archiver-cover-art.service\n'''
-          if marker not in text:
-              raise SystemExit('final recovery timer check not found')
-          text = text.replace(marker, addition, 1)
+          if addition not in text:
+              if marker not in text:
+                  raise SystemExit('final recovery timer check not found')
+              text = text.replace(marker, addition, 1)
 
           p.write_text(text, encoding='utf-8')
           PY
@@ -58,5 +61,9 @@ jobs:
           git config user.name 'Techraym release automation'
           git config user.email '104164197+Techraym@users.noreply.github.com'
           git add update-existing.sh
+          if git diff --cached --quiet; then
+            echo 'Updater was already patched.'
+            exit 0
+          fi
           git commit -m 'Make 1.16 updater version-aware and activate cover drain timers'
           git push origin HEAD:release/1.16.2-cover-drain-ai-worker
