@@ -10,6 +10,9 @@ APP=/opt/top40-archiver
 DATA_DIR=/var/lib/top40-archiver
 BACKUP_ROOT="$DATA_DIR/backups/version-rollback"
 EXPECTED_VERSION=1.16.6
+LEGACY_AI_DROPIN=/etc/systemd/system/top40-archiver-ai.service.d/operations-center.conf
+DROPIN_BACKUP=""
+DROPIN_REMOVED=0
 
 [ "$(id -u)" -eq 0 ] || { echo "Voer dit script als root uit."; exit 1; }
 cd "$APP"
@@ -26,8 +29,21 @@ command -v sqlite3 >/dev/null
 
 TARGET_SHA=$(git rev-parse HEAD)
 TMP=$(mktemp -d /tmp/top40-1166-bootstrap.XXXXXX)
+DROPIN_BACKUP="$TMP/operations-center.conf"
+
 cleanup(){ rm -rf "$TMP"; }
+restore_legacy_dropin_on_error() {
+  local rc=$?
+  if [ "$DROPIN_REMOVED" -eq 1 ] && [ -f "$DROPIN_BACKUP" ]; then
+    echo "Mislukte migratie: legacy AI drop-in wordt teruggezet."
+    mkdir -p "$(dirname "$LEGACY_AI_DROPIN")"
+    cp -a "$DROPIN_BACKUP" "$LEGACY_AI_DROPIN"
+    systemctl daemon-reload || true
+  fi
+  exit "$rc"
+}
 trap cleanup EXIT
+trap restore_legacy_dropin_on_error ERR
 
 find_legacy_backup() {
   local item
@@ -59,7 +75,7 @@ make_previous_version_backup() {
   short=${previous_sha:0:12}
   out="$BACKUP_ROOT/${stamp}_${previous_version}_${short}_legacy-bootstrap"
   extract="$TMP/previous"
-  mkdir -p "$out/root" "$out/systemd" "$extract"
+  mkdir -p "$out/root" "$out/systemd" "$out/systemd-dropins" "$extract"
   chmod 0700 "$out"
 
   # Code van exact de vorige commit, niet van de reeds uitgecheckte doelrelease.
@@ -85,6 +101,9 @@ make_previous_version_backup() {
   for unit in /etc/systemd/system/top40*.service /etc/systemd/system/top40*.timer; do
     [ -e "$unit" ] && cp -a "$unit" "$out/systemd/$(basename "$unit")"
   done
+  if [ -f "$LEGACY_AI_DROPIN" ]; then
+    cp -a "$LEGACY_AI_DROPIN" "$out/systemd-dropins/operations-center.conf"
+  fi
   [ -e /usr/local/sbin/top40-safe-action ] && cp -a /usr/local/sbin/top40-safe-action "$out/top40-safe-action"
   [ -e /usr/local/sbin/top40-archiver-safe-update ] && cp -a /usr/local/sbin/top40-archiver-safe-update "$out/top40-archiver-safe-update"
   [ -e /etc/top40-archiver.env ] && cp -a /etc/top40-archiver.env "$out/top40-archiver.env"
@@ -115,6 +134,7 @@ payload = {
     "purpose": "Legacy 1.15.x to 1.16.6 verified rollback",
     "database_restore_default": False,
     "audio_library_touched": False,
+    "legacy_ai_dropin_backed_up": True,
 }
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(payload, handle, ensure_ascii=False, indent=2)
@@ -140,6 +160,39 @@ make_previous_version_backup
 git archive "$TARGET_SHA" | tar -x -C "$TMP"
 chmod +x "$TMP/update-existing.sh"
 
+# Voorkom een live app-swap met een onvolledige module-set. Dit vangt precies de
+# gemengde-modulefout af die op 2026-08-07 op de NUC zichtbaar werd.
+for required in \
+  app/__init__.py \
+  app/cli.py \
+  app/chart_freshness.py \
+  app/ai_platform.py \
+  app/ai_session_console.py \
+  app/service_queue.py; do
+  [ -f "$TMP/$required" ] || {
+    echo "FOUT: verplichte 1.16.6 module ontbreekt vóór live-swap: $required"
+    exit 1
+  }
+done
+
+# 1.15.5 installeerde een drop-in die ExecStart terugbuigt naar
+# app.ai_operations_app:app. Die overschrijft in 1.16.6 de nieuwe hoofd-unit
+# app.ai_platform:app en laat daardoor de nieuwe healthcontracten falen.
+# Backup + verwijder hem transactioneel; de ERR-trap zet hem terug als de
+# migratie ergens daarna faalt.
+if [ -f "$LEGACY_AI_DROPIN" ]; then
+  cp -a "$LEGACY_AI_DROPIN" "$DROPIN_BACKUP"
+  rm -f "$LEGACY_AI_DROPIN"
+  rmdir "$(dirname "$LEGACY_AI_DROPIN")" 2>/dev/null || true
+  DROPIN_REMOVED=1
+  systemctl daemon-reload
+  echo "Legacy AI operations-center drop-in verwijderd voor 1.16.6 migratie."
+fi
+
+# Zorg dat geen downloadworker Python-modules uit de app-map kan laden terwijl
+# de transactionele updater de applicatiemap wisselt.
+systemctl stop top40-archiver-download.service 2>/dev/null || true
+
 TOP40_SOURCE_SHA="$TARGET_SHA" bash "$TMP/update-existing.sh"
 
 # De legacy updater waarmee we binnenkwamen blijft anders na deze succesvolle
@@ -147,5 +200,8 @@ TOP40_SOURCE_SHA="$TARGET_SHA" bash "$TMP/update-existing.sh"
 install -m 0755 "$TMP/scripts/safe-update.sh" /usr/local/sbin/top40-archiver-safe-update
 install -m 0755 "$TMP/scripts/create-version-backup.sh" /usr/local/sbin/top40-version-backup
 install -m 0755 "$TMP/scripts/restore-version-backup.sh" /usr/local/sbin/top40-version-rollback
+
+trap - ERR
+DROPIN_REMOVED=0
 
 echo "$EXPECTED_VERSION legacy bootstrap voltooid; toekomstige updates gebruiken de transactionele updater."
