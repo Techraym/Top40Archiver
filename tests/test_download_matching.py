@@ -44,6 +44,24 @@ def test_exact_identity_without_provider_duration_can_be_verified_after_download
     assert decision.duration_difference is None
 
 
+def test_legacy_track_without_reference_duration_accepts_only_very_strong_identity():
+    track = {"artist": "INXS", "title": "Never Tear Us Apart", "duration_ms": None}
+    candidate = {"artist": "INXS", "title": "Never Tear Us Apart"}
+    decision = score_candidate(track, candidate)
+    assert decision.score == 100.0
+    assert decision.accepted is True
+    assert decision.excellent is False
+    assert decision.reason == "strong_identity_without_reference_duration"
+
+
+def test_legacy_track_without_reference_duration_still_rejects_cover():
+    track = {"artist": "INXS", "title": "Never Tear Us Apart", "duration_ms": None}
+    candidate = {"artist": "INXS", "title": "Never Tear Us Apart (Cover)"}
+    decision = score_candidate(track, candidate)
+    assert decision.accepted is False
+    assert any(item["marker"] == "cover" for item in decision.penalties)
+
+
 def test_missing_duration_does_not_rescue_weak_identity():
     track = {"artist": "Hazell Dean", "title": "Who's Leaving Who", "duration_ms": 225000}
     candidate = {"artist": "Someone Else", "title": "Who's Leaving Who"}
