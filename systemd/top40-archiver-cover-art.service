@@ -1,5 +1,5 @@
 [Unit]
-Description=Top40Archiver cover art worker
+Description=Top40Archiver cover art drain worker
 After=network-online.target
 Wants=network-online.target
 
@@ -10,8 +10,10 @@ Group=top40archiver
 WorkingDirectory=/opt/top40-archiver
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/opt/top40-archiver/venv/bin/python -m app.cover_art --limit 40
+ExecStart=/opt/top40-archiver/venv/bin/python -m app.cover_art --drain --limit 40 --transient-retry-seconds 120
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
-TimeoutStartSec=45min
+TimeoutStartSec=infinity
+Restart=on-failure
+RestartSec=2min
