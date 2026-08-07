@@ -16,6 +16,7 @@ from .ai_learning import (
 from .ai_learning_extras import record_recovery_side_effects
 from .ai_operations_worker import run_operations_worker
 from .ai_storage_recovery import run_storage_recovery
+from .ai_ui_designer import run_ui_designer
 from .chart_freshness import run_freshness_check
 from .service_recovery import run_service_recovery
 
@@ -82,12 +83,18 @@ def run_cycle() -> dict:
             "reason": "Runtime-repair en optimalisatie worden nooit tegelijk gepromoveerd.",
         }
 
+    # De hoofdpagina op :8041 is eveneens een gesloten leerkring. Qwen schrijft
+    # uitsluitend HTML/CSS in /var/lib; vaste policy-JavaScript vult de data en
+    # rapporteert renderfouten/overflow terug. Elke revisie is een AI-actie.
+    ui_report = run_ui_designer(cycle_id)
+
     report["service_recovery"] = service_report
     report["storage_recovery"] = storage_report
     report["chart_freshness"] = freshness_report
     report["operations_worker"] = operations_report
     report["code_repair"] = code_report
     report["code_improvement"] = improvement_report
+    report["control_room_ui"] = ui_report
     report.setdefault("verification", {})["service_critical_after"] = service_report.get(
         "critical_after", 0
     )
@@ -105,6 +112,7 @@ def run_cycle() -> dict:
     report["verification"]["cover_worker_running"] = (
         operations_report.get("after", {}).get("covers", {}).get("running", False)
     )
+    report["verification"]["control_room_ui_ok"] = bool(ui_report.get("ok", True))
     report["ok"] = (
         bool(report.get("ok"))
         and bool(service_report.get("ok"))
@@ -112,6 +120,7 @@ def run_cycle() -> dict:
         and bool(operations_report.get("ok"))
         and bool(code_report.get("ok", True))
         and bool(improvement_report.get("ok", True))
+        and bool(ui_report.get("ok", True))
     )
 
     service_incidents = int(service_report.get("critical_before") or 0)
@@ -121,6 +130,7 @@ def run_cycle() -> dict:
     chart_incidents = 0 if (freshness_report.get("before") or {}).get("ok") else 1
     code_incidents = 1 if code_report.get("action") not in {"none", "verify_existing_patch"} else 0
     improvement_incidents = 1 if improvement_report.get("action") not in {"none", "measure_existing_improvement", "skipped_code_repair_active"} else 0
+    ui_incidents = 1 if ui_report.get("action") in {"candidate_rejected", "ui_generation_error", "rolled_back"} else 0
     incidents_detected = (
         service_incidents
         + download_incidents
@@ -129,6 +139,7 @@ def run_cycle() -> dict:
         + chart_incidents
         + code_incidents
         + improvement_incidents
+        + ui_incidents
     )
 
     unresolved_after = int(service_report.get("critical_after") or 0)
@@ -142,9 +153,12 @@ def run_cycle() -> dict:
         unresolved_after += 1
     if not improvement_report.get("ok", True):
         unresolved_after += 1
+    if not ui_report.get("ok", True):
+        unresolved_after += 1
 
     code_action_count = 1 if code_report.get("action") not in {"none", "cooldown", "verify_existing_patch"} else 0
     improvement_action_count = 1 if improvement_report.get("action") not in {"none", "cooldown", "measure_existing_improvement", "skipped_code_repair_active"} else 0
+    ui_action_count = 1 if ui_report.get("action") in {"promoted_ui_canary", "candidate_rejected", "ui_generation_error", "rolled_back", "verified_revision"} else 0
     actions_executed = (
         _count_executed_actions(service_report, operations_report, report)
         + len(storage_report.get("actions") or [])
@@ -152,6 +166,7 @@ def run_cycle() -> dict:
         + freshness_action_count
         + code_action_count
         + improvement_action_count
+        + ui_action_count
     )
     operator_needed = unresolved_after + int(storage_report.get("operator_needed") or 0)
 
@@ -164,6 +179,7 @@ def run_cycle() -> dict:
         "chart_actions": freshness_action_count,
         "code_repair": code_report.get("action"),
         "code_improvement": improvement_report.get("action"),
+        "control_room_ui": ui_report.get("action"),
         "learning_mode": "continuous_from_first_action",
     }
     report["learning"] = learning_payload
@@ -190,6 +206,7 @@ def run_cycle() -> dict:
             "operations_ok": bool(operations_report.get("ok")),
             "code_repair": code_report.get("action"),
             "code_improvement": improvement_report.get("action"),
+            "control_room_ui": ui_report.get("action"),
             "download_failure_count": report.get("failure_count", 0),
             "download_retryable_count": report.get("retryable_count", 0),
             "actions_executed": actions_executed,
