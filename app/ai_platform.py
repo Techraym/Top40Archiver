@@ -31,6 +31,7 @@ def healthz():
         "ai_session_autonomous_worklog": True,
         "operator_guidance": True,
         "operator_domain_hold": True,
+        "operator_receives_qwen_acknowledgement": True,
         "raw_chain_of_thought_exposed": False,
         "decision_summaries_exposed": True,
         "human_approval_per_cycle_required": False,
