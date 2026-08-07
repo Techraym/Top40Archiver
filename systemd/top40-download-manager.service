@@ -19,14 +19,11 @@ TimeoutStopSec=30
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=6
-
-# De manager schrijft alleen applicatiestatus/SQLite/temp en de ingestelde muziekopslag.
-# Providerpacing/circuit-breakers zitten in de applicatie; geen proxy/cookie/captcha bypass.
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
-ProtectHome=true
-ReadWritePaths=/var/lib/top40-archiver
+
+# Geen statische ProtectSystem/ReadWritePaths-beperking: download_dir kan bewust
+# op USB/NAS/mount staan. Het proces blijft wel onprivileged top40archiver.
 
 [Install]
 WantedBy=multi-user.target
