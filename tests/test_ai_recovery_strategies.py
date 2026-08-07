@@ -15,18 +15,24 @@ def _item(**overrides):
     return base
 
 
-def test_search_strategy_rotates_without_lowering_match_safety():
+def test_search_strategy_supports_all_safe_variants_without_lowering_match_safety(monkeypatch):
+    candidates = ["canonical_search", "simplified_artist", "title_first", "audio_fallback"]
+    monkeypatch.setattr(
+        ai_recovery,
+        "choose_action",
+        lambda problem, options, exploration_index=0: options[exploration_index % len(options)],
+    )
     item = _item()
     names = [ai_recovery._repair_strategy(item, n)[0] for n in range(4)]
-    assert names == [
-        "canonical_search",
-        "simplified_artist",
-        "title_first",
-        "audio_fallback",
-    ]
+    assert names == candidates
 
 
-def test_compound_artist_is_simplified_for_second_strategy():
+def test_compound_artist_is_simplified_when_learning_selects_that_strategy(monkeypatch):
+    monkeypatch.setattr(
+        ai_recovery,
+        "choose_action",
+        lambda problem, options, exploration_index=0: "simplified_artist",
+    )
     strategy, query = ai_recovery._repair_strategy(_item(), 1)
     assert strategy == "simplified_artist"
     assert query == "Vader Abraham - Het Leger Van Werkelozen"
