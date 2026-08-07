@@ -8,7 +8,7 @@ import requests
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 
-from .ai_control_room import control_room_response
+from .ai_control_room import control_room_response, router as control_room_router
 from .ai_memory import best_learning, remember_event, timeline
 from .incident_engine import incident_summary, list_incidents, scan_journal
 from .operations_center import cover_dashboard, database_dashboard, download_dashboard, health_score, service_monitor
@@ -143,3 +143,6 @@ def healthz():
         "log_reader": LOG_READER,
         "control_room": True,
     }
+
+
+app.include_router(control_room_router)
