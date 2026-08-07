@@ -11,6 +11,7 @@ ACTIONS = {
     "restart_ai": ["systemctl", "restart", "top40-archiver-ai.service"],
     "restart_ollama": ["systemctl", "restart", "ollama.service"],
     "restart_log_reader": ["systemctl", "restart", "top40-log-reader.service"],
+    "restart_cover_art": ["systemctl", "restart", "--no-block", "top40-archiver-cover-art.service"],
     "repair_cover_timer": ["systemctl", "enable", "--now", "top40-archiver-cover-art.timer"],
     "repair_id3_cover_timer": ["systemctl", "enable", "--now", "top40-archiver-id3-cover.timer"],
     "repair_history_timer": ["systemctl", "enable", "--now", "top40-archiver-history.timer"],
@@ -18,18 +19,31 @@ ACTIONS = {
     "repair_auto_update_timer": ["systemctl", "enable", "--now", "top40-archiver-auto-update.timer"],
     "repair_ai_recovery_timer": ["systemctl", "enable", "--now", "top40-ai-recovery.timer"],
     "repair_incident_timer": ["systemctl", "enable", "--now", "top40-archiver-incident-scan.timer"],
-    "run_cover_art": ["systemctl", "start", "top40-archiver-cover-art.service"],
-    "run_id3_cover": ["systemctl", "start", "top40-archiver-id3-cover.service"],
+    "run_cover_art": ["systemctl", "start", "--no-block", "top40-archiver-cover-art.service"],
+    "run_id3_cover": ["systemctl", "start", "--no-block", "top40-archiver-id3-cover.service"],
+    "run_database_check": ["systemctl", "start", "--no-block", "top40-archiver-check.service"],
+    "run_history_sync": ["systemctl", "start", "--no-block", "top40-archiver-history.service"],
     "diagnostics": ["systemctl", "is-system-running"],
 }
 
 
 def main() -> int:
     if len(sys.argv) != 2 or sys.argv[1] not in ACTIONS:
-        print(json.dumps({"ok": False, "error": "action_not_allowed", "allowed": sorted(ACTIONS)}))
+        print(json.dumps({
+            "ok": False,
+            "error": "action_not_allowed",
+            "allowed": sorted(ACTIONS),
+        }))
         return 2
+
     action = sys.argv[1]
-    completed = subprocess.run(ACTIONS[action], capture_output=True, text=True, timeout=90, check=False)
+    completed = subprocess.run(
+        ACTIONS[action],
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
     print(json.dumps({
         "ok": completed.returncode == 0,
         "action": action,
