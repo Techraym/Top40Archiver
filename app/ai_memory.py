@@ -87,12 +87,36 @@ CREATE TABLE IF NOT EXISTS autonomy_cycle (
  operator_needed INTEGER NOT NULL DEFAULT 0,
  report_json TEXT NOT NULL DEFAULT '{}'
 );
+CREATE TABLE IF NOT EXISTS ui_revision (
+ id INTEGER PRIMARY KEY,
+ revision INTEGER UNIQUE NOT NULL,
+ status TEXT NOT NULL,
+ model TEXT NOT NULL,
+ reason TEXT NOT NULL,
+ html_sha256 TEXT NOT NULL,
+ structural_score REAL NOT NULL DEFAULT 0,
+ validation_json TEXT NOT NULL DEFAULT '{}',
+ generated_at TEXT NOT NULL,
+ promoted_at TEXT,
+ superseded_at TEXT,
+ rollback_reason TEXT
+);
+CREATE TABLE IF NOT EXISTS ui_telemetry (
+ id INTEGER PRIMARY KEY,
+ revision INTEGER NOT NULL DEFAULT 0,
+ event_type TEXT NOT NULL,
+ duration_ms REAL,
+ detail_json TEXT NOT NULL DEFAULT '{}',
+ created_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_history_created ON history(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_metrics_name_created ON metrics(metric, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_action_execution_started ON action_execution(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_action_execution_problem ON action_execution(problem_key,action,status);
 CREATE INDEX IF NOT EXISTS idx_action_execution_cycle ON action_execution(cycle_id);
 CREATE INDEX IF NOT EXISTS idx_autonomy_cycle_started ON autonomy_cycle(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ui_revision_revision ON ui_revision(revision DESC);
+CREATE INDEX IF NOT EXISTS idx_ui_telemetry_revision_created ON ui_telemetry(revision,created_at DESC);
 """
 
 
