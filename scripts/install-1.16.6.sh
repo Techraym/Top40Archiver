@@ -26,6 +26,7 @@ command -v git >/dev/null
 command -v tar >/dev/null
 command -v sha256sum >/dev/null
 command -v sqlite3 >/dev/null
+command -v runuser >/dev/null
 
 TARGET_SHA=$(git rev-parse HEAD)
 TMP=$(mktemp -d /tmp/top40-1166-bootstrap.XXXXXX)
@@ -153,6 +154,53 @@ PY
   echo "Legacy rollback-backup: $out"
 }
 
+repair_ai_memory_permissions() {
+  local service_user=top40archiver path
+  id "$service_user" >/dev/null 2>&1 || service_user=top40
+
+  echo "AI-memory rechten controleren voor gebruiker: $service_user"
+  mkdir -p "$DATA_DIR"
+  chown "$service_user:$service_user" "$DATA_DIR"
+  chmod 0750 "$DATA_DIR"
+
+  for path in \
+    "$DATA_DIR/ai_memory.sqlite" \
+    "$DATA_DIR/ai_memory.sqlite-wal" \
+    "$DATA_DIR/ai_memory.sqlite-shm"; do
+    if [ -e "$path" ]; then
+      chown "$service_user:$service_user" "$path"
+      chmod 0660 "$path"
+    fi
+  done
+
+  # Test exact het SQLite-writepad dat tijdens de vorige migratie faalde,
+  # zonder blijvende schemawijziging. BEGIN IMMEDIATE vereist een schrijf-lock.
+  runuser -u "$service_user" -- env TOP40_DATA_DIR="$DATA_DIR" \
+    "$APP/venv/bin/python" - "$DATA_DIR/ai_memory.sqlite" <<'PY'
+import sqlite3, sys
+path = sys.argv[1]
+conn = sqlite3.connect(path, timeout=10)
+try:
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("CREATE TABLE IF NOT EXISTS __top40_permission_probe(id INTEGER)")
+    conn.rollback()
+finally:
+    conn.close()
+print("AI-memory schrijfrechten: OK")
+PY
+
+  # SQLite kan tijdens de probe WAL/SHM-bestanden hebben aangemaakt.
+  for path in \
+    "$DATA_DIR/ai_memory.sqlite" \
+    "$DATA_DIR/ai_memory.sqlite-wal" \
+    "$DATA_DIR/ai_memory.sqlite-shm"; do
+    if [ -e "$path" ]; then
+      chown "$service_user:$service_user" "$path"
+      chmod 0660 "$path"
+    fi
+  done
+}
+
 make_previous_version_backup
 
 # Immutable bronkopie van exact de doelcommit. update-existing.sh mag daardoor
@@ -174,6 +222,11 @@ for required in \
     exit 1
   }
 done
+
+# Repareer een bestaande 1.15.x AI-memorydatabase voordat de live applicatie
+# wordt omgeschakeld. Op de NUC was deze database reeds vóór de upgrade soms
+# read-only voor de 8041-service en blokkeerde daardoor de 1.16.6 migratie.
+repair_ai_memory_permissions
 
 # 1.15.5 installeerde een drop-in die ExecStart terugbuigt naar
 # app.ai_operations_app:app. Die overschrijft in 1.16.6 de nieuwe hoofd-unit
