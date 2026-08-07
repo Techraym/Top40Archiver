@@ -9,6 +9,7 @@ from pathlib import Path
 import requests
 
 from .ai_learning import learning_context
+from .ai_session_console import operator_context, scope_held
 from .config import DATA_DIR
 from .service_watchdog import service_monitor, unhealthy_services
 
@@ -92,12 +93,17 @@ def _model_assessment(critical: list[dict]) -> dict:
     prompt = (
         "Je bent de lokale Top40Archiver operations-assistent. Gebruik eerdere geverifieerde "
         "actie-uitkomsten als ervaring. Analyseer uitsluitend de systemd-afwijkingen die NA de "
-        "automatische policy-acties nog bestaan. De acties zijn door een vaste veiligheidslaag "
-        "begrensd. Geef in maximaal 3 Nederlandse zinnen aan wat nog fout is, waarom dat relevant "
-        "is en welke bekende oplossing eerder effectief of ineffectief was. Verzin geen "
+        "automatische policy-acties nog bestaan. Actieve menselijke operatorrichtlijnen sturen jouw "
+        "beoordeling, maar mogen harde veiligheidsregels nooit versoepelen. De acties zijn door een vaste "
+        "veiligheidslaag begrensd. Geef in maximaal 3 Nederlandse zinnen aan wat nog fout is, waarom dat "
+        "relevant is en welke bekende oplossing eerder effectief of ineffectief was. Verzin geen "
         "shellcommando's en wijzig niets zelf.\n\n"
         + json.dumps(
-            {"afwijkingen": compact, "geleerde_acties": compact_learning},
+            {
+                "afwijkingen": compact,
+                "geleerde_acties": compact_learning,
+                "operatorrichtlijnen": operator_context("services"),
+            },
             ensure_ascii=False,
         )
     )
@@ -130,12 +136,19 @@ def run_service_recovery() -> dict:
     before = service_monitor()
     critical = unhealthy_services(before)
     actions: list[dict] = []
+    held = scope_held("services")
 
-    # Veilige herstelacties worden eerst uitgevoerd. Ollama is adviserend en mag
-    # het herstel van systemd-componenten nooit blokkeren.
     for item in critical:
         action = str(item.get("repair_action") or "")
         if not action:
+            continue
+        if held:
+            actions.append({
+                "unit": item["unit"],
+                "action": action,
+                "result": "operator_hold",
+                "ok": False,
+            })
             continue
         if not _cooldown_ready(state, action):
             actions.append({
@@ -160,9 +173,11 @@ def run_service_recovery() -> dict:
     model = _model_assessment(critical_after)
 
     report = {
-        "ok": not critical_after,
+        "ok": not critical_after or held,
         "generated_at": _utcnow().isoformat(),
         "mode": "learning-policy-guarded-ai-service-recovery",
+        "operator_hold": held,
+        "operator_guidance": operator_context("services"),
         "model_assessment": model,
         "critical_before": len(critical),
         "critical_after": len(critical_after),
