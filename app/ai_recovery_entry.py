@@ -12,6 +12,7 @@ from .ai_learning import (
 )
 from .ai_learning_extras import record_recovery_side_effects
 from .ai_operations_worker import run_operations_worker
+from .ai_storage_recovery import run_storage_recovery
 from .service_recovery import run_service_recovery
 
 
@@ -35,6 +36,7 @@ def run_cycle() -> dict:
     delayed_learning = resolve_pending_download_actions()
 
     service_report = run_service_recovery()
+    storage_report = run_storage_recovery(cycle_id)
     operations_report = run_operations_worker()
     report = ai_recovery.run_cycle()
 
@@ -47,9 +49,14 @@ def run_cycle() -> dict:
     side_effect_actions = record_recovery_side_effects(cycle_id, report)
 
     report["service_recovery"] = service_report
+    report["storage_recovery"] = storage_report
     report["operations_worker"] = operations_report
     report.setdefault("verification", {})["service_critical_after"] = service_report.get(
         "critical_after", 0
+    )
+    report["verification"]["storage_ok"] = bool(storage_report.get("ok"))
+    report["verification"]["disk_free_percent"] = (
+        storage_report.get("after", {}).get("free_percent")
     )
     report["verification"]["operations_ok"] = bool(operations_report.get("ok"))
     report["verification"]["cover_queue_after"] = (
@@ -61,29 +68,39 @@ def run_cycle() -> dict:
     report["ok"] = (
         bool(report.get("ok"))
         and bool(service_report.get("ok"))
+        and bool(storage_report.get("ok"))
         and bool(operations_report.get("ok"))
     )
 
     service_incidents = int(service_report.get("critical_before") or 0)
     download_incidents = int(report.get("failure_count") or 0)
     operations_incidents = 0 if operations_report.get("ok") else 1
-    incidents_detected = service_incidents + download_incidents + operations_incidents
+    storage_incidents = 1 if (storage_report.get("actions") or not storage_report.get("ok")) else 0
+    incidents_detected = (
+        service_incidents + download_incidents + operations_incidents + storage_incidents
+    )
 
     unresolved_after = int(service_report.get("critical_after") or 0)
     if not operations_report.get("ok"):
         unresolved_after += 1
+    if not storage_report.get("ok"):
+        unresolved_after += 1
 
+    # Storage-actions registreren zichzelf direct in de leerlaag omdat ze de
+    # diskmeting vóór en na dezelfde actie kunnen verifiëren.
     actions_executed = (
         _count_executed_actions(service_report, operations_report, report)
+        + len(storage_report.get("actions") or [])
         + side_effect_actions
     )
-    operator_needed = unresolved_after
+    operator_needed = unresolved_after + int(storage_report.get("operator_needed") or 0)
 
     learning_payload = {
         "cycle_id": cycle_id,
         "resolved_previous_actions": delayed_learning,
         "ingested_this_cycle": learning_ingest,
         "configuration_side_effect_actions": side_effect_actions,
+        "storage_actions": len(storage_report.get("actions") or []),
     }
     report["learning"] = learning_payload
 
@@ -99,6 +116,11 @@ def run_cycle() -> dict:
             "service": {
                 "critical_before": service_report.get("critical_before", 0),
                 "critical_after": service_report.get("critical_after", 0),
+            },
+            "storage": {
+                "ok": storage_report.get("ok"),
+                "free_percent": storage_report.get("after", {}).get("free_percent"),
+                "actions": len(storage_report.get("actions") or []),
             },
             "operations_ok": bool(operations_report.get("ok")),
             "download_failure_count": report.get("failure_count", 0),
