@@ -25,5 +25,8 @@ def test_cover_recovery_scripts_are_retained():
     assert "top40-archiver-cover-art.timer" in cover_worker.read_text(encoding="utf-8")
 
 
-def test_version_is_recovery_release():
-    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "1.15.0-alpha.3"
+def test_historical_recovery_assets_are_retained_in_current_release():
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    major, minor, patch = (int(part) for part in version.split(".")[:3])
+    assert (major, minor, patch) >= (1, 15, 0)
+    assert (ROOT / "scripts" / "recover-1.15.0-alpha.3.sh").exists()

@@ -27,7 +27,7 @@ def test_http_status_is_recognized_inside_wrapped_exception():
     assert _http_status_from_exception(wrapper) == 410
 
 
-def test_startup_recovery_accepts_raw_404_without_client_error_phrase():
+def test_startup_recovery_uses_blacklist_for_known_missing_page():
     con = _settings_connection(
         {
             "history_enabled": "0",
@@ -35,9 +35,7 @@ def test_startup_recovery_accepts_raw_404_without_client_error_phrase():
             "history_next_year": "1970",
             "history_next_week": "53",
             "history_last_edition": "1970-W52",
-            "history_last_error": (
-                "HTTP 404 voor https://www.top40.nl/top40/1970/week-53"
-            ),
+            "history_last_error": "HTTP 404 voor https://www.top40.nl/top40/1970/week-53",
             "history_completed_at": "",
             "tip_history_status": "running",
             "tip_history_next_year": "1969",
@@ -55,7 +53,7 @@ def test_startup_recovery_accepts_raw_404_without_client_error_phrase():
     finally:
         con.close()
 
-    assert recovered == ["top40:1970-W53"]
+    assert recovered == ["blacklist:top40:1970-W53"]
     assert values["history_next_year"] == "1971"
     assert values["history_next_week"] == "1"
     assert values["history_last_edition"] == "1970-W52"

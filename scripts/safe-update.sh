@@ -28,7 +28,11 @@ CURRENT_SHA="$(git rev-parse HEAD)"
 CURRENT_BRANCH="$(git branch --show-current)"
 mkdir -p "$BACKUP"
 cp -a VERSION "$BACKUP/VERSION" 2>/dev/null || true
-cp -a "$DB" "$BACKUP/top40.sqlite3" 2>/dev/null || true
+if [ -f "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
+  sqlite3 "$DB" ".backup '$BACKUP/top40.sqlite3'" || true
+else
+  cp -a "$DB" "$BACKUP/top40.sqlite3" 2>/dev/null || true
+fi
 systemctl cat top40-archiver-web.service > "$BACKUP/web.service" 2>/dev/null || true
 systemctl cat top40-archiver-ai.service > "$BACKUP/ai.service" 2>/dev/null || true
 printf '%s\n' "$CURRENT_SHA" > "$BACKUP/previous-sha"
@@ -47,62 +51,76 @@ cleanup() {
 trap cleanup EXIT
 git worktree add --detach "$WORKTREE" "$TARGET_SHA"
 
-required=(app/main.py app/db.py app/service.py app/templates/index.html app/static/style.css app/static/live.js VERSION)
+required=(
+  app/main.py
+  app/db.py
+  app/service.py
+  app/templates/index.html
+  app/static/style.css
+  app/static/live.js
+  VERSION
+  update-existing.sh
+  scripts/safe-update.sh
+  systemd/top40-archiver-web.service
+)
 for file in "${required[@]}"; do
   [ -f "$WORKTREE/$file" ] || { echo "FOUT: vereist bestand ontbreekt: $file"; exit 23; }
 done
-
-PYTHONDONTWRITEBYTECODE=1 "$APP/venv/bin/python" -m py_compile \
-  "$WORKTREE/app/main.py" "$WORKTREE/app/db.py" "$WORKTREE/app/service.py"
-
-if [ -f "$WORKTREE/app/ai_sidecar.py" ]; then
-  AI_FILES=(app/health_engine.py app/health_trends.py app/prediction_engine.py app/ai_sidecar.py)
-  [ ! -f "$WORKTREE/app/incident_engine.py" ] || AI_FILES+=(app/incident_engine.py app/incident_scan.py)
-  COMPILE_FILES=()
-  for file in "${AI_FILES[@]}"; do COMPILE_FILES+=("$WORKTREE/$file"); done
-  PYTHONDONTWRITEBYTECODE=1 "$APP/venv/bin/python" -m py_compile "${COMPILE_FILES[@]}"
-fi
 
 NEW_VERSION="$(tr -d '[:space:]' < "$WORKTREE/VERSION")"
 [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || {
   echo "FOUT: ongeldige VERSION in doelcommit: $NEW_VERSION"; exit 24;
 }
-INSTALLER="scripts/install-${NEW_VERSION}.sh"
-if [ -f "$WORKTREE/$INSTALLER" ]; then
-  echo "Versie-installer gevonden: $INSTALLER"
-else
-  INSTALLER=""
-  echo "Geen versie-installer; alleen generieke update wordt uitgevoerd."
-fi
 
-echo "=== Services stoppen ==="
-systemctl stop top40-archiver-ai.service 2>/dev/null || true
-systemctl stop top40-archiver-web.service
+echo "=== Doelcommit vooraf controleren ==="
+bash -n "$WORKTREE/update-existing.sh" "$WORKTREE/scripts/safe-update.sh"
+PYTHONDONTWRITEBYTECODE=1 "$APP/venv/bin/python" -m compileall -q "$WORKTREE/app"
 
 rollback() {
-  echo "FOUT: update mislukt; rollback naar $CURRENT_SHA"
-  git reset --hard "$CURRENT_SHA"
+  local rc=$?
+  echo "FOUT: update naar $TARGET_SHA is mislukt; git-checkout blijft/gaat terug naar $CURRENT_SHA"
+  cd "$APP"
+  git reset --hard "$CURRENT_SHA" >/dev/null 2>&1 || true
   systemctl daemon-reload || true
-  systemctl start top40-archiver-web.service || true
+  systemctl start top40-archiver-web.service 2>/dev/null || true
+  systemctl start top40-log-reader.service 2>/dev/null || true
   systemctl start top40-archiver-ai.service 2>/dev/null || true
+  systemctl start top40-archiver-download.service 2>/dev/null || true
+  exit "$rc"
 }
 trap rollback ERR
 
+# De doelcommit wordt vanuit de geïsoleerde worktree geïnstalleerd. De live git-
+# checkout blijft op de oude commit totdat alle applicatie-, systemd- en AI-
+# healthchecks in update-existing.sh zijn geslaagd.
+echo "=== Transactionele installatie $NEW_VERSION ==="
+TOP40_SOURCE_SHA="$TARGET_SHA" \
+  bash "$WORKTREE/update-existing.sh"
+
+# Pas na een volledig geslaagde installatie de live checkout administratief op
+# dezelfde commit zetten. De geïnstalleerde bestanden zijn dan al gevalideerd.
+cd "$APP"
 git reset --hard "$TARGET_SHA"
-[ -z "$INSTALLER" ] || bash "$INSTALLER" --from-updater
-systemctl daemon-reload
-systemctl start top40-archiver-web.service
-systemctl start top40-archiver-ai.service 2>/dev/null || true
-sleep 4
-curl -fsS http://127.0.0.1:8040/ >/dev/null
-if systemctl is-enabled --quiet top40-archiver-ai.service 2>/dev/null; then
+
+# De updater die deze update heeft uitgevoerd kan nog de oude versie zijn. Zet
+# daarom expliciet de gevalideerde updater uit de nieuwe commit voor de volgende run.
+install -m 0755 "$WORKTREE/scripts/safe-update.sh" /usr/local/sbin/top40-archiver-safe-update
+
+# Nog één externe controle nadat checkout en geïnstalleerde versie gelijklopen.
+curl -fsS http://127.0.0.1:8040/health >/dev/null
+if [ -f "$APP/app/ai_platform.py" ]; then
   RESPONSE="$(curl -fsS http://127.0.0.1:8041/healthz)"
-  grep -q "\"version\":\"$NEW_VERSION\"" <<<"${RESPONSE// /}" || {
-    echo "FOUT: AI-sidecar rapporteert niet versie $NEW_VERSION"; exit 25;
-  }
+  TOP40_AI_HEALTH="$RESPONSE" "$APP/venv/bin/python" - "$NEW_VERSION" <<'PY'
+import json,os,sys
+expected=sys.argv[1]
+data=json.loads(os.environ['TOP40_AI_HEALTH'])
+assert data.get('ok') is True
+assert data.get('version') == expected
+PY
 fi
 
 trap - ERR
 printf '%s\n' "$TARGET_SHA" > "$BACKUP/installed-sha"
+printf '%s\n' "$NEW_VERSION" > "$BACKUP/installed-version"
 echo "KLAAR: $CURRENT_SHA -> $TARGET_SHA (versie $NEW_VERSION)"
 echo "Backup: $BACKUP"

@@ -1,7 +1,7 @@
 [Unit]
-Description=Top40Archiver AI sidecar
-After=network-online.target top40-archiver-web.service ollama.service
-Wants=network-online.target
+Description=Top40Archiver AI platform
+After=network-online.target top40-archiver-web.service top40-log-reader.service ollama.service
+Wants=network-online.target top40-log-reader.service
 
 [Service]
 Type=simple
@@ -10,11 +10,21 @@ Group=top40archiver
 WorkingDirectory=/opt/top40-archiver
 EnvironmentFile=-/etc/top40-archiver.env
 Environment=TOP40_AI_MODEL=qwen3:4b
-ExecStart=/opt/top40-archiver/venv/bin/uvicorn app.ai_sidecar:app --host 0.0.0.0 --port 8041
+Environment=TOP40_AI_GITHUB_WRITE=0
+Environment=TOP40_LOG_READER_URL=http://127.0.0.1:8042
+ExecStart=/opt/top40-archiver/venv/bin/uvicorn app.ai_platform:app --host 0.0.0.0 --port 8041
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/top40-archiver
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target

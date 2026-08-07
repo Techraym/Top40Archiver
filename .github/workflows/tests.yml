@@ -2,9 +2,10 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - "release/**"
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
@@ -19,12 +20,23 @@ jobs:
       - name: Shell-syntax controleren
         run: |
           bash -n install.sh
+          bash -n install-1.16.0.sh
           bash -n update-existing.sh
           bash -n update-from-github.sh
           bash -n auto-update.sh
           bash -n setup-network-share.sh
           bash -n setup-top40-ca-bundle.sh
           bash -n update-timer.sh
+          bash -n scripts/safe-update.sh
+          bash -n scripts/install-1.16.0.sh
+
+      - name: 1.16 updatecontract controleren
+        run: |
+          grep -q 'app.ai_platform:app' systemd/top40-archiver-ai.service
+          grep -q 'top40-ai-recovery.timer' update-existing.sh
+          grep -q '127.0.0.1:8041/healthz' update-existing.sh
+          grep -q '127.0.0.1:8042/healthz' update-existing.sh
+          grep -q 'top40-archiver-safe-update' scripts/install-1.16.0.sh
 
   pytest:
     runs-on: ubuntu-latest
@@ -49,7 +61,9 @@ jobs:
           pip install pytest
 
       - name: Syntax controleren
-        run: python -m py_compile app/*.py
+        run: python -m compileall -q app
 
       - name: Tests uitvoeren
-        run: pytest
+        env:
+          TOP40_DATA_DIR: ${{ runner.temp }}/top40-test-data
+        run: pytest -q

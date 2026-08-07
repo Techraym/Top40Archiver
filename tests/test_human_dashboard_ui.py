@@ -4,16 +4,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_dashboard_loads_new_uncached_assets_and_human_copy():
+def test_dashboard_loads_current_uncached_assets_and_human_copy():
     template = (ROOT / "app" / "templates" / "index.html").read_text(
         encoding="utf-8"
     )
 
-    assert "/static/style.css?v=22" in template
-    assert "/static/live.js?v=22" in template
+    assert "/static/style.css?v=32" in template
+    assert "/static/live.js?v=32" in template
     assert "Een lokaal muziekarchief" in template
     assert "Mislukte downloads opnieuw proberen" in template
     assert "Niet online beschikbaar" in template
+    assert 'id="ai-sidecar-link"' in template
 
 
 def test_dashboard_uses_flat_editorial_layout_and_mobile_rules():
