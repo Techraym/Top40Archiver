@@ -1,0 +1,12 @@
+[Unit]
+Description=Bewaar actualiteit Top 40 en Tipparade
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=30min
+AccuracySec=2min
+Persistent=true
+Unit=top40-archiver-freshness.service
+
+[Install]
+WantedBy=timers.target
