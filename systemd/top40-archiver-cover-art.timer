@@ -1,11 +1,12 @@
 [Unit]
-Description=Periodiek ontbrekende albumhoezen zoeken
+Description=Plan volledige verwerking van ontbrekende albumhoezen
 
 [Timer]
-OnBootSec=3min
-OnUnitActiveSec=30min
+OnBootSec=2min
+OnUnitInactiveSec=30min
 RandomizedDelaySec=2min
 Persistent=true
+Unit=top40-archiver-cover-art.service
 
 [Install]
 WantedBy=timers.target
