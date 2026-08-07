@@ -2,6 +2,37 @@
 
 Alle noemenswaardige wijzigingen worden in dit bestand bijgehouden.
 
+## [1.16.8] - 2026-08-07
+
+### Toegevoegd
+
+- Centrale persistente Multi Source Download Engine via `top40-download-manager.service`, onafhankelijk van de webapp op poort 8040.
+- Modulaire providers voor SoundCloud, Audiomack, Audius, Bandcamp, YouTube Music en YouTube.
+- Persistente downloadjobs, providerconfiguratie, health-state, circuit breakers, retryhistorie, zoekcache en geheugen voor afgewezen kandidaten.
+- Provider-onafhankelijke matchscore voor artiest, titel, speelduur, album, jaar en ISRC met strafpunten voor ongewenste alternatieve versies.
+- FFprobe/FFmpeg-validatie van iedere succesvolle download, inclusief audiostream, speelduur, minimale grootte en stiltecontrole.
+- Registratie van broncodec, bronbitrate en sample rate naast de uiteindelijke outputkwaliteit.
+- Download Providers-dashboard op `:8041/download-providers` met providerstatus, success rate, workers, cooldowns en YouTube-afhankelijkheid.
+- Bounded Qwen/Ollama provider-tuning via `top40-provider-ai.timer` op basis van gemeten resultaten.
+
+### Gewijzigd
+
+- Chart-import, freshness-herstel en retries downloaden niet meer synchroon; zij enqueuen uitsluitend een job voor de zelfstandige manager.
+- Maximaal vier globale downloadjobs worden parallel verwerkt, met afzonderlijke providerlimieten.
+- Maximaal drie primaire providers worden per zoekgroep parallel bevraagd; YouTube Music en YouTube blijven sequentiële fallbackproviders.
+- YouTube en YouTube Music gebruiken standaard maximaal één gelijktijdige provideractie en minimaal twintig seconden pacing.
+- Jobretries volgen 30 seconden, 2 minuten, 10 minuten, 30 minuten en 2 uur terwijl andere providers beschikbaar blijven.
+- De primaire KPI `YouTube dependency` telt alleen directe YouTube-downloads; YouTube Music en de gecombineerde YouTube-family worden afzonderlijk weergegeven.
+- De AI-platformversie en sidecarversie worden voortaan uit het centrale `VERSION`-bestand gelezen.
+
+### Veiligheid
+
+- Gedownloade of reeds bestaande audio wordt nooit door de downloadmanager overschreven; een bestaand doelpad resulteert in een non-destructief conflict.
+- Qwen kan providerprioriteit alleen begrensd bijstellen en een cooldown alleen bij concrete recente fouten verlengen.
+- Qwen kan YouTube Music of YouTube nooit vóór primaire niet-YouTube-providers plaatsen.
+- Accounts, persoonlijke cookies, captcha-omzeiling, rate-limit-bypass en proxyrotatie blijven expliciet verboden.
+- De transactionele updater migreert van de oude downloader naar de nieuwe manager met geverifieerde backup, healthchecks en rollback naar de juiste downloadservice.
+
 ## [1.16.7] - 2026-08-07
 
 ### Opgelost
