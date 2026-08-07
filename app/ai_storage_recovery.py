@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .ai_learning import record_action
+from .ai_session_console import operator_context, scope_held
 from .config import DATA_DIR
 
 
@@ -45,8 +46,9 @@ def run_storage_recovery(cycle_id: str) -> dict:
     before = _disk()
     actions: list[dict] = []
     free_before = float(before.get("free_percent") or 0.0)
+    held = scope_held("storage")
 
-    if free_before < 10.0:
+    if free_before < 10.0 and not held:
         result = _safe_action("cleanup_stale_download_temp")
         after = _disk()
         free_after = float(after.get("free_percent") or 0.0)
@@ -81,14 +83,23 @@ def run_storage_recovery(cycle_id: str) -> dict:
         })
     else:
         after = before
+        if free_before < 10.0 and held:
+            actions.append({
+                "action": "cleanup_stale_download_temp",
+                "ok": False,
+                "result": "operator_hold",
+                "audio_deleted": False,
+            })
 
     critical = float(after.get("free_percent") or 0.0) < 5.0
     return {
-        "ok": not critical,
+        "ok": not critical or held,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "before": before,
         "after": after,
         "actions": actions,
+        "operator_hold": held,
+        "operator_guidance": operator_context("storage"),
         "operator_needed": 1 if critical else 0,
         "policy": {
             "downloaded_audio_delete_allowed": False,
