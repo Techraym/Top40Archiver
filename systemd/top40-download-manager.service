@@ -1,0 +1,32 @@
+[Unit]
+Description=Top40Archiver Multi Source Download Manager
+After=network-online.target top40-archiver-web.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=top40archiver
+Group=top40archiver
+WorkingDirectory=/opt/top40-archiver
+Environment=TOP40_DATA_DIR=/var/lib/top40-archiver
+Environment=PYTHONPATH=/opt/top40-archiver
+EnvironmentFile=-/etc/top40-archiver.env
+ExecStart=/opt/top40-archiver/venv/bin/python -m app.cli download-manager --limit 20
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+
+# De manager schrijft alleen applicatiestatus/SQLite/temp en de ingestelde muziekopslag.
+# Providerpacing/circuit-breakers zitten in de applicatie; geen proxy/cookie/captcha bypass.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/top40-archiver
+
+[Install]
+WantedBy=multi-user.target
