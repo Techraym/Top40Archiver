@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .config import DATA_DIR
 from .db import connect, get_settings
-from .service import import_latest
 from .service_common import _parse_edition_key, _persist_chart
 from .service_queue import process_queue
 from .top40 import fetch_chart_from_website
@@ -17,6 +15,7 @@ STATE_FILE = DATA_DIR / "ai" / "chart-freshness.json"
 RETRY_MINUTES = 20
 PUBLISH_WEEKDAY = 4  # vrijdag
 PUBLISH_HOUR = 12
+MAX_CATCHUP_WEEKS_PER_RUN = 12
 
 
 def _now() -> datetime:
@@ -82,21 +81,70 @@ def _recent_attempt(now: datetime) -> bool:
         return False
 
 
-def _website_fallback(chart_type: str, expected: tuple[int, int]) -> dict:
-    chart = fetch_chart_from_website(None, chart_type)  # current website edition
+def _monday(pair: tuple[int, int]) -> date:
+    return date.fromisocalendar(int(pair[0]), int(pair[1]), 1)
+
+
+def missing_pairs(last: tuple[int, int] | None, expected: tuple[int, int]) -> list[tuple[int, int]]:
+    """Geef ontbrekende edities chronologisch terug zonder grote history-runs te starten."""
+    if last is None:
+        return [expected]
+    cursor = _monday(last) + timedelta(days=7)
+    end = _monday(expected)
+    result: list[tuple[int, int]] = []
+    while cursor <= end and len(result) < MAX_CATCHUP_WEEKS_PER_RUN:
+        iso = cursor.isocalendar()
+        result.append((iso.year, iso.week))
+        cursor += timedelta(days=7)
+    return result
+
+
+def _fetch_target_week(chart_type: str, pair: tuple[int, int]) -> dict:
+    target = _monday(pair)
+    chart = fetch_chart_from_website(target, chart_type)
     actual = (chart.year, chart.week)
-    if actual < expected:
-        return {"ok": False, "chart_type": chart_type, "actual": chart.edition_key, "reason": "source_still_old"}
-    result = _persist_chart(chart, False)
-    ids = result.get("new_track_ids", [])
+    if actual != pair:
+        return {
+            "ok": False,
+            "chart_type": chart_type,
+            "requested": f"{pair[0]}-W{pair[1]:02d}",
+            "actual": chart.edition_key,
+            "reason": "edition_mismatch",
+        }
+    persisted = _persist_chart(chart, False)
+    ids = list(persisted.get("new_track_ids", []) or [])
     downloads = process_queue(track_ids=ids) if ids else []
     return {
         "ok": True,
         "chart_type": chart_type,
+        "requested": f"{pair[0]}-W{pair[1]:02d}",
         "actual": chart.edition_key,
         "new_track_ids": ids,
         "downloads": len(downloads),
+        "persist": persisted,
     }
+
+
+def _catch_up_chart(chart_type: str, before: dict, expected: tuple[int, int]) -> list[dict]:
+    last_value = before.get("top40" if chart_type == "top40" else "tipparade")
+    last = _edition_pair(last_value)
+    steps: list[dict] = []
+    for pair in missing_pairs(last, expected):
+        try:
+            step = _fetch_target_week(chart_type, pair)
+        except Exception as exc:
+            step = {
+                "ok": False,
+                "chart_type": chart_type,
+                "requested": f"{pair[0]}-W{pair[1]:02d}",
+                "error": str(exc)[-1500:],
+            }
+        steps.append(step)
+        # Archiefintegriteit: niet over een ontbrekende week heen springen. De
+        # timer probeert vanaf deze week opnieuw zodra de bron beschikbaar is.
+        if not step.get("ok"):
+            break
+    return steps
 
 
 def run_freshness_check(force: bool = False) -> dict:
@@ -109,26 +157,22 @@ def run_freshness_check(force: bool = False) -> dict:
     if not force and _recent_attempt(now):
         return {"ok": False, "action": "cooldown", "before": before, "after": before, "checked_at": now.isoformat()}
 
-    result: dict = {"ok": False, "action": "refresh_current_charts", "before": before, "attempted_at": now.isoformat(), "steps": []}
-    try:
-        normal = import_latest(False)
-        result["steps"].append({"source": "normal", "ok": True, "result": normal})
-    except Exception as exc:
-        result["steps"].append({"source": "normal", "ok": False, "error": str(exc)[-1500:]})
-
-    middle = _state()
-    expected = (middle["expected_year"], middle["expected_week"])
-    for chart_type in list(middle["stale"]):
-        try:
-            fallback = _website_fallback(chart_type, expected)
-            result["steps"].append({"source": "website_fallback", **fallback})
-        except Exception as exc:
-            result["steps"].append({"source": "website_fallback", "chart_type": chart_type, "ok": False, "error": str(exc)[-1500:]})
+    expected = (int(before["expected_year"]), int(before["expected_week"]))
+    result: dict = {
+        "ok": False,
+        "action": "refresh_current_charts",
+        "before": before,
+        "attempted_at": now.isoformat(),
+        "steps": [],
+    }
+    for chart_type in list(before["stale"]):
+        result["steps"].extend(_catch_up_chart(chart_type, before, expected))
 
     after = _state()
     result["after"] = after
     result["ok"] = bool(after["ok"])
     result["completed_at"] = _now().isoformat()
+    result["retry_in_minutes"] = 0 if result["ok"] else RETRY_MINUTES
     _write(result)
     return result
 
