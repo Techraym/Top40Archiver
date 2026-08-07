@@ -1,0 +1,50 @@
+from pathlib import Path
+
+from app.providers import DEFAULT_PROVIDER_CONFIG
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_provider_priority_keeps_youtube_family_last():
+    priorities = {name: int(cfg["priority"]) for name, cfg in DEFAULT_PROVIDER_CONFIG.items()}
+    assert priorities["soundcloud"] < priorities["youtube_music"]
+    assert priorities["audiomack"] < priorities["youtube_music"]
+    assert priorities["audius"] < priorities["youtube_music"]
+    assert priorities["bandcamp"] < priorities["youtube_music"]
+    assert priorities["youtube_music"] < priorities["youtube"]
+
+
+def test_youtube_family_has_single_concurrent_slot_and_slow_pacing():
+    for name in ("youtube_music", "youtube"):
+        cfg = DEFAULT_PROVIDER_CONFIG[name]
+        assert cfg["max_concurrent"] == 1
+        assert cfg["min_delay_seconds"] >= 20
+        assert cfg["requests_per_minute"] <= 3
+
+
+def test_primary_providers_have_independent_bounded_capacity():
+    assert DEFAULT_PROVIDER_CONFIG["soundcloud"]["max_concurrent"] == 2
+    assert DEFAULT_PROVIDER_CONFIG["audiomack"]["max_concurrent"] == 2
+    assert DEFAULT_PROVIDER_CONFIG["audius"]["max_concurrent"] == 2
+    assert DEFAULT_PROVIDER_CONFIG["bandcamp"]["max_concurrent"] == 1
+
+
+def test_provider_ai_cannot_promote_youtube_or_bypass_external_safeguards():
+    source = (ROOT / "app/provider_ai.py").read_text(encoding="utf-8")
+    assert 'if provider in YOUTUBE_FAMILY:' in source
+    assert 'adjustment = max(0, adjustment)' in source
+    assert '"accounts_allowed": False' in source
+    assert '"cookies_allowed": False' in source
+    assert '"captcha_bypass_allowed": False' in source
+    assert '"proxy_rotation_allowed": False' in source
+    assert '"rate_limit_bypass_allowed": False' in source
+    assert "MAX_COOLDOWN_MINUTES = 120" in source
+
+
+def test_safe_action_has_no_provider_bypass_action():
+    source = (ROOT / "scripts/top40-safe-action").read_text(encoding="utf-8").casefold()
+    assert "captcha_bypass_allowed\": false" in source
+    assert "proxy_rotation_allowed\": false" in source
+    assert "rate_limit_bypass_allowed\": false" in source
+    assert "rotate_proxy" not in source
+    assert "solve_captcha" not in source
