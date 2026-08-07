@@ -1,0 +1,57 @@
+name: Harden 1.16.4 self-healing policy
+
+on:
+  push:
+    branches:
+      - release/1.16.4-continuous-autonomy-chart-freshness
+    paths:
+      - .github/workflows/patch-1164-selfheal-safety.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/1.16.4-continuous-autonomy-chart-freshness
+          fetch-depth: 0
+      - name: Harden self-healing boundaries
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p=Path('app/ai_code_repair.py')
+          text=p.read_text(encoding='utf-8')
+          marker='ALLOWED_PRODUCTION_SUFFIXES = {".py"}\n'
+          block='''ALLOWED_PRODUCTION_SUFFIXES = {".py"}\nBLOCKED_PRODUCTION_FILES = {\n    "app/ai_code_repair.py",\n    "app/ai_code_improvement.py",\n    "app/ai_learning.py",\n    "app/ai_memory.py",\n    "app/dev_assistant.py",\n    "app/dev_assistant_api.py",\n    "app/backup_health.py",\n    "app/safe_temp_cleanup.py",\n    "app/ai_storage_recovery.py",\n    "app/service_watchdog.py",\n    "app/config.py",\n    "app/db.py",\n}\n'''
+          if 'BLOCKED_PRODUCTION_FILES' not in text:
+              if marker not in text:
+                  raise SystemExit('production suffix marker missing')
+              text=text.replace(marker,block,1)
+          old='''        if not item.startswith(ALLOWED_PRODUCTION_PREFIX) or path.suffix.lower() not in ALLOWED_PRODUCTION_SUFFIXES:\n            raise ValueError(f"autonome productiepatch niet toegestaan voor {item}")\n        if ".." in path.parts or any(part in {"downloads", "venv", ".git"} for part in path.parts):\n'''
+          new='''        if not item.startswith(ALLOWED_PRODUCTION_PREFIX) or path.suffix.lower() not in ALLOWED_PRODUCTION_SUFFIXES:\n            raise ValueError(f"autonome productiepatch niet toegestaan voor {item}")\n        if item in BLOCKED_PRODUCTION_FILES:\n            raise ValueError(f"AI-beheer- of veiligheidsbestand is niet autonoom wijzigbaar: {item}")\n        if ".." in path.parts or any(part in {"downloads", "venv", ".git"} for part in path.parts):\n'''
+          if old not in text:
+              raise SystemExit('safe touched files block missing')
+          text=text.replace(old,new,1)
+          p.write_text(text,encoding='utf-8')
+
+          p=Path('app/ai_recovery_entry.py')
+          text=p.read_text(encoding='utf-8')
+          old='''    code_report = run_code_repair(cycle_id)\n    improvement_report = run_code_improvement(cycle_id)\n'''
+          new='''    code_report = run_code_repair(cycle_id)\n    if code_report.get("action") == "none":\n        improvement_report = run_code_improvement(cycle_id)\n    else:\n        improvement_report = {\n            "ok": True,\n            "action": "skipped_code_repair_active",\n            "reason": "Runtime-repair en optimalisatie worden nooit tegelijk gepromoveerd.",\n        }\n'''
+          if old not in text:
+              raise SystemExit('repair/improvement sequence missing')
+          text=text.replace(old,new,1)
+          text=text.replace('{"none", "measure_existing_improvement"}', '{"none", "measure_existing_improvement", "skipped_code_repair_active"}')
+          p.write_text(text,encoding='utf-8')
+          PY
+
+          git rm .github/workflows/patch-1164-selfheal-safety.yml
+          git config user.name 'Techraym release automation'
+          git config user.email '104164197+Techraym@users.noreply.github.com'
+          git add app/ai_code_repair.py app/ai_recovery_entry.py
+          git commit -m 'Prevent autonomous AI policy self-modification'
+          git push origin HEAD:release/1.16.4-continuous-autonomy-chart-freshness
