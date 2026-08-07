@@ -38,8 +38,61 @@ CREATE TABLE IF NOT EXISTS learning (
  confidence REAL NOT NULL DEFAULT 0, evidence_count INTEGER NOT NULL DEFAULT 1,
  updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS action_execution (
+ id INTEGER PRIMARY KEY,
+ cycle_id TEXT NOT NULL,
+ domain TEXT NOT NULL,
+ problem_key TEXT NOT NULL,
+ action TEXT NOT NULL,
+ subject TEXT,
+ reason TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'pending',
+ before_json TEXT NOT NULL DEFAULT '{}',
+ after_json TEXT NOT NULL DEFAULT '{}',
+ result_json TEXT NOT NULL DEFAULT '{}',
+ success INTEGER,
+ effect_score REAL,
+ operator_needed INTEGER NOT NULL DEFAULT 0,
+ reversible INTEGER NOT NULL DEFAULT 1,
+ backup_ref TEXT,
+ started_at TEXT NOT NULL,
+ completed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS action_learning (
+ problem_key TEXT NOT NULL,
+ action TEXT NOT NULL,
+ successes INTEGER NOT NULL DEFAULT 0,
+ failures INTEGER NOT NULL DEFAULT 0,
+ evidence_count INTEGER NOT NULL DEFAULT 0,
+ total_effect REAL NOT NULL DEFAULT 0,
+ success_rate REAL NOT NULL DEFAULT 0,
+ average_effect REAL NOT NULL DEFAULT 0,
+ confidence REAL NOT NULL DEFAULT 0.5,
+ last_result TEXT,
+ last_success_at TEXT,
+ last_failure_at TEXT,
+ last_used_at TEXT,
+ updated_at TEXT NOT NULL,
+ PRIMARY KEY(problem_key,action)
+);
+CREATE TABLE IF NOT EXISTS autonomy_cycle (
+ cycle_id TEXT PRIMARY KEY,
+ started_at TEXT NOT NULL,
+ completed_at TEXT,
+ ok INTEGER NOT NULL DEFAULT 0,
+ incidents_detected INTEGER NOT NULL DEFAULT 0,
+ actions_executed INTEGER NOT NULL DEFAULT 0,
+ actions_successful INTEGER NOT NULL DEFAULT 0,
+ unresolved_after INTEGER NOT NULL DEFAULT 0,
+ operator_needed INTEGER NOT NULL DEFAULT 0,
+ report_json TEXT NOT NULL DEFAULT '{}'
+);
 CREATE INDEX IF NOT EXISTS idx_history_created ON history(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_metrics_name_created ON metrics(metric, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_action_execution_started ON action_execution(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_action_execution_problem ON action_execution(problem_key,action,status);
+CREATE INDEX IF NOT EXISTS idx_action_execution_cycle ON action_execution(cycle_id);
+CREATE INDEX IF NOT EXISTS idx_autonomy_cycle_started ON autonomy_cycle(started_at DESC);
 """
 
 
@@ -102,3 +155,79 @@ def best_learning(pattern: str) -> dict[str, object] | None:
             (pattern, f"%{pattern}%"),
         ).fetchone()
     return dict(row) if row else None
+
+
+def remember_incident(
+    fingerprint: str,
+    service: str,
+    severity: str,
+    title: str,
+    detail: str,
+    confidence: float = 1.0,
+    status: str = "open",
+) -> None:
+    now = _now()
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO incident(
+              fingerprint,service,severity,title,detail,confidence,status,first_seen,last_seen,occurrences
+            ) VALUES(?,?,?,?,?,?,?,?,?,1)
+            ON CONFLICT(fingerprint) DO UPDATE SET
+              service=excluded.service,
+              severity=excluded.severity,
+              title=excluded.title,
+              detail=excluded.detail,
+              confidence=excluded.confidence,
+              status=excluded.status,
+              last_seen=excluded.last_seen,
+              occurrences=incident.occurrences+1
+            """,
+            (
+                fingerprint,
+                service,
+                severity,
+                title,
+                detail,
+                max(0.0, min(float(confidence), 1.0)),
+                status,
+                now,
+                now,
+            ),
+        )
+
+
+def remember_solution(incident_fingerprint: str, action: str, explanation: str, success_rate: float, uses: int = 1) -> None:
+    now = _now()
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id,uses FROM solution WHERE incident_fingerprint=? AND action=? ORDER BY id DESC LIMIT 1",
+            (incident_fingerprint, action),
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE solution SET explanation=?,success_rate=?,uses=?,updated_at=? WHERE id=?",
+                (
+                    explanation,
+                    max(0.0, min(float(success_rate), 1.0)),
+                    int(row["uses"] or 0) + max(1, int(uses)),
+                    now,
+                    int(row["id"]),
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO solution(incident_fingerprint,action,explanation,success_rate,uses,created_at,updated_at)
+                VALUES(?,?,?,?,?,?,?)
+                """,
+                (
+                    incident_fingerprint,
+                    action,
+                    explanation,
+                    max(0.0, min(float(success_rate), 1.0)),
+                    max(1, int(uses)),
+                    now,
+                    now,
+                ),
+            )
