@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import grp
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -124,6 +126,27 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _ensure_shared_permissions() -> None:
+    """Root recovery en top40archiver webproces delen dezelfde SQLite/WAL-state."""
+    if os.geteuid() != 0:
+        return
+    try:
+        gid = grp.getgrnam("top40archiver").gr_gid
+    except KeyError:
+        return
+    for path in (
+        AI_MEMORY_PATH,
+        Path(str(AI_MEMORY_PATH) + "-wal"),
+        Path(str(AI_MEMORY_PATH) + "-shm"),
+    ):
+        try:
+            if path.exists():
+                os.chown(path, -1, gid)
+                os.chmod(path, 0o664)
+        except OSError:
+            pass
+
+
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
     AI_MEMORY_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -131,10 +154,12 @@ def connect() -> Iterator[sqlite3.Connection]:
     conn.row_factory = sqlite3.Row
     try:
         conn.executescript(SCHEMA)
+        _ensure_shared_permissions()
         yield conn
         conn.commit()
     finally:
         conn.close()
+        _ensure_shared_permissions()
 
 
 def remember_event(event_type: str, message: str, service: str | None = None, metadata: dict | None = None) -> None:
