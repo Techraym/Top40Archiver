@@ -27,7 +27,25 @@ TARGET_VERSION="$(cat "$BACKUP_DIR/VERSION" 2>/dev/null || echo unknown)"
 echo "=== Rollback naar Top40Archiver $TARGET_VERSION ($TARGET_SHA) ==="
 echo "Gedownloade audiobestanden worden niet aangeraakt."
 
-systemctl stop top40-ai-recovery.timer top40-archiver-ai.service top40-log-reader.service top40-archiver-download.service top40-archiver-web.service 2>/dev/null || true
+# Eerst alle processen stilzetten die applicatiecode of SQLite kunnen gebruiken.
+# Hierdoor kan een expliciete DB-rollback nooit concurreren met cover/history/check workers.
+systemctl stop \
+  top40-ai-recovery.timer \
+  top40-archiver-cover-art.timer \
+  top40-archiver-id3-cover.timer \
+  top40-archiver-history.timer \
+  top40-archiver-check.timer \
+  top40-archiver-incident-scan.timer \
+  top40-archiver-cover-art.service \
+  top40-archiver-id3-cover.service \
+  top40-archiver-history.service \
+  top40-archiver-check.service \
+  top40-archiver-incident-scan.service \
+  top40-archiver-ai.service \
+  top40-log-reader.service \
+  top40-archiver-download.service \
+  top40-archiver-web.service \
+  2>/dev/null || true
 
 if [ "$TARGET_SHA" != "unknown" ] && [ -d "$APP_ROOT/.git" ] && [ -f "$BACKUP_DIR/repository.bundle" ]; then
   git -C "$APP_ROOT" fetch "$BACKUP_DIR/repository.bundle" "$TARGET_SHA" >/dev/null
@@ -62,11 +80,34 @@ else
   echo "Database wordt niet teruggezet; download- en archiefvoortgang blijft behouden."
 fi
 
-chown -R top40archiver:top40archiver "$APP_ROOT/app" 2>/dev/null || chown -R top40:top40 "$APP_ROOT/app" 2>/dev/null || true
+SERVICE_USER=top40archiver
+id "$SERVICE_USER" >/dev/null 2>&1 || SERVICE_USER=top40
+chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_ROOT/app" 2>/dev/null || true
+[ ! -f "$DATA_DIR/top40.sqlite3" ] || chown "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/top40.sqlite3" 2>/dev/null || true
+[ ! -f "$DATA_DIR/ai_memory.sqlite" ] || chown "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/ai_memory.sqlite" 2>/dev/null || true
+
 systemctl daemon-reload
-systemctl reset-failed top40-archiver-web.service top40-archiver-download.service top40-log-reader.service top40-archiver-ai.service 2>/dev/null || true
-systemctl start top40-archiver-web.service top40-archiver-download.service top40-log-reader.service top40-archiver-ai.service
-systemctl enable --now top40-ai-recovery.timer 2>/dev/null || true
+systemctl reset-failed \
+  top40-archiver-web.service \
+  top40-archiver-download.service \
+  top40-log-reader.service \
+  top40-archiver-ai.service \
+  2>/dev/null || true
+systemctl start \
+  top40-archiver-web.service \
+  top40-archiver-download.service \
+  top40-log-reader.service \
+  top40-archiver-ai.service
+
+for timer in \
+  top40-ai-recovery.timer \
+  top40-archiver-cover-art.timer \
+  top40-archiver-id3-cover.timer \
+  top40-archiver-history.timer \
+  top40-archiver-check.timer \
+  top40-archiver-incident-scan.timer; do
+  systemctl enable --now "$timer" 2>/dev/null || true
+done
 
 curl -fsS http://127.0.0.1:8040/health >/dev/null
 curl -fsS http://127.0.0.1:8041/healthz >/dev/null
