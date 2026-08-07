@@ -11,6 +11,7 @@ from typing import Any
 import requests
 
 from .ai_learning import learning_context
+from .ai_session_console import operator_context, scope_held
 from .backup_health import backup_health
 from .config import DATA_DIR
 from .operations_center import cover_dashboard, database_dashboard, download_dashboard
@@ -149,6 +150,7 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
         "downloads": snapshot.get("downloads"),
         "disk": snapshot.get("disk"),
         "backup": snapshot.get("backup"),
+        "operator_guidance": operator_context("operations"),
         "learned_action_outcomes": learning_context(12),
         "actions_already_selected_by_policy": [
             {"action": x.get("action"), "ok": x.get("ok"), "reason": x.get("reason")}
@@ -159,6 +161,8 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
     prompt = (
         "Je bent de lokale Top40Archiver operations-assistent. Analyseer de compacte status NA de "
         "automatische policy-acties en gebruik de meegegeven eerdere actie-uitkomsten als ervaring. "
+        "Actieve menselijke operatorrichtlijnen hebben prioriteit als lokale voorkeur, maar mogen NOOIT "
+        "harde veiligheidsregels, whitelists, backupregels of audio-bescherming versoepelen. "
         "Je mag GEEN shellcommando's, verwijderacties voor audio of nieuwe uitvoerbare acties verzinnen; "
         "uitvoerbare acties worden uitsluitend door de policy-engine bepaald. Retourneer alleen JSON "
         "met velden summary, risk (low/medium/high), attention (array van korte Nederlandse teksten) "
@@ -206,13 +210,15 @@ def run_operations_worker() -> dict:
     before = collect_snapshot()
     actions: list[dict] = []
     recommendations: list[str] = []
+    operations_hold = scope_held("operations")
+    covers_hold = operations_hold or scope_held("covers")
 
     covers = before["covers"]
     cover_worker = before["services"]["cover_worker"]
     eligible = int(covers.get("eligible_queue") or 0)
     worker_active = cover_worker.get("systemd_status") in {"active", "activating"}
 
-    if eligible > 0 and not worker_active and _cooldown_ready(state, "run_cover_art"):
+    if eligible > 0 and not worker_active and not covers_hold and _cooldown_ready(state, "run_cover_art"):
         result = _safe_action("run_cover_art")
         actions.append({
             "action": "run_cover_art",
@@ -221,6 +227,8 @@ def run_operations_worker() -> dict:
             "details": result,
         })
         state["actions"]["run_cover_art"] = _utcnow().isoformat()
+    elif eligible > 0 and not worker_active and covers_hold:
+        recommendations.append("Coveractie is door een actieve menselijke operator-hold gepauzeerd; monitoring blijft actief.")
 
     cover_state_updated = covers.get("updated_at")
     if eligible > 0 and worker_active and cover_state_updated:
@@ -231,7 +239,7 @@ def run_operations_worker() -> dict:
             stale = _utcnow() - updated > timedelta(minutes=20)
         except ValueError:
             stale = False
-        if stale and _cooldown_ready(state, "restart_cover_art"):
+        if stale and not covers_hold and _cooldown_ready(state, "restart_cover_art"):
             result = _safe_action("restart_cover_art")
             actions.append({
                 "action": "restart_cover_art",
@@ -247,7 +255,7 @@ def run_operations_worker() -> dict:
         )
 
     db = before["database"]
-    if db.get("health") not in {"ok", "missing"} and _cooldown_ready(state, "run_database_check"):
+    if db.get("health") not in {"ok", "missing"} and not operations_hold and _cooldown_ready(state, "run_database_check"):
         result = _safe_action("run_database_check")
         actions.append({
             "action": "run_database_check",
@@ -256,6 +264,8 @@ def run_operations_worker() -> dict:
             "details": result,
         })
         state["actions"]["run_database_check"] = _utcnow().isoformat()
+    elif db.get("health") not in {"ok", "missing"} and operations_hold:
+        recommendations.append("Database-herstelactie is door een actieve menselijke operator-hold gepauzeerd.")
 
     disk = before["disk"]
     if float(disk.get("free_percent") or 0) < 5:
@@ -267,7 +277,7 @@ def run_operations_worker() -> dict:
             f"Vrije schijfruimte is laag: {disk.get('free_percent')}% ({disk.get('free_gb')} GB)."
         )
 
-    if not before["ollama"].get("reachable") and _cooldown_ready(state, "restart_ollama"):
+    if not before["ollama"].get("reachable") and not operations_hold and _cooldown_ready(state, "restart_ollama"):
         result = _safe_action("restart_ollama")
         actions.append({
             "action": "restart_ollama",
@@ -276,6 +286,8 @@ def run_operations_worker() -> dict:
             "details": result,
         })
         state["actions"]["restart_ollama"] = _utcnow().isoformat()
+    elif not before["ollama"].get("reachable") and operations_hold:
+        recommendations.append("Ollama-restart is door een actieve menselijke operator-hold gepauzeerd.")
 
     backup = before.get("backup") or {}
     if not backup.get("ok"):
@@ -297,6 +309,8 @@ def run_operations_worker() -> dict:
         "recommendations": recommendations,
         "after": after,
         "model_assessment": model,
+        "operator_guidance": operator_context("operations"),
+        "operator_hold": operations_hold,
         "learned_action_outcomes": learning_context(20),
         "policy": {
             "shell_access": False,
@@ -307,6 +321,8 @@ def run_operations_worker() -> dict:
             "model_can_execute": False,
             "learn_from_every_action": True,
             "verified_backup_before_version_change": True,
+            "operator_guidance_priority": True,
+            "operator_hold_supported": True,
         },
     }
     state["last_cycle"] = report["generated_at"]
