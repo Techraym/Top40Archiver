@@ -65,10 +65,12 @@ def test_all_exposed_operator_holds_have_real_mutation_guards():
     storage = Path("app/ai_storage_recovery.py").read_text(encoding="utf-8")
     charts = Path("app/chart_freshness.py").read_text(encoding="utf-8")
     operations = Path("app/ai_operations_worker.py").read_text(encoding="utf-8")
+    manager = Path("app/download_manager.py").read_text(encoding="utf-8")
     recovery_entry = Path("app/ai_recovery_entry.py").read_text(encoding="utf-8")
 
     assert 'scope_held("downloads")' in downloads
     assert '"status": "operator_hold"' in downloads
+    assert 'scope_held("downloads")' in manager
     assert 'scope_held("services")' in services
     assert 'scope_held("storage")' in storage
     assert 'scope_held("charts")' in charts
@@ -83,16 +85,19 @@ def test_qwen_prompts_receive_operator_guidance():
     repair = Path("app/ai_code_repair.py").read_text(encoding="utf-8")
     improvement = Path("app/ai_code_improvement.py").read_text(encoding="utf-8")
     services = Path("app/service_recovery.py").read_text(encoding="utf-8")
+    provider_ai = Path("app/provider_ai.py").read_text(encoding="utf-8")
     assert 'operator_context("operations")' in operations
     assert 'operator_context("code")' in repair
     assert 'operator_context("code")' in improvement
     assert 'operator_context("services")' in services
+    assert 'operator_context("downloads")' in provider_ai
     assert '"app/ai_session_console.py"' in repair
 
 
 def test_platform_advertises_autonomous_session_and_human_override():
     source = Path("app/ai_platform.py").read_text(encoding="utf-8")
-    assert 'VERSION = "1.16.6"' in source
+    assert "VERSION = _release_version()" in source
+    assert Path("VERSION").read_text(encoding="utf-8").strip() == "1.16.8"
     assert '"ai_session_console": True' in source
     assert '"operator_guidance": True' in source
     assert '"operator_domain_hold": True' in source
