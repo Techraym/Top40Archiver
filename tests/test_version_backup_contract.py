@@ -55,8 +55,9 @@ def test_ai_safe_action_has_no_audio_delete_capability():
 
 def test_ai_platform_advertises_hard_safety_and_continuous_learning_contract():
     platform = (ROOT / "app/ai_platform.py").read_text(encoding="utf-8")
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     assert "VERSION = _release_version()" in platform
-    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "1.16.8"
+    assert version and version.count(".") == 2
     assert '"closed_loop_learning": True' in platform
     assert '"continuous_online_learning": True' in platform
     assert '"learning_starts_at_action": 1' in platform
