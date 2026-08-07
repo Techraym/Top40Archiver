@@ -271,10 +271,48 @@ def run_code_repair(cycle_id: str) -> dict:
     seen["last_seen"] = _now().isoformat()
     _save_state(state)
 
+    # Als de eerste waarneming al een volledig gevalideerde sandboxpatch opleverde,
+    # hoeft de tweede onafhankelijke foutwaarneming niet opnieuw op Ollama/tests te
+    # wachten. De bestaande patch kan dan direct naar de backup+canary-fase.
+    cached_workspace = str(seen.get("validated_workspace") or "")
+    if cached_workspace and int(seen.get("samples") or 0) >= 2:
+        try:
+            cached = workspace_status(cached_workspace)
+            if (cached.get("validation") or {}).get("ok"):
+                promote_id = start_action(
+                    cycle_id=cycle_id,
+                    domain="code",
+                    problem_key=f"code:{candidate['fingerprint']}",
+                    action="promote_validated_patch",
+                    reason="Tweede onafhankelijke waarneming van dezelfde fout; eerder gevalideerde sandboxpatch wordt direct als canary getest.",
+                    subject=candidate["fingerprint"],
+                    before={"workspace": cached_workspace, "samples": seen["samples"]},
+                    reversible=True,
+                )
+                promotion = _promote(cached_workspace, candidate["fingerprint"])
+                seen.pop("validated_workspace", None)
+                state["active"] = {
+                    "fingerprint": candidate["fingerprint"],
+                    "workspace_id": cached_workspace,
+                    "action_id": promote_id,
+                    "promoted_at": _now().isoformat(),
+                    "files": promotion["files"],
+                    "file_backup": promotion["file_backup"],
+                    "version_backup": promotion["version_backup"],
+                }
+                _save_state(state)
+                return {"ok": True, "action": "promoted_canary", "candidate": candidate["fingerprint"], "promotion": promotion, "reused_validated_workspace": True}
+            seen.pop("validated_workspace", None)
+        except Exception:
+            seen.pop("validated_workspace", None)
+
     previous = seen.get("last_attempt")
     if previous:
         try:
-            if _now() - datetime.fromisoformat(str(previous)) < timedelta(minutes=REPAIR_COOLDOWN_MINUTES):
+            parsed = datetime.fromisoformat(str(previous))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            if _now() - parsed < timedelta(minutes=REPAIR_COOLDOWN_MINUTES):
                 return {"ok": True, "action": "cooldown", "candidate": candidate["fingerprint"], "samples": seen["samples"]}
         except ValueError:
             pass
@@ -302,10 +340,16 @@ def run_code_repair(cycle_id: str) -> dict:
         validation = validate_workspace(workspace["id"])
         valid = bool(validation.get("ok"))
         complete_action(analysis_id, success=valid, after={"workspace": workspace["id"]}, result={"validation": valid}, effect_score=0.6 if valid else 0.0)
-        if not valid or int(seen.get("samples") or 0) < 2:
+        if not valid:
+            seen.pop("validated_workspace", None)
             _save_state(state)
-            return {"ok": True, "action": "validated_waiting_for_recurrence" if valid else "validation_failed", "workspace": workspace["id"], "samples": seen["samples"]}
+            return {"ok": True, "action": "validation_failed", "workspace": workspace["id"], "samples": seen["samples"]}
+        if int(seen.get("samples") or 0) < 2:
+            seen["validated_workspace"] = workspace["id"]
+            _save_state(state)
+            return {"ok": True, "action": "validated_waiting_for_recurrence", "workspace": workspace["id"], "samples": seen["samples"]}
 
+        seen.pop("validated_workspace", None)
         promote_id = start_action(
             cycle_id=cycle_id,
             domain="code",
