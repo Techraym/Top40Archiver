@@ -9,19 +9,16 @@ from pydantic import BaseModel, Field
 from .download_db import (
     cancel_job,
     jobs,
-    provider_dashboard,
     retry_job,
     update_provider_config,
 )
-from .download_kpi import youtube_dependency_kpis
+from .download_metrics import provider_dashboard
 
 router = APIRouter()
 
 
 def _provider_overview() -> dict[str, Any]:
-    value = provider_dashboard()
-    value.update(youtube_dependency_kpis())
-    return value
+    return provider_dashboard()
 
 
 class ProviderConfigIn(BaseModel):
@@ -60,7 +57,7 @@ const cls=s=>s==='healthy'?'good':s==='offline'?'bad':'warn';
 async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw Error(await r.text());return r.json()}
 async function toggle(name,enabled){await api('/api/download/provider/'+encodeURIComponent(name)+'/'+(enabled?'enable':'disable'),{method:'POST'});await load()}
 function providerCard(p){const success=p.success_rate_24h==null?'—':p.success_rate_24h+'%';const cooldown=p.cooldown_until?new Date(p.cooldown_until).toLocaleString():'—';return `<article class='provider'><h2>${esc(p.provider)}</h2><p class='${cls(p.status)}'><b>${esc(p.status)}</b> · health ${esc(p.calculated_health_score)}/100</p><div class='row'><span>Succes 24u</span><b>${esc(success)}</b></div><div class='row'><span>Workers</span><b>${esc(p.active_workers)} / ${esc(p.max_concurrent)}</b></div><div class='row'><span>Prioriteit</span><b>${esc(p.effective_priority)}</b></div><div class='row'><span>Cooldown</span><b>${esc(cooldown)}</b></div><div class='row'><span>Laatste fout</span><span>${esc(p.last_error_category||'—')}</span></div><button onclick="toggle('${esc(p.provider)}',${p.enabled?false:true})">${p.enabled?'Uitschakelen':'Inschakelen'}</button></article>`}
-async function load(){try{const d=await api('/api/download/providers');document.getElementById('metrics').innerHTML=`<div class='metric'><b>${esc(d.downloads_24h)}</b><span>Downloads 24u</span></div><div class='metric'><b>${esc(d.without_youtube_24h)}</b><span>Zonder YouTube-family</span></div><div class='metric'><b>${esc(d.youtube_music_24h)}</b><span>Via YouTube Music</span></div><div class='metric'><b>${esc(d.youtube_24h)}</b><span>Via YouTube</span></div><div class='metric'><b class='${Number(d.youtube_dependency_percent)<10?'good':'warn'}'>${esc(d.youtube_dependency_percent)}%</b><span>YouTube dependency · doel &lt; 10%</span><small class='muted'>Family: ${esc(d.youtube_family_dependency_percent)}%</small></div>`;document.getElementById('providers').innerHTML=(d.providers||[]).map(providerCard).join('');const j=await api('/api/download/jobs?limit=40');document.getElementById('jobs').innerHTML=`<table><thead><tr><th>Track</th><th>Status</th><th>Provider</th><th>Pogingen</th><th>Volgende poging</th><th>Fout</th></tr></thead><tbody>${(j.items||[]).map(x=>`<tr><td>${esc(x.artist)} – ${esc(x.title)}</td><td>${esc(x.status)}</td><td>${esc(x.preferred_provider||'—')}</td><td>${esc(x.attempts)}</td><td>${esc(x.next_attempt_at||'—')}</td><td>${esc(x.error||'')}</td></tr>`).join('')}</tbody></table>`}catch(e){document.getElementById('providers').innerHTML='<article class="provider bad">'+esc(e)+'</article>'}}
+async function load(){try{const d=await api('/api/download/providers');document.getElementById('metrics').innerHTML=`<div class='metric'><b>${esc(d.downloads_24h)}</b><span>Downloads 24u</span></div><div class='metric'><b>${esc(d.without_youtube_24h)}</b><span>Zonder YouTube/YouTube Music</span></div><div class='metric'><b>${esc(d.youtube_music_24h)}</b><span>Via YouTube Music</span></div><div class='metric'><b>${esc(d.youtube_24h)}</b><span>Via YouTube</span></div><div class='metric'><b class='${Number(d.youtube_dependency_percent)<10?'good':'warn'}'>${esc(d.youtube_dependency_percent)}%</b><span>YouTube dependency · doel &lt; 10%</span><small class='muted'>Family: ${esc(d.youtube_family_dependency_percent)}%</small></div>`;document.getElementById('providers').innerHTML=(d.providers||[]).map(providerCard).join('');const j=await api('/api/download/jobs?limit=40');document.getElementById('jobs').innerHTML=`<table><thead><tr><th>Track</th><th>Status</th><th>Provider</th><th>Pogingen</th><th>Volgende poging</th><th>Fout</th></tr></thead><tbody>${(j.items||[]).map(x=>`<tr><td>${esc(x.artist)} – ${esc(x.title)}</td><td>${esc(x.status)}</td><td>${esc(x.preferred_provider||'—')}</td><td>${esc(x.attempts)}</td><td>${esc(x.next_attempt_at||'—')}</td><td>${esc(x.error||'')}</td></tr>`).join('')}</tbody></table>`}catch(e){document.getElementById('providers').innerHTML='<article class="provider bad">'+esc(e)+'</article>'}}
 load();setInterval(load,3000);
 </script></body></html>""",
         headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff"},
