@@ -111,14 +111,16 @@ def service_monitor() -> list[dict[str, Any]]:
     for unit, policy in SERVICE_POLICIES.items():
         state = all_states[unit]
         health, display_status, explanation = _logical_state(unit, state, all_states)
+        raw_status = state.get("ActiveState") or "unknown"
+        logical_status = "active" if health == "healthy" else "activating" if health == "attention" else "failed"
         result.append({
             "group": policy["group"],
             "unit": unit,
             "kind": policy["kind"],
             "required": bool(policy.get("required", False)),
-            "status": state.get("ActiveState") or "unknown",
+            "status": logical_status,
             "substatus": state.get("SubState") or "unknown",
-            "systemd_status": state.get("ActiveState") or "unknown",
+            "systemd_status": raw_status,
             "unit_file_state": state.get("UnitFileState") or "unknown",
             "result": state.get("Result") or "unknown",
             "pid": _as_int(state.get("MainPID")),
