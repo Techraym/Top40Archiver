@@ -83,6 +83,7 @@ def test_service_watchdog_units_and_entrypoint_are_release_managed():
     assert "ReadWritePaths=/var/lib/top40-archiver /etc/systemd/system /opt/top40-archiver/app" in recovery_service
     assert "/opt/top40-archiver/downloads" not in recovery_service
     assert "top40-archiver-cover-art.timer" in recovery_timer
+    assert "top40-archiver-freshness.timer" in recovery_timer
     assert "repair_cover_timer" in safe_action
     assert "run_cover_art" in safe_action
     assert "restart_cover_art" in safe_action
@@ -108,6 +109,18 @@ def test_safe_updater_keeps_live_checkout_on_old_sha_until_install_succeeds():
     assert 'BRANCH="${TOP40_UPDATE_BRANCH:-main}"' in updater
     assert "git worktree add --detach" in updater
     assert "rollback" in updater
+
+
+def test_safe_updater_recognizes_only_active_ai_managed_dirty_code():
+    updater = (ROOT / "scripts/safe-update.sh").read_text(encoding="utf-8")
+    assert "is_ai_managed_dirty" in updater
+    assert "code-repair-state.json" in updater
+    assert "code-improvement-state.json" in updater
+    assert "AI_LOCAL_PATCH" in updater
+    assert "git diff --binary" in updater
+    assert "git apply --check" in updater
+    assert "app.ai_update_handoff" in updater
+    assert "lokale wijzigingen gevonden die niet aantoonbaar" in updater
 
 
 def test_legacy_updater_can_bootstrap_116():
