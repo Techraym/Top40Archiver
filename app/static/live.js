@@ -1,6 +1,85 @@
 document.addEventListener("DOMContentLoaded", () => {
   const ai = document.getElementById("ai-sidecar-link");
   if (ai) ai.href = `${location.protocol}//${location.hostname}:8041/`;
+
+  // Safari/iOS kan de oude donkere, specifiekere .retry-form-regel behouden.
+  // Deze runtime-correctie staat bewust als laatste in de cascade en dwingt alle
+  // tekstinvoer in de lichte interface ook werkelijk licht te renderen.
+  const style = document.createElement("style");
+  style.id = "top40-light-input-hotfix";
+  style.textContent = `
+    .retry-form input,
+    .search-form input,
+    .settings-grid input,
+    .settings-grid select,
+    input[type="text"],
+    input[type="search"],
+    input:not([type]),
+    textarea,
+    select {
+      background: #ffffff !important;
+      color: #181817 !important;
+      -webkit-text-fill-color: #181817 !important;
+      caret-color: #181817 !important;
+      color-scheme: light !important;
+      border-color: #d8d4cc !important;
+      box-shadow: inset 0 1px 1px rgba(20,20,18,.02) !important;
+    }
+    .retry-form input:-webkit-autofill,
+    .search-form input:-webkit-autofill,
+    .settings-grid input:-webkit-autofill {
+      -webkit-text-fill-color: #181817 !important;
+      -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+      box-shadow: 0 0 0 1000px #ffffff inset !important;
+    }
+    .retry-form input::placeholder,
+    .search-form input::placeholder,
+    textarea::placeholder {
+      color: #96928a !important;
+      opacity: 1 !important;
+    }
+    .ai-recovery-shortcut {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+      padding: 8px 13px;
+      border: 1px solid #d8d4cc;
+      border-radius: 10px;
+      background: #ffffff;
+      color: #181817;
+      font-weight: 700;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .ai-recovery-note {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 0 14px;
+      padding: 11px 13px;
+      border: 1px solid #e6e3dd;
+      border-radius: 12px;
+      background: #faf9f6;
+      color: #5f5c56;
+      font-size: 13px;
+    }
+    @media (max-width: 560px) {
+      .ai-recovery-note { align-items: stretch; flex-direction: column; }
+      .ai-recovery-shortcut { width: 100%; }
+    }
+  `;
+  document.head.appendChild(style);
+
+  const failedList = document.getElementById("failed-list");
+  const failedPanel = failedList?.closest(".panel");
+  if (failedPanel && !failedPanel.querySelector(".ai-recovery-note")) {
+    const note = document.createElement("div");
+    note.className = "ai-recovery-note";
+    note.innerHTML = `<span><b>AI-herstel actief</b> · analyseert fouten iedere 5 minuten en wisselt automatisch van herstelstrategie.</span><a class="ai-recovery-shortcut" href="${location.protocol}//${location.hostname}:8041/ai-actions" target="_blank" rel="noopener">AI-herstel bekijken</a>`;
+    failedList.before(note);
+  }
 });
 
 (() => {
@@ -209,7 +288,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <div class="failed-head"><div><b>${escapeHtml(row.artist)} — ${escapeHtml(row.title)}</b><small>${escapeHtml(row.download_attempts)} poging(en) · Spotify: ${escapeHtml(row.spotify_status || "unchecked")}</small></div><span class="status-badge status-failed">Mislukt</span></div>
             <details><summary>Technische details tonen</summary><pre>${escapeHtml(row.error_message || "Geen foutmelding opgeslagen")}</pre></details>
             <form method="post" action="/track/${encodeURIComponent(row.id)}/query" class="retry-form">
-              <input name="custom_search_query" value="${escapeHtml(query)}">
+              <input name="custom_search_query" value="${escapeHtml(query)}" autocomplete="off" autocapitalize="off" spellcheck="false">
               <button>Opnieuw zoeken</button>
               <button type="submit" class="unavailable" formaction="/track/${encodeURIComponent(row.id)}/unavailable" formnovalidate>Niet online beschikbaar</button>
             </form>
