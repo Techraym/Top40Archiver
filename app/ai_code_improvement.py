@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 
 from . import ai_code_improvement_legacy as _legacy
 from .ai_model_runtime import ModelBusy, model_slot
+from .ai_session_console import operator_context
 from .config import APP_DIR
 from .db import connect as app_connect
 
@@ -136,6 +136,9 @@ COOLDOWN_HOURS = _legacy.COOLDOWN_HOURS
 
 
 def run_code_improvement(cycle_id: str) -> dict[str, Any]:
+    # Keep the operator guidance contract explicit in the active module. The
+    # legacy worker also injects the same context into its model prompt.
+    operator_context("code")
     candidate = _candidate()
     _relax_cooldown_for_proven_ineffective_recovery(candidate)
     try:
