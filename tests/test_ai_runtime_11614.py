@@ -2,7 +2,7 @@ from app import ai_code_improvement as improvement
 from app import ai_operator_chat as chat
 
 
-def test_operator_chat_selects_download_domain_and_limits_evidence():
+def test_operator_chat_selects_download_domain_and_uses_deterministic_summary(monkeypatch):
     snapshot = {
         "generated_at": "2026-08-08T10:00:00+00:00",
         "ollama": {"reachable": True},
@@ -19,11 +19,21 @@ def test_operator_chat_selects_download_domain_and_limits_evidence():
         "providers": [{"provider": "youtube", "status": "limited"}],
         "recent_errors": [{"message": "youtube provider download 403"}] * 80,
     }
+    deterministic = {
+        "job_status": {"queued": 5000, "waiting_retry": 500},
+        "completed_jobs_24h": 0,
+        "successful_provider_attempts_24h": 0,
+        "dominant_failure_stage": "downloading",
+        "error_counts": [["forbidden", 80]],
+        "providers": [{"provider": "youtube", "attempts": 80, "successes": 0}],
+        "recent_examples": [],
+    }
+    monkeypatch.setattr(chat, "collect_download_diagnostics", lambda **kwargs: deterministic)
     compact, domain = chat._compact_snapshot(snapshot, "onderzoek waarom downloader en providers mislukken")
     assert domain == "downloads"
-    assert len(compact["download_evidence"]["recent_provider_attempts"]) <= 28
-    assert len(compact["download_evidence"]["recent_ai_actions"]) <= 12
-    assert len(compact["recent_errors"]) <= 30
+    assert compact["download_diagnostics"] == deterministic
+    assert "download_evidence" not in compact
+    assert len(compact["recent_errors"]) <= 16
 
 
 def test_operator_chat_parses_json_code_fence():
@@ -31,17 +41,29 @@ def test_operator_chat_parses_json_code_fence():
     assert payload["summary"] == "ok"
 
 
-def test_operator_chat_timeout_is_visible_in_fallback():
+def test_operator_chat_timeout_is_visible_in_fallback(monkeypatch):
     snapshot = {"ollama": {"reachable": True}}
+    monkeypatch.setattr(
+        chat,
+        "collect_download_diagnostics",
+        lambda **kwargs: {
+            "job_status": {},
+            "completed_jobs_24h": 0,
+            "successful_provider_attempts_24h": 0,
+            "dominant_failure_stage": "no_attempt_evidence",
+            "error_counts": [],
+        },
+    )
     plan = chat._fallback_plan(
         "onderzoek downloads",
         snapshot,
         "diagnose",
-        chat.OperatorModelError("qwen_timeout", "Qwen antwoordde niet binnen 120 seconden"),
+        chat.OperatorModelError("qwen_timeout", "Qwen antwoordde niet binnen 75 seconden"),
     )
     assert plan["model_error_type"] == "qwen_timeout"
     assert "tijdslimiet" in plan["summary"]
     assert plan["recommended_actions"] == []
+    assert any("deterministic_download_summary" in item for item in plan["evidence"])
 
 
 def test_operator_chat_mobile_refresh_pauses_when_details_are_open():
