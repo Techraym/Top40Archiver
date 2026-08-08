@@ -16,6 +16,11 @@ from .ai_model_runtime import ModelBusy, model_slot
 
 MODEL = _legacy.MODEL
 
+# Repeated 150-second UI generation timeouts were starving interactive operator
+# diagnostics. Keep the existing canary policy but do not retry a failed model
+# generation every five minutes.
+_legacy.ERROR_RETRY_MINUTES = 30
+
 
 def run_ui_designer(cycle_id: str, force: bool = False) -> dict[str, Any]:
     """Run Control Room generation only when the shared Ollama slot is free.
