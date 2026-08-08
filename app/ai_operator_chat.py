@@ -9,6 +9,7 @@ import requests
 
 from . import ai_operator_chat_legacy as _legacy
 from .ai_model_runtime import ModelBusy, model_slot, runtime_status
+from .download_diagnostics import collect_download_diagnostics
 
 MODEL = _legacy.MODEL
 OLLAMA_URL = _legacy.OLLAMA_URL
@@ -17,6 +18,10 @@ MAX_ACTIONS_PER_COMMAND = _legacy.MAX_ACTIONS_PER_COMMAND
 MODEL_TIMEOUT_SECONDS = 120
 PRIMARY_EVIDENCE_BYTES = 18_000
 RETRY_EVIDENCE_BYTES = 8_000
+DOWNLOAD_EVIDENCE_BYTES = 6_500
+DOWNLOAD_RETRY_EVIDENCE_BYTES = 3_200
+DOWNLOAD_MODEL_TIMEOUT_SECONDS = 75
+DOWNLOAD_RETRY_TIMEOUT_SECONDS = 60
 
 
 class OperatorModelError(RuntimeError):
@@ -62,8 +67,7 @@ def _compact_errors(items: list[dict[str, Any]], domain: str, limit: int) -> lis
 
 def _compact_snapshot(snapshot: dict[str, Any], command: str, *, retry: bool = False) -> tuple[dict[str, Any], str]:
     domain = _domain_for_command(command)
-    attempts_limit = 12 if retry else 28
-    errors_limit = 12 if retry else 30
+    errors_limit = 8 if retry else 16
     base: dict[str, Any] = {
         "generated_at": snapshot.get("generated_at"),
         "domain": domain,
@@ -74,13 +78,13 @@ def _compact_snapshot(snapshot: dict[str, Any], command: str, *, retry: bool = F
         "policy": snapshot.get("policy"),
     }
     if domain == "downloads":
-        evidence = dict(snapshot.get("download_evidence") or {})
-        evidence["recent_provider_attempts"] = list(evidence.get("recent_provider_attempts") or [])[-attempts_limit:]
-        evidence["recent_ai_actions"] = list(evidence.get("recent_ai_actions") or [])[-12:]
+        diagnostics = collect_download_diagnostics(
+            attempt_limit=120 if retry else 240,
+            example_limit=5 if retry else 10,
+        )
         base.update({
             "downloads": snapshot.get("downloads"),
-            "download_evidence": evidence,
-            "providers": snapshot.get("providers"),
+            "download_diagnostics": diagnostics,
             "recent_errors": _compact_errors(snapshot.get("recent_errors") or [], domain, errors_limit),
         })
     elif domain == "charts":
@@ -129,16 +133,31 @@ def _json_payload(text: str) -> dict[str, Any]:
 
 def _call_qwen(command: str, snapshot: dict[str, Any], mode: str, *, retry: bool) -> dict[str, Any]:
     compact, domain = _compact_snapshot(snapshot, command, retry=retry)
-    limit = RETRY_EVIDENCE_BYTES if retry else PRIMARY_EVIDENCE_BYTES
+    downloads = domain == "downloads"
+    if downloads:
+        limit = DOWNLOAD_RETRY_EVIDENCE_BYTES if retry else DOWNLOAD_EVIDENCE_BYTES
+        command_limit = 1600 if retry else 2600
+        timeout = DOWNLOAD_RETRY_TIMEOUT_SECONDS if retry else DOWNLOAD_MODEL_TIMEOUT_SECONDS
+        num_predict = 180 if retry else 280
+        num_ctx = 4096
+    else:
+        limit = RETRY_EVIDENCE_BYTES if retry else PRIMARY_EVIDENCE_BYTES
+        command_limit = 5000 if retry else 10000
+        timeout = 90 if retry else MODEL_TIMEOUT_SECONDS
+        num_predict = 420 if retry else 700
+        num_ctx = 8192
+
     evidence = json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
     if len(evidence.encode("utf-8")) > limit:
         evidence = evidence.encode("utf-8")[:limit].decode("utf-8", "ignore") + "\n[bewijs begrensd door runtime]"
-    command_text = command[:5000] if retry else command[:10000]
+    command_text = command[:command_limit]
     prompt = f"""Je bent Qwen, lokale Top40Archiver diagnose-assistent.
-Gebruik alleen het meegeleverde lokale bewijs. Geef geen verborgen redeneerstappen.
+Gebruik uitsluitend het meegeleverde lokale bewijs. Geef geen verborgen redeneerstappen.
 Geen vrije shell, geen audio verwijderen/overschrijven, geen cookies/CAPTCHA/proxy/rate-limit bypass.
 MODE={mode}. In diagnose-modus MOET recommended_actions leeg zijn.
 Adviseer uitsluitend acties uit: {json.dumps(sorted(CHAT_ALLOWED_ACTIONS))}.
+Een retry, requeue, zoekresultaat of gevonden kandidaat is geen downloadsukses.
+Downloadsukses is alleen een completed job of provider attempt success=1.
 Als bewijs onvoldoende is, zeg dat expliciet en adviseer geen mutatie.
 
 OPDRACHT:
@@ -148,7 +167,7 @@ DOMEIN={domain}
 LOKAAL_BEWIJS:
 {evidence}
 
-Retourneer UITSLUITEND één JSON-object met summary, diagnosis (array), evidence (array), recommended_actions (array van objects met action/reason), verification_plan (array)."""
+Retourneer UITSLUITEND één compact JSON-object met summary, diagnosis (array), evidence (array), recommended_actions (array van objects met action/reason), verification_plan (array)."""
     started = time.monotonic()
     try:
         with model_slot("operator-chat", priority="operator", wait_seconds=35):
@@ -159,19 +178,24 @@ Retourneer UITSLUITEND één JSON-object met summary, diagnosis (array), evidenc
                     "prompt": prompt,
                     "stream": False,
                     "format": "json",
+                    "think": False,
                     "keep_alive": "30m",
-                    "options": {"temperature": 0.1, "num_predict": 420 if retry else 700, "num_ctx": 8192},
+                    "options": {"temperature": 0.1, "num_predict": num_predict, "num_ctx": num_ctx},
                 },
-                timeout=90 if retry else MODEL_TIMEOUT_SECONDS,
+                timeout=timeout,
             )
         response.raise_for_status()
     except requests.Timeout as exc:
-        raise OperatorModelError("qwen_timeout", f"Qwen antwoordde niet binnen {'90' if retry else MODEL_TIMEOUT_SECONDS} seconden") from exc
+        raise OperatorModelError("qwen_timeout", f"Qwen antwoordde niet binnen {timeout} seconden") from exc
     except ModelBusy as exc:
         raise OperatorModelError("model_busy", str(exc)) from exc
+    except PermissionError as exc:
+        raise OperatorModelError("model_runtime_permission", str(exc)[-800:]) from exc
     except requests.RequestException as exc:
         raise OperatorModelError("ollama_http_error", str(exc)[-800:]) from exc
-    text = str(response.json().get("response") or "")
+
+    payload = response.json()
+    text = str(payload.get("response") or "")
     parsed = _json_payload(text)
     plan = _legacy._normalise_plan(parsed)
     plan["model_runtime"] = {
@@ -180,7 +204,12 @@ Retourneer UITSLUITEND één JSON-object met summary, diagnosis (array), evidenc
         "evidence_bytes": len(evidence.encode("utf-8")),
         "response_bytes": len(text.encode("utf-8")),
         "duration_ms": int((time.monotonic() - started) * 1000),
-        "num_ctx": 8192,
+        "num_ctx": num_ctx,
+        "num_predict": num_predict,
+        "think": False,
+        "prompt_eval_count": payload.get("prompt_eval_count"),
+        "eval_count": payload.get("eval_count"),
+        "ollama_total_duration_ns": payload.get("total_duration"),
     }
     return plan
 
@@ -213,19 +242,41 @@ def _fallback_plan(command: str, snapshot: dict[str, Any], mode: str, error: Exc
         "invalid_json": "Qwen gaf een ongeldig JSON-antwoord",
         "empty_response": "Qwen gaf geen antwoordtekst terug",
         "model_busy": "Qwen is tijdelijk bezet door een andere AI-taak",
+        "model_runtime_permission": "De gedeelde Qwen-runtime heeft onjuiste bestandsrechten",
         "ollama_http_error": "De Ollama-aanroep mislukte",
     }
+    evidence = [f"ollama.reachable={(snapshot.get('ollama') or {}).get('reachable')}", f"runtime={runtime_status()}"]
+    if _domain_for_command(command) == "downloads":
+        try:
+            diag = collect_download_diagnostics(attempt_limit=120, example_limit=5)
+            evidence.append(
+                "deterministic_download_summary="
+                + json.dumps(
+                    {
+                        "job_status": diag.get("job_status"),
+                        "completed_jobs_24h": diag.get("completed_jobs_24h"),
+                        "successful_provider_attempts_24h": diag.get("successful_provider_attempts_24h"),
+                        "dominant_failure_stage": diag.get("dominant_failure_stage"),
+                        "error_counts": diag.get("error_counts"),
+                    },
+                    ensure_ascii=False,
+                )[:1800]
+            )
+        except Exception as diag_exc:
+            evidence.append(f"download_diagnostics_error={str(diag_exc)[-400:]}")
     return {
         "summary": f"{labels.get(code, 'Qwen kon de opdracht niet analyseren')}. Er zijn geen onbewezen mutaties uitgevoerd.",
         "diagnosis": [f"{code}: {detail}"],
-        "evidence": [f"ollama.reachable={(snapshot.get('ollama') or {}).get('reachable')}", f"runtime={runtime_status()}"],
+        "evidence": evidence,
         "recommended_actions": actions,
-        "verification_plan": ["Herhaal de analyse nadat de modelruntime beschikbaar is; gebruik dezelfde lokale evidence-policy."],
+        "verification_plan": ["Herhaal de analyse nadat de modelruntime beschikbaar is; de downloader-evidence wordt deterministisch gecomprimeerd."],
         "model_error_type": code,
         "model_error": detail,
     }
 
 
+# Upgrade the legacy route implementation in-place while keeping its tested
+# policy, audit trail and safe-action executor.
 _legacy._ask_qwen = _ask_qwen
 _legacy._fallback_plan = _fallback_plan
 _legacy.MODEL_TIMEOUT_SECONDS = MODEL_TIMEOUT_SECONDS
@@ -247,7 +298,7 @@ _normalise_plan = _legacy._normalise_plan
 
 
 def run_operator_command(command: str, mode: str = "diagnose") -> dict[str, Any]:
-    # Preserve the old monkeypatch/test surface while routing through 1.16.14 logic.
+    # Preserve the old monkeypatch/test surface while routing through 1.16.15 logic.
     _legacy._ask_qwen = _ask_qwen
     _legacy._fallback_plan = _fallback_plan
     _legacy.collect_operator_evidence = collect_operator_evidence

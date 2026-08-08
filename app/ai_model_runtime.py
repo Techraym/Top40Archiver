@@ -16,6 +16,7 @@ LOCK_FILE = RUNTIME_DIR / "model-runtime.lock"
 STATE_FILE = RUNTIME_DIR / "model-runtime-state.json"
 OPERATOR_PENDING_FILE = RUNTIME_DIR / "model-operator.pending"
 PENDING_MAX_AGE_SECONDS = 300
+LOCK_MODE = 0o660
 
 
 class ModelBusy(RuntimeError):
@@ -55,6 +56,34 @@ def runtime_status() -> dict:
     return value
 
 
+def _open_lock_file():
+    """Open the shared flock with stable group-writable permissions.
+
+    A root-run autonomous worker can be the first process that creates the lock.
+    When that happens, force the file group to the AI runtime directory group so
+    the unprivileged 8041 service can still open the same inode later.
+    """
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    fd = os.open(LOCK_FILE, os.O_CREAT | os.O_RDWR, LOCK_MODE)
+    try:
+        try:
+            runtime_gid = RUNTIME_DIR.stat().st_gid
+            if os.fstat(fd).st_gid != runtime_gid:
+                os.fchown(fd, -1, runtime_gid)
+        except PermissionError:
+            # Non-root owner cannot change an existing file group; if opening
+            # succeeded the file is already usable by this process.
+            pass
+        try:
+            os.fchmod(fd, LOCK_MODE)
+        except PermissionError:
+            pass
+        return os.fdopen(fd, "a+", encoding="utf-8")
+    except Exception:
+        os.close(fd)
+        raise
+
+
 @contextmanager
 def model_slot(
     owner: str,
@@ -76,7 +105,7 @@ def model_slot(
             encoding="utf-8",
         )
 
-    handle = LOCK_FILE.open("a+", encoding="utf-8")
+    handle = _open_lock_file()
     deadline = time.monotonic() + max(0.0, float(wait_seconds))
     acquired = False
     try:
