@@ -46,7 +46,7 @@ def test_exact_identity_without_provider_duration_can_be_verified_after_download
 
 def test_legacy_track_without_reference_duration_accepts_only_very_strong_identity():
     track = {"artist": "INXS", "title": "Never Tear Us Apart", "duration_ms": None}
-    candidate = {"artist": "INXS", "title": "Never Tear Us Apart"}
+    candidate = {"artist": "INXS", "title": "Never Tear Us Apart", "duration": 231}
     decision = score_candidate(track, candidate)
     assert decision.score == 100.0
     assert decision.accepted is True
@@ -54,9 +54,55 @@ def test_legacy_track_without_reference_duration_accepts_only_very_strong_identi
     assert decision.reason == "strong_identity_without_reference_duration"
 
 
+def test_provider_artist_prefix_is_removed_before_legacy_title_scoring():
+    track = {"artist": "INXS", "title": "Never Tear Us Apart", "duration_ms": None}
+    candidate = {
+        "title": "INXS - Never Tear Us Apart (Official Music Video)",
+        "duration": 231,
+    }
+    decision = score_candidate(track, candidate)
+    assert decision.score == 100.0
+    assert decision.components["artist"] == 30.0
+    assert decision.components["title"] == 35.0
+    assert decision.accepted is True
+    assert decision.reason == "strong_identity_without_reference_duration"
+
+
+def test_collaboration_prefix_with_ampersand_matches_with_wording():
+    track = {
+        "artist": "UB40 with Chrissie Hynde",
+        "title": "Breakfast In Bed",
+        "duration_ms": None,
+    }
+    candidate = {
+        "title": "UB40 & Chrissie Hynde - Breakfast In Bed",
+        "duration": 197,
+    }
+    decision = score_candidate(track, candidate)
+    assert decision.score == 100.0
+    assert decision.accepted is True
+
+
+def test_legacy_track_without_reference_duration_rejects_30_second_preview():
+    track = {"artist": "Belinda Carlisle", "title": "Circle In The Sand", "duration_ms": None}
+    candidate = {"artist": "Belinda Carlisle", "title": "Circle In The Sand", "duration": 30}
+    decision = score_candidate(track, candidate)
+    assert decision.score == 100.0
+    assert decision.accepted is False
+    assert decision.reason == "preview_duration"
+
+
+def test_legacy_track_without_reference_duration_rejects_implausibly_long_candidate():
+    track = {"artist": "Artist", "title": "Song", "duration_ms": None}
+    candidate = {"artist": "Artist", "title": "Song", "duration": 1200}
+    decision = score_candidate(track, candidate)
+    assert decision.accepted is False
+    assert decision.reason == "implausible_long_duration"
+
+
 def test_legacy_track_without_reference_duration_still_rejects_cover():
     track = {"artist": "INXS", "title": "Never Tear Us Apart", "duration_ms": None}
-    candidate = {"artist": "INXS", "title": "Never Tear Us Apart (Cover)"}
+    candidate = {"artist": "INXS", "title": "Never Tear Us Apart (Cover)", "duration": 231}
     decision = score_candidate(track, candidate)
     assert decision.accepted is False
     assert any(item["marker"] == "cover" for item in decision.penalties)

@@ -18,10 +18,18 @@ CANDIDATE_ONLY_ERRORS = {"drm", "unavailable"}
 GLOBAL_NETWORK_ERRORS = {"network"}
 SOFT_REJECTION_REASONS = {"try_other_provider"}
 NETWORK_PROBE_HOSTS = ("api-v2.soundcloud.com", "audiomack.com", "www.youtube.com")
-NETWORK_PROBE_TTL_SECONDS = 10.0
+NETWORK_PROBE_TTL_SECONDS = 3.0
+NETWORK_MIN_REACHABLE = 2
+NETWORK_STABLE_PASSES = 2
+NETWORK_STABLE_INTERVAL_SECONDS = 2.0
 _NETWORK_PROBE_LOCK = threading.Lock()
 _NETWORK_PROBE_AT = 0.0
-_NETWORK_PROBE_OK = True
+_NETWORK_PROBE_OK = False
+_NETWORK_PROBE_HAS_RUN = False
+
+
+class GlobalNetworkUnavailable(RuntimeError):
+    pass
 
 
 def _event(event: str, *, level: int = logging.INFO, **fields: Any) -> None:
@@ -86,41 +94,113 @@ def recover_interrupted_jobs() -> int:
     return len(rows)
 
 
-def _network_ready() -> bool:
-    """Return True when at least one independent provider edge is TCP reachable.
+def _probe_network_once() -> tuple[bool, int, list[str]]:
+    """Probe independent provider edges using real DNS and TCP connections."""
+    reachable = 0
+    errors: list[str] = []
+    for host in NETWORK_PROBE_HOSTS:
+        try:
+            addresses = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+            connected = False
+            last_error: OSError | None = None
+            for family, socktype, proto, _canonname, sockaddr in addresses[:6]:
+                sock = socket.socket(family, socktype, proto)
+                try:
+                    sock.settimeout(2.0)
+                    sock.connect(sockaddr)
+                    connected = True
+                    break
+                except OSError as exc:
+                    last_error = exc
+                finally:
+                    sock.close()
+            if connected:
+                reachable += 1
+            else:
+                errors.append(f"{host}: {last_error or 'geen TCP-verbinding'}")
+        except OSError as exc:
+            errors.append(f"{host}: {exc}")
+    return reachable >= NETWORK_MIN_REACHABLE, reachable, errors
 
-    The result is cached briefly so four workers do not turn a boot-time network
-    outage into a burst of DNS/TCP probes. This is a readiness check only; it does
-    not bypass provider rate limits or security controls.
+
+def _invalidate_network_readiness(*, provider: str | None = None, reason: str | None = None) -> None:
+    global _NETWORK_PROBE_AT, _NETWORK_PROBE_OK, _NETWORK_PROBE_HAS_RUN
+    with _NETWORK_PROBE_LOCK:
+        was_ok = _NETWORK_PROBE_OK
+        _NETWORK_PROBE_AT = 0.0
+        _NETWORK_PROBE_OK = False
+        _NETWORK_PROBE_HAS_RUN = False
+    if was_ok:
+        _event(
+            "network_readiness_invalidated",
+            level=logging.WARNING,
+            provider=provider,
+            reason=reason,
+        )
+
+
+def _network_ready(*, force: bool = False) -> bool:
+    """Return True only after a real DNS/TCP probe has succeeded.
+
+    1.16.10 initialized the cached result to True. During the first ten seconds
+    after boot, time.monotonic() was also below the cache TTL, so workers could be
+    released before any probe had happened. The cache now starts unproven/False.
     """
-    global _NETWORK_PROBE_AT, _NETWORK_PROBE_OK
+    global _NETWORK_PROBE_AT, _NETWORK_PROBE_OK, _NETWORK_PROBE_HAS_RUN
     now = time.monotonic()
     with _NETWORK_PROBE_LOCK:
-        if now - _NETWORK_PROBE_AT < NETWORK_PROBE_TTL_SECONDS:
+        if (
+            not force
+            and _NETWORK_PROBE_HAS_RUN
+            and now - _NETWORK_PROBE_AT < NETWORK_PROBE_TTL_SECONDS
+        ):
             return _NETWORK_PROBE_OK
 
-        errors: list[str] = []
-        ok = False
-        for host in NETWORK_PROBE_HOSTS:
-            try:
-                socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
-                with socket.create_connection((host, 443), timeout=2.0):
-                    pass
-                ok = True
-                break
-            except OSError as exc:
-                errors.append(f"{host}: {exc}")
-
-        _NETWORK_PROBE_AT = now
+        ok, reachable, errors = _probe_network_once()
+        _NETWORK_PROBE_AT = time.monotonic()
         _NETWORK_PROBE_OK = ok
+        _NETWORK_PROBE_HAS_RUN = True
         if not ok:
             _event(
                 "global_network_unavailable",
                 level=logging.WARNING,
                 probe_hosts=list(NETWORK_PROBE_HOSTS),
+                reachable=reachable,
+                minimum_required=NETWORK_MIN_REACHABLE,
                 errors=errors[-3:],
             )
         return ok
+
+
+def _wait_for_stable_network() -> None:
+    """Hold all provider workers until networking is stable across two probes."""
+    passes = 0
+    announced_wait = False
+    while passes < NETWORK_STABLE_PASSES:
+        if _network_ready(force=True):
+            passes += 1
+            _event(
+                "network_readiness_probe_ok",
+                consecutive_passes=passes,
+                required_passes=NETWORK_STABLE_PASSES,
+            )
+        else:
+            passes = 0
+            if not announced_wait:
+                _event(
+                    "network_readiness_wait",
+                    level=logging.WARNING,
+                    required_passes=NETWORK_STABLE_PASSES,
+                    minimum_reachable=NETWORK_MIN_REACHABLE,
+                )
+                announced_wait = True
+        if passes < NETWORK_STABLE_PASSES:
+            time.sleep(NETWORK_STABLE_INTERVAL_SECONDS)
+    _event(
+        "network_ready_stable",
+        consecutive_passes=passes,
+        probe_hosts=list(NETWORK_PROBE_HOSTS),
+    )
 
 
 def _rescorable_rejected_urls(track_id: int, provider: str) -> set[str]:
@@ -211,6 +291,7 @@ def _install_runtime_guards() -> None:
             )
             return None
         if not success and category in GLOBAL_NETWORK_ERRORS:
+            _invalidate_network_readiness(provider=provider, reason=category)
             _event(
                 "global_network_error_not_provider_health_error",
                 level=logging.WARNING,
@@ -229,7 +310,7 @@ def _install_runtime_guards() -> None:
 
     # 1.16.9 stored high-confidence ranking deferrals as rejected candidates.
     # Replace the imported lookup so those soft rejects can be re-scored while
-    # hard evidence (wrong duration, cover, invalid audio, DRM, etc.) stays cached.
+    # hard evidence (wrong duration, cover, invalid audio, DRM, preview, etc.) stays cached.
     download_manager.rejected_urls = _rescorable_rejected_urls
 
     original_search_provider = download_manager._search_provider
@@ -270,6 +351,23 @@ def _install_runtime_guards() -> None:
 
     download_manager._search_provider = logged_search_provider
 
+    original_search_group = download_manager._search_group
+
+    def guarded_search_group(rows: list[dict[str, Any]], track: dict[str, Any]) -> list[dict[str, Any]]:
+        if not _network_ready():
+            raise GlobalNetworkUnavailable("global_network_unavailable_before_provider_group")
+        results = original_search_group(rows, track)
+        saw_network_error = any(
+            getattr(result.get("error"), "category", None) == "network"
+            for result in results
+            if isinstance(result, dict)
+        )
+        if saw_network_error and not _network_ready(force=True):
+            raise GlobalNetworkUnavailable("global_network_unavailable_during_provider_group")
+        return results
+
+    download_manager._search_group = guarded_search_group
+
     original_process_job = download_manager.process_job
 
     def logged_process_job(job: dict[str, Any]) -> dict[str, Any]:
@@ -279,6 +377,8 @@ def _install_runtime_guards() -> None:
                 result = _defer_job_for_network(job)
             else:
                 result = original_process_job(job)
+        except GlobalNetworkUnavailable:
+            result = _defer_job_for_network(job)
         except Exception as exc:
             _event(
                 "job_exception",
@@ -330,7 +430,11 @@ def main() -> None:
         overwrite_existing_audio_allowed=False,
         soft_rejections_rescored=sorted(SOFT_REJECTION_REASONS),
         network_readiness_guard=True,
+        network_initial_cache_trusted=False,
+        network_min_reachable=NETWORK_MIN_REACHABLE,
+        network_stable_passes=NETWORK_STABLE_PASSES,
     )
+    _wait_for_stable_network()
     download_manager.run_download_manager(batch_limit=20)
 
 
