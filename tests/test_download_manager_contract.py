@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from app import download_manager
+from app import download_manager, download_manager_entry
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -105,6 +105,30 @@ def test_post_download_validation_is_required_before_completion():
     assert "ffprobe" in source
     assert "silencedetect" in source
     assert "MIN_FILE_BYTES" in source
+
+
+def test_post_download_preview_guard_rejects_short_audio_without_reference_duration():
+    with pytest.raises(download_manager.DownloadValidationError, match="preview_duration"):
+        download_manager_entry._validate_full_track_duration(
+            {"duration": 30.0, "codec": "mp3"},
+            {"duration_ms": None},
+        )
+
+
+def test_post_download_preview_guard_accepts_plausible_full_audio_without_reference_duration():
+    info = {"duration": 223.0, "codec": "opus"}
+    assert download_manager_entry._validate_full_track_duration(
+        info,
+        {"duration_ms": None},
+    ) is info
+
+
+def test_post_download_preview_guard_keeps_reference_duration_path_unchanged():
+    info = {"duration": 30.0, "codec": "mp3"}
+    assert download_manager_entry._validate_full_track_duration(
+        info,
+        {"duration_ms": 30000},
+    ) is info
 
 
 def test_existing_audio_is_never_overwritten(tmp_path):
