@@ -25,6 +25,8 @@ ACTIONS = {
     "run_database_check": ["systemctl", "start", "--no-block", "top40-archiver-check.service"],
     "run_chart_freshness": ["systemctl", "start", "--no-block", "top40-archiver-freshness.service"],
     "run_history_sync": ["systemctl", "start", "--no-block", "top40-archiver-history.service"],
+    "run_ai_recovery": ["systemctl", "start", "--no-block", "top40-ai-recovery.service"],
+    "run_provider_ai": ["systemctl", "start", "--no-block", "top40-provider-ai.service"],
     "cleanup_stale_download_temp": [
         "/opt/top40-archiver/venv/bin/python3",
         "-m",
@@ -72,6 +74,7 @@ def main() -> int:
             "free_shell": False,
             "temporary_partial_cleanup_allowed": True,
             "chart_refresh_allowed": True,
+            "operator_chat_allowed": True,
             "rate_limit_bypass_allowed": False,
             "provider_rate_limit_bypass_allowed": False,
             "provider_cookie_bypass_allowed": False,

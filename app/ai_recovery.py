@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import subprocess
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -11,7 +10,8 @@ from pathlib import Path
 from .ai_learning import choose_action
 from .ai_session_console import operator_context, scope_held
 from .config import DATA_DIR
-from .db import connect, get_settings, now_iso, set_settings
+from .db import connect, now_iso
+from .download_db import retry_job
 from .rejection_log import classify_rejection
 
 STATE_FILE = DATA_DIR / "ai" / "recovery-state.json"
@@ -27,6 +27,7 @@ MAX_RECOVERIES_PER_ERROR = 6
 SEARCH_BATCH_LIMIT = 80
 TRANSIENT_BATCH_LIMIT = 20
 OTHER_BATCH_LIMIT = 40
+ACTIVE_JOB_STATUSES = {"searching", "downloading", "validating", "processing"}
 
 
 def _utcnow() -> datetime:
@@ -64,27 +65,6 @@ def _cooldown_ready(state: dict, action: str) -> bool:
         return _utcnow() - previous >= timedelta(minutes=COOLDOWN_MINUTES)
     except (TypeError, ValueError):
         return True
-
-
-def _run_safe_action(action: str) -> dict:
-    completed = subprocess.run(
-        ["/usr/local/sbin/top40-safe-action", action],
-        capture_output=True,
-        text=True,
-        timeout=75,
-        check=False,
-    )
-    try:
-        result = json.loads(completed.stdout)
-    except json.JSONDecodeError:
-        result = {
-            "ok": False,
-            "action": action,
-            "returncode": completed.returncode,
-            "stderr": completed.stderr[-1000:],
-        }
-    result.setdefault("returncode", completed.returncode)
-    return result
 
 
 def _normalise_error(value: str) -> str:
@@ -174,19 +154,23 @@ def _failure_snapshot() -> tuple[list[dict], Counter]:
     with connect() as con:
         rows = con.execute(
             """
-            SELECT id, artist, title, download_status, download_attempts,
-                   custom_search_query, youtube_url, error_message, updated_at
-            FROM tracks
-            WHERE download_status IN ('failed','unavailable','downloading')
-            ORDER BY CASE download_status WHEN 'failed' THEN 0 WHEN 'downloading' THEN 1 ELSE 2 END,
-                     updated_at ASC
+            SELECT t.id,t.artist,t.title,t.download_status,t.download_attempts,
+                   t.custom_search_query,t.youtube_url,t.error_message,t.updated_at,
+                   j.id AS job_id,j.status AS job_status,j.next_attempt_at AS job_next_attempt_at,
+                   j.updated_at AS job_updated_at,j.error AS job_error
+            FROM tracks t
+            LEFT JOIN download_jobs j ON j.track_id=t.id
+            WHERE t.download_status IN ('failed','unavailable','downloading')
+            ORDER BY CASE t.download_status WHEN 'failed' THEN 0 WHEN 'downloading' THEN 1 ELSE 2 END,
+                     t.updated_at ASC
             LIMIT 1500
             """
         ).fetchall()
     failures: list[dict] = []
     categories: Counter = Counter()
     for row in rows:
-        category = classify_rejection(row["error_message"] or "")
+        message = row["job_error"] or row["error_message"] or ""
+        category = classify_rejection(message)
         item = dict(row)
         item["category"] = category
         failures.append(item)
@@ -200,17 +184,18 @@ def _release_selected(selected: list[dict], state: dict) -> tuple[int, list[dict
 
     released = 0
     details: list[dict] = []
-    with connect() as con:
-        for item in selected:
-            record = _recovery_record(state, item)
-            count_before = int(record.get("count", 0))
-            strategy, query = _repair_strategy(item, count_before)
-            cursor = con.execute(
+    for item in selected:
+        record = _recovery_record(state, item)
+        count_before = int(record.get("count", 0))
+        strategy, query = _repair_strategy(item, count_before)
+        queued = retry_job(int(item["id"]))
+        if not queued:
+            continue
+        with connect() as con:
+            con.execute(
                 """
                 UPDATE tracks
-                SET download_status='pending',
-                    download_attempts=0,
-                    youtube_url=NULL,
+                SET youtube_url=NULL,
                     custom_search_query=?,
                     error_message=?,
                     updated_at=?
@@ -218,28 +203,29 @@ def _release_selected(selected: list[dict], state: dict) -> tuple[int, list[dict
                 """,
                 (
                     query,
-                    f"AI-herstel: strategie {strategy}; opnieuw ingepland na {item['category']}.",
+                    f"AI-herstel: strategie {strategy}; download_job opnieuw ingepland na {item['category']}.",
                     now_iso(),
                     int(item["id"]),
                 ),
             )
-            if int(cursor.rowcount or 0) > 0:
-                released += 1
-                record["count"] = count_before + 1
-                record["last_at"] = _utcnow().isoformat()
-                record["last_strategy"] = strategy
-                record["last_query"] = query
-                details.append(
-                    {
-                        "id": item["id"],
-                        "artist": item["artist"],
-                        "title": item["title"],
-                        "category": item["category"],
-                        "strategy": strategy,
-                        "query": query,
-                        "recovery_number": count_before + 1,
-                    }
-                )
+        released += 1
+        record["count"] = count_before + 1
+        record["last_at"] = _utcnow().isoformat()
+        record["last_strategy"] = strategy
+        record["last_query"] = query
+        details.append(
+            {
+                "id": item["id"],
+                "artist": item["artist"],
+                "title": item["title"],
+                "category": item["category"],
+                "strategy": strategy,
+                "query": query,
+                "recovery_number": count_before + 1,
+                "download_job_requeued": True,
+                "manager_restart_requested": False,
+            }
+        )
     return released, details
 
 
@@ -249,6 +235,19 @@ def _batch_limit_for(item: dict) -> int:
     if item["category"] in SEARCH_FAILURES:
         return SEARCH_BATCH_LIMIT
     return OTHER_BATCH_LIMIT
+
+
+def _is_stale_active(item: dict, stale_cutoff: datetime) -> bool:
+    if str(item.get("job_status") or "") not in ACTIVE_JOB_STATUSES and item.get("download_status") != "downloading":
+        return False
+    raw = item.get("job_updated_at") or item.get("updated_at")
+    try:
+        updated = datetime.fromisoformat(str(raw or ""))
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        return updated < stale_cutoff
+    except ValueError:
+        return True
 
 
 def run_cycle() -> dict:
@@ -262,6 +261,7 @@ def run_cycle() -> dict:
     guidance = operator_context("downloads")
 
     retryable: list[dict] = []
+    manager_backoff: list[dict] = []
     skipped_permanent: list[dict] = []
     skipped_limit: list[dict] = []
     stale_downloading: list[dict] = []
@@ -269,18 +269,16 @@ def run_cycle() -> dict:
     stale_cutoff = _utcnow() - timedelta(minutes=30)
     for item in failures:
         category = item["category"]
-        if item["download_status"] == "downloading":
-            try:
-                updated = datetime.fromisoformat(str(item.get("updated_at") or ""))
-                if updated.tzinfo is None:
-                    updated = updated.replace(tzinfo=timezone.utc)
-                if updated < stale_cutoff:
-                    stale_downloading.append(item)
-            except ValueError:
-                stale_downloading.append(item)
+        if _is_stale_active(item, stale_cutoff):
+            stale_downloading.append(item)
+            continue
+        if str(item.get("job_status") or "") in ACTIVE_JOB_STATUSES:
             continue
         if category in PERMANENT:
             skipped_permanent.append(item)
+            continue
+        if category in TRANSIENT and item.get("job_status") == "waiting_retry":
+            manager_backoff.append(item)
             continue
 
         record = _recovery_record(state, item)
@@ -290,7 +288,6 @@ def run_cycle() -> dict:
         if category in RETRYABLE:
             retryable.append(item)
 
-    transient_total = sum(counts[name] for name in TRANSIENT)
     decision = {
         "status": "observe",
         "reason": "Geen herstelbare mislukte downloads gevonden.",
@@ -311,21 +308,18 @@ def run_cycle() -> dict:
         )
     else:
         if stale_downloading:
-            with connect() as con:
-                ids = [int(x["id"]) for x in stale_downloading]
-                placeholders = ",".join("?" for _ in ids)
-                cursor = con.execute(
-                    f"""
-                    UPDATE tracks
-                    SET download_status='pending', download_attempts=0, youtube_url=NULL,
-                        error_message='AI-herstel: vastgelopen download opnieuw ingepland.', updated_at=?
-                    WHERE id IN ({placeholders})
-                    """,
-                    [now_iso(), *ids],
+            stale_ids = [int(x["id"]) for x in stale_downloading]
+            requeued = sum(1 for track_id in stale_ids if retry_job(track_id))
+            if requeued:
+                actions.append({
+                    "action": "release_stale_download_jobs",
+                    "released": requeued,
+                    "result": "gelukt",
+                    "manager_restart_requested": False,
+                })
+                recommendations.append(
+                    f"{requeued} stale downloadjobs zijn via de download_jobs-queue opnieuw aangeboden zonder de gezonde manager te herstarten."
                 )
-                stale_released = int(cursor.rowcount or 0)
-            if stale_released:
-                actions.append({"action": "release_stale_downloads", "released": stale_released, "result": "gelukt"})
 
         if retryable and _cooldown_ready(state, "retry_failed"):
             first = retryable[0]
@@ -338,24 +332,13 @@ def run_cycle() -> dict:
                     continue
                 selected.append(item)
 
-            workers_before = None
-            if transient_total:
-                with connect() as con:
-                    settings = get_settings(con)
-                workers_before = int(settings.get("download_workers", "1") or 1)
-                if workers_before != 1:
-                    set_settings({"download_workers": "1"})
-
             released, repair_details = _release_selected(selected, state)
-            restart = _run_safe_action("restart_download") if released else {"ok": True, "skipped": True}
             action = {
                 "action": "retry_failed_downloads",
                 "released": released,
                 "selected": len(selected),
-                "workers_before": workers_before,
-                "workers_after": 1 if transient_total else workers_before,
-                "restart": restart,
-                "result": "gelukt" if released and restart.get("ok") else "gedeeltelijk" if released else "overgeslagen",
+                "manager_restart_requested": False,
+                "result": "gelukt" if released else "overgeslagen",
                 "repairs": repair_details[:50],
             }
             actions.append(action)
@@ -363,30 +346,29 @@ def run_cycle() -> dict:
             strategies = Counter(x["strategy"] for x in repair_details)
             decision = {
                 "status": "recover",
-                "reason": f"{released} downloads opnieuw ingepland met {len(strategies)} herstelstrategie(ën); downloader gecontroleerd herstart.",
-                "confidence": 0.97 if restart.get("ok") else 0.78,
+                "reason": f"{released} downloads opnieuw ingepland in download_jobs met {len(strategies)} herstelstrategie(ën); downloadmanager niet onderbroken.",
+                "confidence": 0.98 if released else 0.8,
             }
-            recommendations.append("De AI heeft mislukte downloads opnieuw in de actieve wachtrij geplaatst.")
+            recommendations.append("De AI heeft mislukte downloads via de actuele download_jobs-architectuur opnieuw in de actieve wachtrij geplaatst.")
             if strategies:
                 recommendations.append("Gebruikte strategieën: " + ", ".join(f"{k}={v}" for k, v in strategies.items()) + ".")
-            if transient_total:
-                recommendations.append("Tijdelijke YouTube/netwerkfouten: belasting teruggebracht naar één worker en kleinere herstelbatch.")
         elif retryable:
             decision = {
                 "status": "cooldown",
                 "reason": f"{len(retryable)} herstelbare downloads wachten maximaal {COOLDOWN_MINUTES} minuten om herhaalde bronbelasting te voorkomen.",
                 "confidence": 0.95,
             }
+        elif manager_backoff:
+            decision = {
+                "status": "managed_backoff",
+                "reason": f"{len(manager_backoff)} tijdelijke provider/netwerkfouten staan al in waiting_retry; de downloadmanager bewaakt hun backoff en wordt niet door AI doorkruist.",
+                "confidence": 0.99,
+            }
 
-        if stale_downloading and not any(x.get("action") == "retry_failed_downloads" for x in actions):
-            restart = _run_safe_action("restart_download")
-            actions.append({
-                "action": "restart_after_stale_release",
-                "released": len(stale_downloading),
-                "restart": restart,
-                "result": "gelukt" if restart.get("ok") else "gedeeltelijk",
-            })
-
+    if manager_backoff:
+        recommendations.append(
+            f"{len(manager_backoff)} tijdelijke fouten blijven onder het eigen waiting_retry/backoffbeleid van top40-download-manager.service."
+        )
     if skipped_limit:
         recommendations.append(
             f"{len(skipped_limit)} tracks bereikten de limiet voor dezelfde fout. Bij een gewijzigde fout of na {RECOVERY_RESET_HOURS} uur worden ze automatisch opnieuw toegelaten."
@@ -401,12 +383,17 @@ def run_cycle() -> dict:
             "SELECT download_status, COUNT(*) c FROM tracks GROUP BY download_status"
         ).fetchall()
         status_after = {str(row["download_status"]): int(row["c"]) for row in status_rows}
+        job_rows = con.execute(
+            "SELECT status,COUNT(*) c FROM download_jobs GROUP BY status"
+        ).fetchall()
+        jobs_after = {str(row["status"]): int(row["c"]) for row in job_rows}
 
     report = {
         "ok": True,
         "generated_at": _utcnow().isoformat(),
         "failure_count": len(failures),
         "retryable_count": len(retryable),
+        "manager_backoff_count": len(manager_backoff),
         "permanent_count": len(skipped_permanent),
         "recovery_limit_count": len(skipped_limit),
         "categories": dict(counts),
@@ -417,17 +404,21 @@ def run_cycle() -> dict:
         "operator_guidance": guidance,
         "verification": {
             "status_after": status_after,
+            "download_jobs_after": jobs_after,
             "pending_after": status_after.get("pending", 0),
             "failed_after": status_after.get("failed", 0),
             "downloading_after": status_after.get("downloading", 0),
-            "download_service_restart_ok": all(
-                item.get("restart", {"ok": True}).get("ok", True) for item in actions
-            ) if actions else True,
+            "download_manager_restart_requested": False,
+            "recovery_uses_download_jobs": True,
         },
         "samples": {
             "retryable": [
-                {"id": x["id"], "artist": x["artist"], "title": x["title"], "category": x["category"]}
+                {"id": x["id"], "artist": x["artist"], "title": x["title"], "category": x["category"], "job_status": x.get("job_status")}
                 for x in retryable[:20]
+            ],
+            "manager_backoff": [
+                {"id": x["id"], "artist": x["artist"], "title": x["title"], "category": x["category"], "next_attempt_at": x.get("job_next_attempt_at")}
+                for x in manager_backoff[:20]
             ],
             "permanent": [
                 {"id": x["id"], "artist": x["artist"], "title": x["title"], "category": x["category"]}
@@ -438,7 +429,7 @@ def run_cycle() -> dict:
                 for x in skipped_limit[:20]
             ],
         },
-        "mode": "learned-adaptive-bounded-autorecovery",
+        "mode": "download-jobs-aware-bounded-autorecovery",
         "limits": {
             "transient_batch": TRANSIENT_BATCH_LIMIT,
             "search_batch": SEARCH_BATCH_LIMIT,
