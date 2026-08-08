@@ -16,6 +16,7 @@ LOCK_FILE = RUNTIME_DIR / "model-runtime.lock"
 STATE_FILE = RUNTIME_DIR / "model-runtime-state.json"
 OPERATOR_PENDING_FILE = RUNTIME_DIR / "model-operator.pending"
 PENDING_MAX_AGE_SECONDS = 300
+LOCK_MODE = 0o660
 
 
 class ModelBusy(RuntimeError):
@@ -55,6 +56,28 @@ def runtime_status() -> dict:
     return value
 
 
+def _open_lock_file():
+    """Open the shared flock with stable group-writable permissions.
+
+    Some autonomous workers run under a different service context than the
+    interactive AI service. The release installer owns the directory and sets
+    its setgid bit; this helper additionally keeps the lock itself group writable
+    whenever the current process is allowed to chmod it.
+    """
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    fd = os.open(LOCK_FILE, os.O_CREAT | os.O_RDWR, LOCK_MODE)
+    try:
+        try:
+            os.fchmod(fd, LOCK_MODE)
+        except PermissionError:
+            # Opening succeeded, so an existing shared lock is already usable.
+            pass
+        return os.fdopen(fd, "a+", encoding="utf-8")
+    except Exception:
+        os.close(fd)
+        raise
+
+
 @contextmanager
 def model_slot(
     owner: str,
@@ -76,7 +99,7 @@ def model_slot(
             encoding="utf-8",
         )
 
-    handle = LOCK_FILE.open("a+", encoding="utf-8")
+    handle = _open_lock_file()
     deadline = time.monotonic() + max(0.0, float(wait_seconds))
     acquired = False
     try:
