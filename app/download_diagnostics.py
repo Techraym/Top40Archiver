@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .db import connect
@@ -40,6 +39,15 @@ def _short(value: Any, limit: int = 220) -> str:
     return text[:limit]
 
 
+def _table_exists(con, name: str) -> bool:
+    return bool(
+        con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (name,),
+        ).fetchone()
+    )
+
+
 def collect_download_diagnostics(*, attempt_limit: int = 240, example_limit: int = 10) -> dict[str, Any]:
     """Return a compact deterministic downloader diagnosis for the local Qwen model.
 
@@ -49,27 +57,45 @@ def collect_download_diagnostics(*, attempt_limit: int = 240, example_limit: int
     init_download_db()
     attempt_limit = max(20, min(int(attempt_limit), 1000))
     example_limit = max(3, min(int(example_limit), 20))
-    cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
 
     with connect() as con:
+        tracks_available = _table_exists(con, "tracks")
         job_status = {
             str(row["status"]): int(row["c"])
             for row in con.execute("SELECT status,COUNT(*) c FROM download_jobs GROUP BY status").fetchall()
         }
-        attempts = [
-            dict(row)
-            for row in con.execute(
-                """
+        if tracks_available:
+            attempt_sql = """
                 SELECT a.id,a.job_id,a.track_id,a.provider,a.candidate_url,a.match_score,
                        a.success,a.error_category,a.error,a.search_ms,a.download_ms,a.completed_at,
                        t.artist,t.title
                 FROM download_provider_attempts a
-                JOIN tracks t ON t.id=a.track_id
+                LEFT JOIN tracks t ON t.id=a.track_id
                 ORDER BY a.id DESC LIMIT ?
-                """,
-                (attempt_limit,),
-            ).fetchall()
-        ]
+            """
+            retry_sql = """
+                SELECT j.id,j.track_id,j.attempts,j.error,j.next_attempt_at,j.updated_at,t.artist,t.title
+                FROM download_jobs j LEFT JOIN tracks t ON t.id=j.track_id
+                WHERE j.status='waiting_retry'
+                ORDER BY j.updated_at DESC LIMIT ?
+            """
+        else:
+            attempt_sql = """
+                SELECT a.id,a.job_id,a.track_id,a.provider,a.candidate_url,a.match_score,
+                       a.success,a.error_category,a.error,a.search_ms,a.download_ms,a.completed_at,
+                       NULL AS artist,NULL AS title
+                FROM download_provider_attempts a
+                ORDER BY a.id DESC LIMIT ?
+            """
+            retry_sql = """
+                SELECT j.id,j.track_id,j.attempts,j.error,j.next_attempt_at,j.updated_at,
+                       NULL AS artist,NULL AS title
+                FROM download_jobs j
+                WHERE j.status='waiting_retry'
+                ORDER BY j.updated_at DESC LIMIT ?
+            """
+
+        attempts = [dict(row) for row in con.execute(attempt_sql, (attempt_limit,)).fetchall()]
         rejected = [
             dict(row)
             for row in con.execute(
@@ -87,28 +113,15 @@ def collect_download_diagnostics(*, attempt_limit: int = 240, example_limit: int
                 "SELECT provider,COUNT(*) c FROM provider_search_cache GROUP BY provider ORDER BY c DESC"
             ).fetchall()
         ]
-        retry_examples = [
-            dict(row)
-            for row in con.execute(
-                """
-                SELECT j.id,j.track_id,j.attempts,j.error,j.next_attempt_at,j.updated_at,t.artist,t.title
-                FROM download_jobs j JOIN tracks t ON t.id=j.track_id
-                WHERE j.status='waiting_retry'
-                ORDER BY j.updated_at DESC LIMIT ?
-                """,
-                (example_limit,),
-            ).fetchall()
-        ]
+        retry_examples = [dict(row) for row in con.execute(retry_sql, (example_limit,)).fetchall()]
         completed_24h = int(
             con.execute(
-                "SELECT COUNT(*) FROM download_jobs WHERE status='completed' AND updated_at>=?",
-                (cutoff_24h,),
+                "SELECT COUNT(*) FROM download_jobs WHERE status='completed' AND datetime(updated_at)>=datetime('now','-24 hours')"
             ).fetchone()[0]
         )
         provider_success_24h = int(
             con.execute(
-                "SELECT COUNT(*) FROM download_provider_attempts WHERE success=1 AND completed_at>=?",
-                (cutoff_24h,),
+                "SELECT COUNT(*) FROM download_provider_attempts WHERE success=1 AND datetime(completed_at)>=datetime('now','-24 hours')"
             ).fetchone()[0]
         )
 
@@ -164,9 +177,12 @@ def collect_download_diagnostics(*, attempt_limit: int = 240, example_limit: int
 
     examples = []
     for row in attempts[:example_limit]:
+        track = f"{_short(row.get('artist'), 80)} - {_short(row.get('title'), 100)}".strip(" -")
+        if not track:
+            track = f"track_id={row.get('track_id')}"
         examples.append(
             {
-                "track": f"{_short(row.get('artist'), 80)} - {_short(row.get('title'), 100)}",
+                "track": track,
                 "provider": row.get("provider"),
                 "success": bool(row.get("success")),
                 "stage": _stage(row.get("error_category"), row.get("error"), row.get("candidate_url"), row.get("success")),
@@ -179,9 +195,9 @@ def collect_download_diagnostics(*, attempt_limit: int = 240, example_limit: int
 
     reject_summary: dict[str, list[list[Any]]] = defaultdict(list)
     for row in rejected:
-        reject_summary[str(row.get("provider") or "unknown")].append(
-            [str(row.get("reason") or "unknown"), int(row.get("c") or 0)]
-        )
+        bucket = reject_summary[str(row.get("provider") or "unknown")]
+        if len(bucket) < 4:
+            bucket.append([str(row.get("reason") or "unknown"), int(row.get("c") or 0)])
 
     dominant_stage = global_stages.most_common(1)[0][0] if global_stages else "no_attempt_evidence"
     return {
@@ -198,7 +214,10 @@ def collect_download_diagnostics(*, attempt_limit: int = 240, example_limit: int
         "recent_examples": examples,
         "waiting_retry_examples": [
             {
-                "track": f"{_short(row.get('artist'), 80)} - {_short(row.get('title'), 100)}",
+                "track": (
+                    f"{_short(row.get('artist'), 80)} - {_short(row.get('title'), 100)}".strip(" -")
+                    or f"track_id={row.get('track_id')}"
+                ),
                 "attempts": int(row.get("attempts") or 0),
                 "error": _short(row.get("error")),
                 "next_attempt_at": row.get("next_attempt_at"),
