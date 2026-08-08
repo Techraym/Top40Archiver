@@ -1,271 +1,161 @@
 from __future__ import annotations
 
-import json
-import os
-import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
 
-import requests
+from . import ai_code_improvement_legacy as _legacy
+from .ai_model_runtime import ModelBusy, model_slot
+from .config import APP_DIR
+from .db import connect as app_connect
 
-from . import ai_memory
-from .ai_code_repair import (
-    _health,
-    _promote,
-    _rollback_active,
-    _safe_touched_files,
-)
-from .ai_learning import complete_action, start_action
-from .ai_session_console import operator_context
-from .config import APP_DIR, DATA_DIR
-from .dev_assistant import create_workspace, save_patch, validate_workspace, workspace_status
+DOWNLOAD_SOURCES = [
+    "app/download_manager.py",
+    "app/download_manager_entry.py",
+    "app/download_matching.py",
+    "app/download_db.py",
+    "app/ai_recovery.py",
+]
+INEFFECTIVE_COOLDOWN_MINUTES = 30
+MAX_MODEL_SOURCE_BYTES = 30_000
 
-STATE_FILE = DATA_DIR / "ai" / "code-improvement-state.json"
-LOOKBACK_HOURS = 6
-MIN_REPEAT_ACTIONS = 5
-VERIFY_MINUTES = 60
-COOLDOWN_HOURS = 6
-
-SOURCE_MAP = {
-    "downloads:": ["app/downloader.py", "app/service_queue.py"],
-    "download:": ["app/downloader.py", "app/service_queue.py"],
-    "covers:": ["app/cover_art.py"],
-    "charts:": ["app/top40.py", "app/service.py"],
-    "service:top40-archiver-download.service": ["app/downloader.py", "app/service_queue.py"],
-    "service:top40-archiver-cover-art.service": ["app/cover_art.py"],
+# Point autonomous improvement at the current multi-source architecture instead
+# of the pre-1.16 downloader/service_queue implementation.
+_legacy.SOURCE_MAP = {
+    **_legacy.SOURCE_MAP,
+    "downloads:": DOWNLOAD_SOURCES,
+    "download:": DOWNLOAD_SOURCES,
+    "service:top40-download-manager.service": DOWNLOAD_SOURCES,
 }
+_legacy.SOURCE_MAP.pop("service:top40-archiver-download.service", None)
+_ORIGINAL_CANDIDATE = _legacy._candidate
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _load() -> dict:
+def _download_downstream_metrics(cutoff: str) -> dict[str, int]:
     try:
-        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        with app_connect() as con:
+            completed_jobs = int(con.execute(
+                "SELECT COUNT(*) FROM download_jobs WHERE status='completed' AND updated_at>=?",
+                (cutoff,),
+            ).fetchone()[0])
+            successful_attempts = int(con.execute(
+                "SELECT COUNT(*) FROM download_provider_attempts WHERE success=1 AND completed_at>=?",
+                (cutoff,),
+            ).fetchone()[0])
+            attempts = int(con.execute(
+                "SELECT COUNT(*) FROM download_provider_attempts WHERE completed_at>=?",
+                (cutoff,),
+            ).fetchone()[0])
+            waiting_retry = int(con.execute(
+                "SELECT COUNT(*) FROM download_jobs WHERE status='waiting_retry'",
+            ).fetchone()[0])
+        return {
+            "completed_jobs": completed_jobs,
+            "successful_provider_attempts": successful_attempts,
+            "provider_attempts": attempts,
+            "waiting_retry_now": waiting_retry,
+        }
     except Exception:
-        return {"active": None, "last_attempts": {}}
-
-
-def _save(state: dict) -> None:
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = STATE_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(STATE_FILE)
-
-
-def _mapped_sources(problem_key: str) -> list[str]:
-    for prefix, files in SOURCE_MAP.items():
-        if problem_key.startswith(prefix):
-            return files
-    return []
+        return {
+            "completed_jobs": 0,
+            "successful_provider_attempts": 0,
+            "provider_attempts": 0,
+            "waiting_retry_now": 0,
+        }
 
 
 def _candidate() -> dict | None:
-    cutoff = (_now() - timedelta(hours=LOOKBACK_HOURS)).isoformat()
-    with ai_memory.connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT problem_key,action,COUNT(*) AS uses,
-                   SUM(CASE WHEN success=1 THEN 1 ELSE 0 END) AS successes,
-                   MAX(started_at) AS last_seen
-            FROM action_execution
-            WHERE started_at>=? AND status='completed'
-              AND domain IN ('service','operations','download','download_track','download_config','charts')
-            GROUP BY problem_key,action
-            HAVING COUNT(*)>=?
-            ORDER BY COUNT(*) DESC, MAX(started_at) DESC
-            LIMIT 30
-            """,
-            (cutoff, MIN_REPEAT_ACTIONS),
-        ).fetchall()
-    for row in rows:
-        problem = str(row["problem_key"] or "")
-        sources = _mapped_sources(problem)
-        if sources:
-            return {
-                "problem_key": problem,
-                "action": str(row["action"] or ""),
-                "uses": int(row["uses"] or 0),
-                "successes": int(row["successes"] or 0),
-                "last_seen": row["last_seen"],
-                "sources": sources,
-                "lookback_hours": LOOKBACK_HOURS,
-            }
-    return None
+    candidate = _ORIGINAL_CANDIDATE()
+    if not candidate:
+        return None
+    problem = str(candidate.get("problem_key") or "")
+    if not (problem.startswith("download:") or problem.startswith("downloads:") or problem == "service:top40-download-manager.service"):
+        return candidate
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=_legacy.LOOKBACK_HOURS)).isoformat()
+    metrics = _download_downstream_metrics(cutoff)
+    administrative = int(candidate.get("successes") or 0)
+    downstream = max(metrics["completed_jobs"], metrics["successful_provider_attempts"])
+    candidate["administrative_successes"] = administrative
+    candidate["successes"] = downstream
+    candidate["downstream_successes"] = downstream
+    candidate["downstream_metrics"] = metrics
+    candidate["downstream_effective"] = downstream > 0
+    candidate["success_semantics"] = "completed download job/provider attempt; requeue alone is not success"
+    return candidate
 
 
 def _read_sources(files: list[str]) -> str:
-    parts = []
+    parts: list[str] = []
+    budget = MAX_MODEL_SOURCE_BYTES
     for rel in files:
+        if budget <= 0:
+            break
         path = APP_DIR / rel
-        if path.is_file():
-            parts.append(f"\n### {rel}\n{path.read_text(encoding='utf-8', errors='replace')[:40000]}\n")
-    return "".join(parts)[:100000]
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        take = min(7_000, budget)
+        piece = f"\n### {rel}\n{text[:take]}\n"
+        parts.append(piece)
+        budget -= len(piece.encode("utf-8"))
+    return "".join(parts)[:MAX_MODEL_SOURCE_BYTES]
 
 
-def _ask_model(candidate: dict) -> str:
-    guidance = operator_context("code")
-    prompt = (
-        "Je bent de Top40Archiver autonomous improvement worker. De leerdatabase toont dat dezelfde veilige "
-        "herstelactie vaak nodig blijft. Verbeter de functionele broncode zodat deze herstelactie aantoonbaar "
-        "minder vaak nodig wordt. Verwijder of verzwak GEEN monitoring, logging, validatie, foutdetectie, "
-        "backup, downloadbeveiliging of veiligheidsregels. Wijzig alleen de meegeleverde functionele bestanden. "
-        "Actieve menselijke operatorrichtlijnen sturen de oplossingsrichting, maar kunnen harde veiligheidsregels "
-        "nooit versoepelen. Geef uitsluitend een minimale unified git diff; geen markdown. Als geen veilige causale "
-        "verbetering uit deze informatie volgt, antwoord NO_PATCH.\n\n"
-        "OPERATORRICHTLIJNEN:\n" + guidance + "\n\n"
-        f"PROBLEEM={candidate['problem_key']}\nHERSTELACTIE={candidate['action']}\n"
-        f"AANTAL_IN_{LOOKBACK_HOURS}U={candidate['uses']}\nSUCCESVOLLE_HERSTELLINGEN={candidate['successes']}\n"
-        + _read_sources(candidate["sources"])
-    )
-    response = requests.post(
-        os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate"),
-        json={"model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"), "prompt": prompt, "stream": False, "keep_alive": "30m"},
-        timeout=120,
-    )
-    response.raise_for_status()
-    text = str(response.json().get("response") or "").strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:diff)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    return text.strip()
-
-
-def _count_problem(problem_key: str, since: str) -> int:
-    with ai_memory.connect() as conn:
-        return int(conn.execute(
-            "SELECT COUNT(*) FROM action_execution WHERE problem_key=? AND started_at>=?",
-            (problem_key, since),
-        ).fetchone()[0])
-
-
-def _verify(state: dict) -> dict | None:
-    active = state.get("active")
-    if not isinstance(active, dict):
-        return None
-    promoted_at = datetime.fromisoformat(str(active["promoted_at"]))
-    if promoted_at.tzinfo is None:
-        promoted_at = promoted_at.replace(tzinfo=timezone.utc)
-    new_uses = _count_problem(str(active["problem_key"]), promoted_at.isoformat())
-    age = _now() - promoted_at
-
-    if not _health() or new_uses >= 2:
-        rollback = _rollback_active(active)
-        complete_action(
-            int(active["action_id"]),
-            success=False,
-            after={"new_recovery_actions": new_uses, "health": _health()},
-            result={"rollback": rollback, "reason": "improvement_not_demonstrated"},
-            effect_score=-1.0,
-        )
-        state["active"] = None
-        _save(state)
-        return {"status": "rolled_back", "new_recovery_actions": new_uses, "rollback": rollback}
-
-    if age >= timedelta(minutes=VERIFY_MINUTES):
-        before_rate = float(active.get("before_rate_per_hour") or 0.0)
-        after_rate = new_uses / max(age.total_seconds() / 3600.0, 0.01)
-        improved = after_rate < before_rate * 0.5
-        if improved:
-            complete_action(
-                int(active["action_id"]),
-                success=True,
-                after={"before_rate_per_hour": before_rate, "after_rate_per_hour": after_rate, "new_recovery_actions": new_uses},
-                result={"verified_minutes": VERIFY_MINUTES, "improvement_demonstrated": True},
-                effect_score=1.0,
-            )
-            state["active"] = None
-            _save(state)
-            return {"status": "verified_improved", "before_rate_per_hour": before_rate, "after_rate_per_hour": after_rate}
-        rollback = _rollback_active(active)
-        complete_action(
-            int(active["action_id"]), success=False,
-            after={"before_rate_per_hour": before_rate, "after_rate_per_hour": after_rate},
-            result={"rollback": rollback, "reason": "measured_improvement_below_50_percent"},
-            effect_score=-0.5,
-        )
-        state["active"] = None
-        _save(state)
-        return {"status": "rolled_back_no_measured_gain", "before_rate_per_hour": before_rate, "after_rate_per_hour": after_rate}
-    return {"status": "measuring", "new_recovery_actions": new_uses, "minutes_remaining": max(0, VERIFY_MINUTES-int(age.total_seconds()//60))}
-
-
-def run_code_improvement(cycle_id: str) -> dict:
-    state = _load()
-    verification = _verify(state)
-    if state.get("active"):
-        return {"ok": True, "action": "measure_existing_improvement", "verification": verification}
-
-    candidate = _candidate()
+def _relax_cooldown_for_proven_ineffective_recovery(candidate: dict | None) -> None:
     if not candidate:
-        return {"ok": True, "action": "none", "verification": verification}
-    last = state.setdefault("last_attempts", {}).get(candidate["problem_key"])
-    if last:
-        try:
-            parsed = datetime.fromisoformat(str(last))
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            if _now() - parsed < timedelta(hours=COOLDOWN_HOURS):
-                return {"ok": True, "action": "cooldown", "candidate": candidate}
-        except ValueError:
-            pass
-    state["last_attempts"][candidate["problem_key"]] = _now().isoformat()
-    _save(state)
-
-    analysis_id = start_action(
-        cycle_id=cycle_id,
-        domain="code_improvement",
-        problem_key=f"improve:{candidate['problem_key']}",
-        action="analyze_repeated_recovery",
-        reason="Dezelfde herstelactie blijft vaak nodig; onderzoek een causale broncodeverbetering.",
-        subject=candidate["problem_key"],
-        before=candidate,
-    )
+        return
+    if bool(candidate.get("downstream_effective")) or int(candidate.get("uses") or 0) < _legacy.MIN_REPEAT_ACTIONS:
+        return
+    state = _legacy._load()
+    last_attempts = state.setdefault("last_attempts", {})
+    raw = last_attempts.get(candidate["problem_key"])
+    if not raw:
+        return
     try:
-        patch = _ask_model(candidate)
-        if patch == "NO_PATCH" or "diff --git" not in patch:
-            complete_action(analysis_id, success=False, result={"reason": "no_causal_safe_improvement"}, effect_score=0.0)
-            return {"ok": True, "action": "no_safe_improvement", "candidate": candidate}
-        workspace = create_workspace(f"Auto improvement {candidate['problem_key']}", json.dumps(candidate, ensure_ascii=False))
-        save_patch(workspace["id"], patch, "Verminder aantoonbaar terugkerend beheerwerk")
-        validation = validate_workspace(workspace["id"])
-        if not validation.get("ok"):
-            complete_action(analysis_id, success=False, after={"workspace": workspace["id"]}, result={"validation": False}, effect_score=0.0)
-            return {"ok": True, "action": "validation_failed", "workspace": workspace["id"]}
-        status = workspace_status(workspace["id"])
-        touched = _safe_touched_files(status)
-        allowed = set(candidate["sources"])
-        if not set(touched).issubset(allowed):
-            complete_action(analysis_id, success=False, result={"reason": "patch_touched_non_functional_file", "files": touched}, effect_score=0.0)
-            return {"ok": True, "action": "policy_rejected", "files": touched}
-        complete_action(analysis_id, success=True, after={"workspace": workspace["id"]}, result={"validation": True}, effect_score=0.5)
+        parsed = datetime.fromisoformat(str(raw))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        parsed = datetime.min.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) - parsed >= timedelta(minutes=INEFFECTIVE_COOLDOWN_MINUTES):
+        last_attempts.pop(candidate["problem_key"], None)
+        _legacy._save(state)
 
-        promote_id = start_action(
-            cycle_id=cycle_id,
-            domain="code_improvement",
-            problem_key=f"improve:{candidate['problem_key']}",
-            action="promote_measured_improvement",
-            reason="Sandboxtests slagen; meet nu of het concrete herstelwerk minimaal 50% afneemt.",
-            subject=candidate["problem_key"],
-            before=candidate,
-            reversible=True,
-        )
-        promotion = _promote(workspace["id"], re.sub(r"[^a-zA-Z0-9]", "", candidate["problem_key"])[:24] or "improvement")
-        state["active"] = {
-            "problem_key": candidate["problem_key"],
-            "workspace_id": workspace["id"],
-            "action_id": promote_id,
-            "promoted_at": _now().isoformat(),
-            "files": promotion["files"],
-            "file_backup": promotion["file_backup"],
-            "version_backup": promotion["version_backup"],
-            "before_rate_per_hour": candidate["uses"] / LOOKBACK_HOURS,
+
+# Patch legacy globals so its existing tested sandbox/promotion/rollback contract
+# remains intact while candidate selection uses the current downloader.
+_legacy._candidate = _candidate
+_legacy._read_sources = _read_sources
+
+SOURCE_MAP = _legacy.SOURCE_MAP
+LOOKBACK_HOURS = _legacy.LOOKBACK_HOURS
+MIN_REPEAT_ACTIONS = _legacy.MIN_REPEAT_ACTIONS
+VERIFY_MINUTES = _legacy.VERIFY_MINUTES
+COOLDOWN_HOURS = _legacy.COOLDOWN_HOURS
+
+
+def run_code_improvement(cycle_id: str) -> dict[str, Any]:
+    candidate = _candidate()
+    _relax_cooldown_for_proven_ineffective_recovery(candidate)
+    try:
+        with model_slot("code-improvement", priority="background", wait_seconds=1.5):
+            result = _legacy.run_code_improvement(cycle_id)
+    except ModelBusy as exc:
+        return {
+            "ok": True,
+            "action": "model_busy_deferred",
+            "reason": str(exc),
+            "candidate": candidate,
         }
-        _save(state)
-        return {"ok": True, "action": "promoted_measured_canary", "candidate": candidate, "promotion": promotion}
-    except Exception as exc:
-        try:
-            complete_action(analysis_id, success=False, result={"error": str(exc)[-2000:]}, effect_score=0.0)
-        except Exception:
-            pass
-        return {"ok": False, "action": "improvement_error", "error": str(exc)[-2000:]}
+    if isinstance(result, dict) and candidate and str(candidate.get("problem_key")) == str((result.get("candidate") or {}).get("problem_key")):
+        result["candidate"] = candidate
+    return result
+
+
+def __getattr__(name: str):
+    return getattr(_legacy, name)
+
+
+if __name__ == "__main__":
+    print(run_code_improvement("manual-code-improvement"))
