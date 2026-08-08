@@ -59,18 +59,24 @@ def runtime_status() -> dict:
 def _open_lock_file():
     """Open the shared flock with stable group-writable permissions.
 
-    Some autonomous workers run under a different service context than the
-    interactive AI service. The release installer owns the directory and sets
-    its setgid bit; this helper additionally keeps the lock itself group writable
-    whenever the current process is allowed to chmod it.
+    A root-run autonomous worker can be the first process that creates the lock.
+    When that happens, force the file group to the AI runtime directory group so
+    the unprivileged 8041 service can still open the same inode later.
     """
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     fd = os.open(LOCK_FILE, os.O_CREAT | os.O_RDWR, LOCK_MODE)
     try:
         try:
+            runtime_gid = RUNTIME_DIR.stat().st_gid
+            if os.fstat(fd).st_gid != runtime_gid:
+                os.fchown(fd, -1, runtime_gid)
+        except PermissionError:
+            # Non-root owner cannot change an existing file group; if opening
+            # succeeded the file is already usable by this process.
+            pass
+        try:
             os.fchmod(fd, LOCK_MODE)
         except PermissionError:
-            # Opening succeeded, so an existing shared lock is already usable.
             pass
         return os.fdopen(fd, "a+", encoding="utf-8")
     except Exception:
