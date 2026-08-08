@@ -61,10 +61,19 @@ def test_soft_ranking_rejects_are_rescored_but_hard_rejects_stay_cached():
 def test_global_network_outage_is_guarded_before_provider_burst():
     source = (ROOT / "app/download_manager_entry.py").read_text(encoding="utf-8")
     assert "NETWORK_PROBE_HOSTS" in source
+    assert "NETWORK_MIN_REACHABLE = 2" in source
+    assert "NETWORK_STABLE_PASSES = 2" in source
+    assert "_NETWORK_PROBE_OK = False" in source
+    assert "_NETWORK_PROBE_HAS_RUN = False" in source
+    assert "_wait_for_stable_network()" in source
+    assert "network_ready_stable" in source
+    assert "network_readiness_invalidated" in source
+    assert "GlobalNetworkUnavailable" in source
     assert "global_network_unavailable" in source
     assert "job_waiting_for_network" in source
     assert "global_network_error_not_provider_health_error" in source
     assert "network_readiness_guard=True" in source
+    assert "network_initial_cache_trusted=False" in source
 
 
 def test_ytdlp_transport_errors_distinguish_network_from_provider_limits():
