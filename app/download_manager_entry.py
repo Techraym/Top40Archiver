@@ -22,6 +22,8 @@ NETWORK_PROBE_TTL_SECONDS = 3.0
 NETWORK_MIN_REACHABLE = 2
 NETWORK_STABLE_PASSES = 2
 NETWORK_STABLE_INTERVAL_SECONDS = 2.0
+MIN_FULL_TRACK_SECONDS_WITHOUT_REFERENCE = 60.0
+MAX_FULL_TRACK_SECONDS_WITHOUT_REFERENCE = 15.0 * 60.0
 _NETWORK_PROBE_LOCK = threading.Lock()
 _NETWORK_PROBE_AT = 0.0
 _NETWORK_PROBE_OK = False
@@ -203,6 +205,33 @@ def _wait_for_stable_network() -> None:
     )
 
 
+def _validate_full_track_duration(info: dict[str, Any], track: dict[str, Any]) -> dict[str, Any]:
+    """Reject preview/implausible audio after FFprobe when no reference duration exists.
+
+    Search metadata may omit duration. This post-download guard is therefore a
+    second independent safety layer behind the candidate matcher.
+    """
+    if track.get("duration_ms") or track.get("duration_seconds"):
+        return info
+    try:
+        duration = float(info.get("duration")) if info.get("duration") is not None else None
+    except (TypeError, ValueError):
+        duration = None
+    if duration is None:
+        raise download_manager.DownloadValidationError(
+            "missing_duration_without_reference: FFprobe leverde geen bruikbare speelduur"
+        )
+    if duration < MIN_FULL_TRACK_SECONDS_WITHOUT_REFERENCE:
+        raise download_manager.DownloadValidationError(
+            f"preview_duration: gedownloade audio is slechts {duration:.1f}s zonder onafhankelijke referentieduur"
+        )
+    if duration > MAX_FULL_TRACK_SECONDS_WITHOUT_REFERENCE:
+        raise download_manager.DownloadValidationError(
+            f"implausible_long_duration: gedownloade audio is {duration:.1f}s zonder onafhankelijke referentieduur"
+        )
+    return info
+
+
 def _rescorable_rejected_urls(track_id: int, provider: str) -> set[str]:
     """Only hard rejects are excluded from future provider searches.
 
@@ -307,6 +336,16 @@ def _install_runtime_guards() -> None:
         )
 
     download_manager.update_provider_runtime = bounded_provider_runtime
+
+    # Search-result duration is not guaranteed. Enforce the same full-track guard
+    # on the actual downloaded file after FFprobe and before conversion/final copy.
+    original_validate_download = download_manager._validate_download
+
+    def preview_safe_validate_download(path, track: dict[str, Any]) -> dict[str, Any]:
+        info = original_validate_download(path, track)
+        return _validate_full_track_duration(info, track)
+
+    download_manager._validate_download = preview_safe_validate_download
 
     # 1.16.9 stored high-confidence ranking deferrals as rejected candidates.
     # Replace the imported lookup so those soft rejects can be re-scored while
@@ -433,6 +472,7 @@ def main() -> None:
         network_initial_cache_trusted=False,
         network_min_reachable=NETWORK_MIN_REACHABLE,
         network_stable_passes=NETWORK_STABLE_PASSES,
+        post_download_preview_guard=True,
     )
     _wait_for_stable_network()
     download_manager.run_download_manager(batch_limit=20)
