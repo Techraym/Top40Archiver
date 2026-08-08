@@ -84,15 +84,9 @@ def _compact_snapshot(snapshot: dict[str, Any], command: str, *, retry: bool = F
             "recent_errors": _compact_errors(snapshot.get("recent_errors") or [], domain, errors_limit),
         })
     elif domain == "charts":
-        base.update({
-            "charts": snapshot.get("charts"),
-            "recent_errors": _compact_errors(snapshot.get("recent_errors") or [], domain, errors_limit),
-        })
+        base.update({"charts": snapshot.get("charts"), "recent_errors": _compact_errors(snapshot.get("recent_errors") or [], domain, errors_limit)})
     elif domain == "covers":
-        base.update({
-            "covers": snapshot.get("covers"),
-            "recent_errors": _compact_errors(snapshot.get("recent_errors") or [], domain, errors_limit),
-        })
+        base.update({"covers": snapshot.get("covers"), "recent_errors": _compact_errors(snapshot.get("recent_errors") or [], domain, errors_limit)})
     elif domain == "ui":
         base.update({
             "charts": snapshot.get("charts"),
@@ -101,10 +95,7 @@ def _compact_snapshot(snapshot: dict[str, Any], command: str, *, retry: bool = F
             "recent_errors": _compact_errors(snapshot.get("recent_errors") or [], domain, errors_limit),
         })
     elif domain == "ai":
-        base.update({
-            "model_runtime": runtime_status(),
-            "recent_errors": _compact_errors(snapshot.get("recent_errors") or [], domain, errors_limit),
-        })
+        base.update({"model_runtime": runtime_status(), "recent_errors": _compact_errors(snapshot.get("recent_errors") or [], domain, errors_limit)})
     else:
         base.update({
             "downloads": snapshot.get("downloads"),
@@ -169,11 +160,7 @@ Retourneer UITSLUITEND één JSON-object met summary, diagnosis (array), evidenc
                     "stream": False,
                     "format": "json",
                     "keep_alive": "30m",
-                    "options": {
-                        "temperature": 0.1,
-                        "num_predict": 420 if retry else 700,
-                        "num_ctx": 8192,
-                    },
+                    "options": {"temperature": 0.1, "num_predict": 420 if retry else 700, "num_ctx": 8192},
                 },
                 timeout=90 if retry else MODEL_TIMEOUT_SECONDS,
             )
@@ -211,10 +198,7 @@ def _ask_qwen(command: str, snapshot: dict[str, Any], mode: str) -> dict[str, An
         plan["model_runtime"]["first_attempt_error"] = first_error.code if first_error else None
         return plan
     except OperatorModelError as second:
-        raise OperatorModelError(
-            second.code,
-            f"eerste poging: {first_error.code if first_error else 'onbekend'}; tweede poging: {second.detail}",
-        ) from second
+        raise OperatorModelError(second.code, f"eerste poging: {first_error.code if first_error else 'onbekend'}; tweede poging: {second.detail}") from second
 
 
 def _fallback_plan(command: str, snapshot: dict[str, Any], mode: str, error: Exception) -> dict[str, Any]:
@@ -222,9 +206,7 @@ def _fallback_plan(command: str, snapshot: dict[str, Any], mode: str, error: Exc
     detail = error.detail if isinstance(error, OperatorModelError) else str(error)[-900:]
     actions: list[dict[str, str]] = []
     lowered = command.casefold()
-    if mode == "repair" and not (snapshot.get("ollama") or {}).get("reachable") and any(
-        word in lowered for word in ("qwen", "ollama", "model", "ai")
-    ):
+    if mode == "repair" and not (snapshot.get("ollama") or {}).get("reachable") and any(word in lowered for word in ("qwen", "ollama", "model", "ai")):
         actions.append({"action": "restart_ollama", "reason": "Ollama HTTP-API is lokaal niet bereikbaar."})
     labels = {
         "qwen_timeout": "Qwen liep tegen de tijdslimiet aan",
@@ -244,9 +226,6 @@ def _fallback_plan(command: str, snapshot: dict[str, Any], mode: str, error: Exc
     }
 
 
-# Patch the legacy route implementation in-place. FastAPI routes created by the
-# legacy module keep using that module's globals, so these assignments upgrade
-# existing endpoints without duplicating route registrations.
 _legacy._ask_qwen = _ask_qwen
 _legacy._fallback_plan = _fallback_plan
 _legacy.MODEL_TIMEOUT_SECONDS = MODEL_TIMEOUT_SECONDS
@@ -258,6 +237,7 @@ _legacy.OPERATOR_CHAT_HTML = _legacy.OPERATOR_CHAT_HTML.replace(
 router = _legacy.router
 action_precondition = _legacy.action_precondition
 collect_operator_evidence = _legacy.collect_operator_evidence
+log_session_event = _legacy.log_session_event
 OperatorCommandIn = _legacy.OperatorCommandIn
 operator_chat_status = _legacy.operator_chat_status
 operator_chat_command = _legacy.operator_chat_command
@@ -267,7 +247,9 @@ _normalise_plan = _legacy._normalise_plan
 
 
 def run_operator_command(command: str, mode: str = "diagnose") -> dict[str, Any]:
-    # Keep monkeypatch-friendly tests and future callers aligned with the route module.
+    # Preserve the old monkeypatch/test surface while routing through 1.16.14 logic.
     _legacy._ask_qwen = _ask_qwen
     _legacy._fallback_plan = _fallback_plan
+    _legacy.collect_operator_evidence = collect_operator_evidence
+    _legacy.log_session_event = log_session_event
     return _legacy.run_operator_command(command, mode)
