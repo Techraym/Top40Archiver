@@ -22,6 +22,13 @@ VERSION_PENALTIES: tuple[tuple[str, int], ...] = (
     ("radio edit", 10),
 )
 
+# Zonder een referentieduur mogen provider-previews nooit als volledig nummer
+# worden gearchiveerd. Productiedata liet meerdere officiële SoundCloud-items
+# met exact 30 seconden zien. Een charttrack korter dan 60 seconden wordt daarom
+# niet autonoom geaccepteerd wanneer er geen onafhankelijke referentieduur is.
+MIN_FULL_TRACK_SECONDS_WITHOUT_REFERENCE = 60.0
+MAX_FULL_TRACK_SECONDS_WITHOUT_REFERENCE = 15.0 * 60.0
+
 
 @dataclass(frozen=True)
 class MatchDecision:
@@ -46,6 +53,14 @@ def _clean(value: object) -> str:
     return normalize(text)
 
 
+def _collaboration_clean(value: object) -> str:
+    text = _clean(value)
+    # Provider-titels gebruiken voor samenwerkingen door elkaar &, with, feat. en
+    # featuring. normalize() zet & al om naar 'and'; maak de overige vormen gelijk.
+    text = re.sub(r"\b(?:with|featuring|feat|ft)\b", "and", text)
+    return " ".join(text.split())
+
+
 def _ratio(wanted: object, found: object) -> float:
     left = _clean(wanted)
     right = _clean(found)
@@ -55,6 +70,28 @@ def _ratio(wanted: object, found: object) -> float:
     if left in right or right in left:
         score = max(score, 0.94)
     return max(0.0, min(1.0, score))
+
+
+def _artist_ratio(wanted_artist: object, found_artist: object, found_title: object) -> float:
+    best = _ratio(wanted_artist, found_artist)
+    wanted = _collaboration_clean(wanted_artist)
+    title = _collaboration_clean(found_title)
+    if wanted and title and (title == wanted or title.startswith(wanted + " ")):
+        # Veel yt-dlp flat-searchresultaten leveren geen artist/uploader maar wel
+        # 'ARTIST - TITLE'. Dat is positief artiestbewijs en geen reden om 30
+        # artiestpunten kwijt te raken.
+        best = max(best, 1.0)
+    return best
+
+
+def _title_ratio(wanted_artist: object, wanted_title: object, found_title: object) -> float:
+    best = _ratio(wanted_title, found_title)
+    wanted_artist_clean = _collaboration_clean(wanted_artist)
+    found = _collaboration_clean(found_title)
+    if wanted_artist_clean and found.startswith(wanted_artist_clean + " "):
+        stripped = found[len(wanted_artist_clean) :].strip()
+        best = max(best, _ratio(wanted_title, stripped))
+    return best
 
 
 def _duration_points(expected_seconds: float | None, found_seconds: float | None) -> tuple[float, float | None]:
@@ -87,9 +124,8 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
     found_artist = candidate.get("artist") or candidate.get("uploader") or candidate.get("channel")
     found_title = candidate.get("title") or candidate.get("track")
 
-    artist_source = found_artist or f"{found_artist or ''} {found_title or ''}"
-    artist_ratio = _ratio(wanted_artist, artist_source)
-    title_ratio = _ratio(wanted_title, found_title)
+    artist_ratio = _artist_ratio(wanted_artist, found_artist, found_title)
+    title_ratio = _title_ratio(wanted_artist, wanted_title, found_title)
     artist_points = 30.0 * artist_ratio
     title_points = 35.0 * title_ratio
 
@@ -97,6 +133,10 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
     if not expected_duration and track.get("duration_ms"):
         expected_duration = float(track["duration_ms"]) / 1000.0
     found_duration = candidate.get("duration") or candidate.get("duration_seconds")
+    try:
+        found_duration = float(found_duration) if found_duration is not None else None
+    except (TypeError, ValueError):
+        found_duration = None
     duration_points, duration_difference = _duration_points(expected_duration, found_duration)
 
     album_points = 0.0
@@ -167,6 +207,28 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
             components=components,
         )
 
+    if not expected_duration and found_duration is not None:
+        if found_duration < MIN_FULL_TRACK_SECONDS_WITHOUT_REFERENCE:
+            return MatchDecision(
+                score=round(total, 2),
+                accepted=False,
+                excellent=False,
+                reason="preview_duration",
+                duration_difference=None,
+                penalties=penalties,
+                components=components,
+            )
+        if found_duration > MAX_FULL_TRACK_SECONDS_WITHOUT_REFERENCE:
+            return MatchDecision(
+                score=round(total, 2),
+                accepted=False,
+                excellent=False,
+                reason="implausible_long_duration",
+                duration_difference=None,
+                penalties=penalties,
+                components=components,
+            )
+
     # Als de provider geen duur meldt maar Top40Archiver wel een referentieduur
     # kent, mag alleen een zeer sterke identiteit door naar de downloadfase. De
     # echte audio wordt daarna verplicht met FFprobe tegen die duur gecontroleerd.
@@ -180,11 +242,10 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
     )
 
     # Veel oudere Top40-records hebben helemaal geen Spotify-/referentieduur.
-    # Productiegegevens uit 1.16.9 bewezen dat officiële resultaten met 96-100
-    # punten daardoor ten onrechte als try_other_provider werden weggegooid.
-    # Zonder referentieduur eisen we daarom een strengere artiest+titel-identiteit
-    # en nul versie-strafpunten. Audio-, stilte- en formaatvalidatie blijven daarna
-    # verplicht; er wordt dus niet simpelweg een lagere globale scoregrens gebruikt.
+    # Zonder die duur accepteren we uitsluitend zeer sterke identiteit en nul
+    # versie-strafpunten. ARTIST - TITLE wordt hierboven eerst provider-neutraal
+    # genormaliseerd, zodat officiële YouTube-resultaten niet kunstmatig op 94%
+    # titelgelijkheid blijven hangen.
     strong_identity_without_reference_duration = (
         not expected_duration
         and not penalties
