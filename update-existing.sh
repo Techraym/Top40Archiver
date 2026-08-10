@@ -9,6 +9,8 @@ set -Eeuo pipefail
 # top40-archiver-ai.service top40-ai-recovery.service top40-ai-recovery.timer
 # top40-download-manager.service top40-provider-ai.service top40-provider-ai.timer
 # top40-archiver-freshness.service top40-archiver-freshness.timer
+# top40-archiver-cover-art.service cover_continuous_worker youtube_primary_download_source
+# current_chart_download_priority transient_candidate_retry
 # http://127.0.0.1:8040/health http://127.0.0.1:8041/healthz
 # http://127.0.0.1:8042/healthz /api/development/workspaces /api/ai/recovery
 # /api/ai/learning /api/ai/chart-freshness /api/ai/code-repair /api/ai/control-room
@@ -117,6 +119,8 @@ new_tests = "\n".join([
     "      tests/test_download_matching.py " + bs,
     "      tests/test_download_provider_policy.py " + bs,
     "      tests/test_download_manager_contract.py " + bs,
+    "      tests/test_download_concurrency.py " + bs,
+    "      tests/test_download_policy.py " + bs,
     "      tests/test_auto_update_contract.py",
 ])
 if old_tests not in text:
@@ -152,7 +156,8 @@ extra = (
     + "systemctl is-active --quiet top40-provider-ai.timer\n"
     + "systemctl start --no-block top40-ai-recovery.service\n"
     + "systemctl start --no-block top40-archiver-freshness.service\n"
-    + "systemctl start --no-block top40-archiver-cover-art.service\n"
+    + "systemctl enable --now top40-archiver-cover-art.service\n"
+    + "systemctl is-active --quiet top40-archiver-cover-art.service\n"
 )
 if marker not in text:
     raise SystemExit("FOUT: finale AI-timercontrole in updatebasis niet gevonden")
@@ -179,6 +184,7 @@ health_extra = (
     + 'assert x.get("code_repair_requires_verified_backup") is True\n'
     + 'assert x.get("audio_delete_allowed") is False\n'
     + 'assert x.get("verified_version_backups") is True\n'
+    + 'assert x.get("cover_continuous_worker") is True\n'
     + 'assert x.get("ai_control_room") is True\n'
     + 'assert x.get("local_ai_owned_control_room_html_css") is True\n'
     + 'assert x.get("control_room_safe_runtime") is True\n'
@@ -195,9 +201,11 @@ health_extra = (
     + 'assert x.get("download_manager_service") == "top40-download-manager.service"\n'
     + 'assert x.get("provider_circuit_breakers") is True\n'
     + 'assert x.get("provider_ai_tuning") is True\n'
-    + 'assert x.get("youtube_last_resort") is True\n'
+    + 'assert x.get("youtube_primary_download_source") is True\n'
+    + 'assert x.get("youtube_last_resort") is False\n'
     + 'assert x.get("youtube_max_concurrent") == 1\n'
-    + 'assert x.get("youtube_dependency_target_percent") == 10\n'
+    + 'assert x.get("current_chart_download_priority") is True\n'
+    + 'assert x.get("transient_candidate_retry") is True\n'
     + 'assert x.get("provider_personal_cookies_allowed") is False\n'
     + 'assert x.get("captcha_bypass_allowed") is False\n'
     + 'assert x.get("rate_limit_bypass_allowed") is False\n'
