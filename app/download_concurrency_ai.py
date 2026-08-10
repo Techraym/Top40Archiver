@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 from typing import Any
 
 import requests
@@ -14,65 +13,15 @@ from .download_concurrency import (
     DEFAULT_DOWNLOAD_WORKERS,
     MAX_DOWNLOAD_WORKERS,
     evidence_worker_ceiling,
+    hard_worker_ceiling,
     set_ai_download_workers,
+    system_capacity_snapshot,
+    system_worker_ceiling,
     worker_state,
 )
 from .download_metrics import provider_dashboard
 
 MODEL_TIMEOUT_SECONDS = 25
-
-
-def _system_snapshot() -> dict[str, Any]:
-    cpu_count = max(1, int(os.cpu_count() or 1))
-    try:
-        load1, load5, load15 = os.getloadavg()
-    except OSError:
-        load1 = load5 = load15 = 0.0
-
-    mem_total_kb = 0
-    mem_available_kb = 0
-    try:
-        values: dict[str, int] = {}
-        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
-            if ":" not in line:
-                continue
-            key, raw = line.split(":", 1)
-            token = raw.strip().split()[0]
-            if token.isdigit():
-                values[key] = int(token)
-        mem_total_kb = int(values.get("MemTotal") or 0)
-        mem_available_kb = int(values.get("MemAvailable") or 0)
-    except (OSError, ValueError):
-        pass
-
-    available_percent = (
-        round(mem_available_kb / mem_total_kb * 100, 1) if mem_total_kb else None
-    )
-    return {
-        "cpu_count": cpu_count,
-        "load_1m": round(float(load1), 2),
-        "load_5m": round(float(load5), 2),
-        "load_15m": round(float(load15), 2),
-        "load_1m_per_cpu": round(float(load1) / cpu_count, 3),
-        "memory_available_percent": available_percent,
-    }
-
-
-def _system_worker_ceiling(system: dict[str, Any]) -> int:
-    """Independent hard ceiling so Qwen cannot scale into a stressed host."""
-    load = float(system.get("load_1m_per_cpu") or 0.0)
-    available = system.get("memory_available_percent")
-    memory = float(available) if available is not None else 100.0
-
-    if load >= 1.20 or memory < 10.0:
-        return 2
-    if load >= 1.00 or memory < 15.0:
-        return 3
-    if load >= 0.85 or memory < 20.0:
-        return 4
-    if load >= 0.70 or memory < 25.0:
-        return 5
-    return 6
 
 
 def _ask_qwen(
@@ -102,7 +51,7 @@ def _ask_qwen(
             "absolute_maximum": MAX_DOWNLOAD_WORKERS,
             "current": state,
             "evidence_ceiling": evidence_ceiling,
-            "system_ceiling": _system_worker_ceiling(system),
+            "system_ceiling": system_worker_ceiling(system),
             "hard_ceiling": hard_ceiling,
         },
         "jobs": snapshot.get("jobs") or {},
@@ -149,12 +98,9 @@ def run_download_concurrency_ai(cycle_id: str) -> dict[str, Any]:
     snapshot = provider_dashboard()
     state = worker_state()
     evidence_ceiling = evidence_worker_ceiling(snapshot)
-    system = _system_snapshot()
-    system_ceiling = _system_worker_ceiling(system)
-    hard_ceiling = max(
-        DEFAULT_DOWNLOAD_WORKERS,
-        min(MAX_DOWNLOAD_WORKERS, evidence_ceiling, system_ceiling),
-    )
+    system = system_capacity_snapshot()
+    system_ceiling = system_worker_ceiling(system)
+    hard_ceiling = hard_worker_ceiling(snapshot, system)
 
     if scope_held("downloads"):
         return {
