@@ -13,6 +13,9 @@ from .download_concurrency import (
     DEFAULT_DOWNLOAD_WORKERS,
     MAX_DOWNLOAD_WORKERS,
     evidence_worker_ceiling,
+    hard_worker_ceiling,
+    system_capacity_snapshot,
+    system_worker_ceiling,
     worker_state,
 )
 from .download_metrics import provider_dashboard
@@ -21,19 +24,25 @@ from .download_metrics import provider_dashboard
 def _worker_configuration(snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
     metrics = snapshot or provider_dashboard()
     state = worker_state()
+    system = system_capacity_snapshot()
     evidence_ceiling = evidence_worker_ceiling(metrics)
+    system_ceiling = system_worker_ceiling(system)
+    hard_ceiling = hard_worker_ceiling(metrics, system)
     effective = max(
         DEFAULT_DOWNLOAD_WORKERS,
         min(
             MAX_DOWNLOAD_WORKERS,
             int(state.get("effective") or DEFAULT_DOWNLOAD_WORKERS),
-            int(evidence_ceiling),
+            int(hard_ceiling),
         ),
     )
     return {
         **state,
         "effective": effective,
         "evidence_ceiling": evidence_ceiling,
+        "system_ceiling": system_ceiling,
+        "hard_ceiling": hard_ceiling,
+        "system": system,
     }
 
 
@@ -54,10 +63,13 @@ def _write_state(
             "workers_base": int(workers["base"]),
             "workers_max": MAX_DOWNLOAD_WORKERS,
             "workers_evidence_ceiling": int(workers["evidence_ceiling"]),
+            "workers_system_ceiling": int(workers["system_ceiling"]),
+            "workers_hard_ceiling": int(workers["hard_ceiling"]),
             "workers_ai_target": workers.get("ai_target"),
             "workers_ai_active": bool(workers.get("ai_active")),
             "workers_ai_until": workers.get("ai_until"),
             "workers_ai_reason": workers.get("ai_reason"),
+            "system_capacity": workers.get("system"),
             "queue": int(jobs.get("queued", 0)) + int(jobs.get("searching", 0)),
             "running": sum(
                 int(jobs.get(key, 0))
@@ -105,8 +117,7 @@ def run_dynamic_download_manager(batch_limit: int = 20, idle_seconds: float = 5.
                     continue
 
                 download_manager.enqueue_pending_tracks(max(100, batch_limit * 5))
-                # Re-read metrics after enqueueing so backlog is part of the
-                # deterministic ceiling used for this exact batch.
+                # Re-read queue, success evidence and host load for this exact batch.
                 config = _worker_configuration()
                 worker_limit = int(config["effective"])
                 jobs = download_manager.claim_jobs(
@@ -164,6 +175,8 @@ def main() -> None:
         default_global_downloads=DEFAULT_DOWNLOAD_WORKERS,
         active_global_downloads=int(initial["effective"]),
         evidence_worker_ceiling=int(initial["evidence_ceiling"]),
+        system_worker_ceiling=int(initial["system_ceiling"]),
+        hard_worker_ceiling=int(initial["hard_ceiling"]),
         ai_worker_scaling=True,
         ai_worker_target=initial.get("ai_target"),
         ai_worker_active=bool(initial.get("ai_active")),
