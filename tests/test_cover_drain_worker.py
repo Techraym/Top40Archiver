@@ -55,7 +55,7 @@ def test_drain_backs_off_when_transient_source_makes_no_progress(monkeypatch):
 
 
 def test_continuous_watcher_requeues_current_chart_then_drains_and_watches(monkeypatch):
-    queue = [3, 0]
+    queue = [3]
     drains = []
     states = []
     requeues = []
@@ -69,12 +69,11 @@ def test_continuous_watcher_requeues_current_chart_then_drains_and_watches(monke
         lambda signature: requeues.append(signature) or 2,
     )
 
-    def fake_drain(**kwargs):
+    def fake_live_drain(**kwargs):
         drains.append(kwargs)
         queue[0] = 0
-        return {"ok": True, "status": "drained"}
 
-    monkeypatch.setattr(cover_watch, "drain_missing_covers", fake_drain)
+    monkeypatch.setattr(cover_watch, "_run_drain_with_live_progress", fake_live_drain)
     monkeypatch.setattr(cover_watch, "write_cover_state", lambda **kwargs: states.append(kwargs))
 
     def stop_after_first_watch(_seconds):
@@ -95,6 +94,17 @@ def test_continuous_watcher_requeues_current_chart_then_drains_and_watches(monke
     assert states[-1]["running"] is True
 
 
+def test_live_cover_progress_is_reported_inside_a_batch():
+    source = Path("app/cover_watch.py").read_text(encoding="utf-8")
+    assert "PROGRESS_REPORT_SECONDS = 2" in source
+    assert "cover-progress-reporter" in source
+    assert 'processed_total=processed' in source
+    assert 'found_total=found' in source
+    assert 'missing_total=missing' in source
+    assert 'queue_remaining=cover_queue_count()' in source
+    assert "Progress telemetry may never stop the actual cover worker" in source
+
+
 def test_cover_systemd_unit_is_continuous_daemon_with_watch_mode():
     service = Path("systemd/top40-archiver-cover-art.service").read_text(encoding="utf-8")
     timer = Path("systemd/top40-archiver-cover-art.timer").read_text(encoding="utf-8")
@@ -103,8 +113,6 @@ def test_cover_systemd_unit_is_continuous_daemon_with_watch_mode():
     assert "--poll-seconds 60" in service
     assert "Restart=always" in service
     assert "WantedBy=multi-user.target" in service
-    # De timer blijft als extra systemd vangnet bestaan, maar is niet meer de
-    # uitvoeringscadans van de coverworker zelf.
     assert "top40-archiver-cover-art.service" in timer
 
 

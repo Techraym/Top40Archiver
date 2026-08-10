@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .db import connect, now_iso
@@ -9,6 +10,9 @@ from .providers import DEFAULT_PROVIDER_CONFIG
 PROVIDER_ORDER_POLICY = "youtube_first_v1"
 PROVIDER_POLICY_SETTING = "download_provider_order_policy"
 FIRST_PROVIDER = "youtube"
+CURRENT_TOP40_FAST_RETRY_SECONDS = 20
+CURRENT_TIPPARADE_FAST_RETRY_SECONDS = 30
+CURRENT_CHART_FAST_RETRY_ATTEMPTS = 5
 
 # Deze fouten zijn transport-/broncondities die later vanzelf kunnen verdwijnen.
 # Ze mogen een inhoudelijk goede kandidaat daarom niet permanent uit de retryroute
@@ -50,14 +54,12 @@ def ensure_provider_order_policy() -> None:
             )
 
         # Oude AI-prioriteitsadviezen zijn gemaakt onder de vorige fallbackpolicy.
-        # Ze horen niet door te werken na deze expliciete operatorwijziging.
         con.execute(
             "UPDATE download_provider_state SET ai_priority_adjustment=0,updated_at=?",
             (stamp,),
         )
 
-        # De eerste probe na migratie moet actuele YouTube-evidence opleveren en
-        # niet worden overgeslagen door een oude cooldown uit de fallbackperiode.
+        # De eerste probe na migratie moet actuele YouTube-evidence opleveren.
         con.execute(
             """
             UPDATE download_provider_state
@@ -68,8 +70,6 @@ def ensure_provider_order_policy() -> None:
             (stamp, FIRST_PROVIDER),
         )
 
-        # Maak kandidaten die uitsluitend door een tijdelijke transportfout in het
-        # verleden zijn geblokkeerd opnieuw beschikbaar voor normale retries.
         placeholders = ",".join("?" for _ in TRANSIENT_CANDIDATE_ERRORS)
         con.execute(
             f"DELETE FROM rejected_candidates WHERE reason IN ({placeholders})",
@@ -130,9 +130,16 @@ def enqueue_pending_tracks_current_first(limit: int = 500) -> int:
 
 
 def claim_jobs_current_first(limit: int) -> list[dict[str, Any]]:
-    """Claim worker slots using the same current-chart-first priority."""
+    """Claim only the highest-priority ready queue class in each worker batch.
+
+    This prevents a batch with one ready current Top40 job from filling its other
+    worker slot(s) with historical archive work. If no current Top40 job is ready,
+    Tipparade may run; archive is selected only when neither current list has a
+    ready job at that moment.
+    """
     init_download_db()
     claimed: list[dict[str, Any]] = []
+    wanted = max(1, min(int(limit), 20))
     with connect() as con:
         top_id, tip_id = _latest_ids(con)
         rows = con.execute(
@@ -175,10 +182,14 @@ def claim_jobs_current_first(limit: int) -> list[dict[str, Any]]:
               END,
               j.updated_at,
               j.id
-            LIMIT ?
+            LIMIT 20
             """,
-            (top_id, tip_id, top_id, tip_id, max(1, min(int(limit), 20))),
+            (top_id, tip_id, top_id, tip_id),
         ).fetchall()
+
+        if rows:
+            selected_class = str(rows[0]["queue_class"])
+            rows = [row for row in rows if str(row["queue_class"]) == selected_class][:wanted]
 
         for row in rows:
             stamp = now_iso()
@@ -197,3 +208,47 @@ def claim_jobs_current_first(limit: int) -> list[dict[str, Any]]:
                 item["status"] = "searching"
                 claimed.append(item)
     return claimed
+
+
+def apply_current_chart_fast_retry(job: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    """Shorten early retries for current charts and keep their track state pending."""
+    if str(result.get("status") or "") != "waiting_retry":
+        return result
+
+    queue_class = str(job.get("queue_class") or "archive")
+    if queue_class not in {"current_top40", "current_tipparade"}:
+        return result
+
+    # process_job increments attempts in SQLite after calculating its normal
+    # backoff. Read the new value and only use the fast lane for early attempts.
+    with connect() as con:
+        row = con.execute(
+            "SELECT attempts FROM download_jobs WHERE id=?",
+            (int(job["id"]),),
+        ).fetchone()
+        attempts = int(row["attempts"] or 0) if row else int(job.get("attempts") or 0) + 1
+        if attempts > CURRENT_CHART_FAST_RETRY_ATTEMPTS:
+            return result
+
+        seconds = (
+            CURRENT_TOP40_FAST_RETRY_SECONDS
+            if queue_class == "current_top40"
+            else CURRENT_TIPPARADE_FAST_RETRY_SECONDS
+        )
+        next_attempt = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+        con.execute(
+            "UPDATE download_jobs SET next_attempt_at=?,updated_at=? WHERE id=? AND status='waiting_retry'",
+            (next_attempt, now_iso(), int(job["id"])),
+        )
+        # A waiting retry is not a terminal failed track. Keep the dashboard honest
+        # while the current-list fast lane is still actively trying alternatives.
+        con.execute(
+            "UPDATE tracks SET download_status='pending',updated_at=? WHERE id=? AND download_status='failed'",
+            (now_iso(), int(job["track_id"])),
+        )
+
+    updated = dict(result)
+    updated["retry_seconds"] = seconds
+    updated["fast_retry"] = True
+    updated["queue_class"] = queue_class
+    return updated

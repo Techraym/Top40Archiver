@@ -14,6 +14,7 @@ import requests
 
 from .ai_learning import complete_action, start_action
 from .ai_session_console import operator_context
+from .ai_ui_policy import assert_ai_source_mutation_allowed
 from .config import APP_DIR, DATA_DIR
 from .dev_assistant import create_workspace, save_patch, validate_workspace, workspace_status
 
@@ -42,6 +43,10 @@ BLOCKED_PRODUCTION_FILES = {
     "app/service_watchdog.py",
     "app/config.py",
     "app/db.py",
+    # Operator-owned :8040 page. These remain blocked even if a model prompt,
+    # incident or future source-map accidentally includes them.
+    "app/main.py",
+    "app/dashboard.py",
 }
 SERVICES = (
     "top40-archiver-web.service",
@@ -141,10 +146,13 @@ def _ask_model(candidate: dict) -> str:
     prompt = (
         "Je bent de autonome Top40Archiver code-repair worker. Herstel uitsluitend de aangetoonde runtimefout. "
         "Maak de kleinst mogelijke veilige wijziging. Verander geen downloadbestanden, database-inhoud, secrets, "
-        "systemd, updatebeleid of beveiligingsregels. Actieve menselijke operatorrichtlijnen sturen de gewenste "
-        "oplossingsrichting, maar mogen deze harde grenzen nooit versoepelen. Geef UITSLUITEND een unified git diff "
-        "die met git apply werkt; geen markdown en geen uitleg. Als de fout niet veilig aantoonbaar uit deze "
-        "broncode kan worden hersteld, antwoord NO_PATCH.\n\n"
+        "systemd, updatebeleid of beveiligingsregels. De menselijke hoofdpagina op poort 8040 is absoluut "
+        "IMMUTABLE voor Qwen/Ollama: app/main.py, app/dashboard.py, app/static en app/templates mogen nooit door "
+        "jou worden gewijzigd. Alleen de afzonderlijke AI-beheerinterfaces op 8041/8042 mogen via hun eigen "
+        "UI-policy evolueren. Actieve menselijke operatorrichtlijnen sturen de gewenste oplossingsrichting, maar "
+        "mogen deze harde grenzen nooit versoepelen. Geef UITSLUITEND een unified git diff die met git apply werkt; "
+        "geen markdown en geen uitleg. Als de fout niet veilig aantoonbaar uit deze broncode kan worden hersteld, "
+        "antwoord NO_PATCH.\n\n"
         "OPERATORRICHTLIJNEN:\n" + guidance + "\n\n"
         "FOUTBEWIJS:\n" + candidate["evidence"] + "\n\nBRONCODE:\n" + _read_sources(candidate["files"])
     )
@@ -175,6 +183,7 @@ def _safe_touched_files(status: dict) -> list[str]:
         path = Path(item)
         if not item.startswith(ALLOWED_PRODUCTION_PREFIX) or path.suffix.lower() not in ALLOWED_PRODUCTION_SUFFIXES:
             raise ValueError(f"autonome productiepatch niet toegestaan voor {item}")
+        assert_ai_source_mutation_allowed(item)
         if item in BLOCKED_PRODUCTION_FILES:
             raise ValueError(f"AI-beheer- of veiligheidsbestand is niet autonoom wijzigbaar: {item}")
         if ".." in path.parts or any(part in {"downloads", "venv", ".git"} for part in path.parts):
