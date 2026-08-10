@@ -9,6 +9,7 @@ SERVICE_POLICIES: dict[str, dict[str, Any]] = {
     "top40-archiver-ai.service": {"group": "ai", "kind": "daemon", "required": True, "repair_action": "restart_ai"},
     "ollama.service": {"group": "ollama", "kind": "daemon", "required": True, "repair_action": "restart_ollama"},
     "top40-log-reader.service": {"group": "system", "kind": "daemon", "required": True, "repair_action": "restart_log_reader"},
+    "top40-archiver-cover-art.service": {"group": "cover", "kind": "daemon", "required": True, "repair_action": "restart_cover_art"},
 
     "top40-archiver-cover-art.timer": {"group": "cover", "kind": "timer", "required": True, "repair_action": "repair_cover_timer"},
     "top40-archiver-id3-cover.timer": {"group": "cover", "kind": "timer", "required": True, "repair_action": "repair_id3_cover_timer"},
@@ -19,7 +20,6 @@ SERVICE_POLICIES: dict[str, dict[str, Any]] = {
     "top40-ai-recovery.timer": {"group": "ai", "kind": "timer", "required": True, "repair_action": "repair_ai_recovery_timer"},
     "top40-archiver-incident-scan.timer": {"group": "system", "kind": "timer", "required": True, "repair_action": "repair_incident_timer"},
 
-    "top40-archiver-cover-art.service": {"group": "cover", "kind": "oneshot", "required": True, "paired_timer": "top40-archiver-cover-art.timer"},
     "top40-archiver-id3-cover.service": {"group": "cover", "kind": "oneshot", "required": True, "paired_timer": "top40-archiver-id3-cover.timer"},
     "top40-archiver-history.service": {"group": "database", "kind": "oneshot", "required": True, "paired_timer": "top40-archiver-history.timer"},
     "top40-archiver-check.service": {"group": "charts", "kind": "oneshot", "required": True, "paired_timer": "top40-archiver-check.timer"},
