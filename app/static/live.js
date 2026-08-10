@@ -65,9 +65,29 @@ document.addEventListener("DOMContentLoaded", () => {
       color: #5f5c56;
       font-size: 13px;
     }
+    .cover-progress-panel[hidden] { display: none !important; }
+    .cover-progress-stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0,1fr));
+      gap: 12px;
+      margin: 16px 0 8px;
+    }
+    .cover-progress-stat {
+      border: 1px solid #e6e3dd;
+      border-radius: 12px;
+      background: #faf9f6;
+      padding: 12px 14px;
+    }
+    .cover-progress-stat b { display:block; font-size: 20px; }
+    .cover-progress-stat span { color:#77736c; font-size:12px; }
+    .cover-progress-current { margin:10px 0 0; color:#69655f; }
+    @media (max-width: 760px) {
+      .cover-progress-stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    }
     @media (max-width: 560px) {
       .ai-recovery-note { align-items: stretch; flex-direction: column; }
       .ai-recovery-shortcut { width: 100%; }
+      .cover-progress-stats { grid-template-columns: 1fr 1fr; }
     }
   `;
   document.head.appendChild(style);
@@ -163,6 +183,59 @@ document.addEventListener("DOMContentLoaded", () => {
     setText("failed-count", counts.failed ?? 0);
     setText("unavailable-count", counts.unavailable ?? 0);
     setText("success-count", counts.downloaded ?? 0);
+  }
+
+  function ensureCoverPanel() {
+    let panel = $("cover-progress-panel");
+    if (panel) return panel;
+    const metrics = document.querySelector(".metric-grid");
+    if (!metrics) return null;
+    panel = document.createElement("section");
+    panel.id = "cover-progress-panel";
+    panel.className = "panel cover-progress-panel";
+    panel.hidden = true;
+    panel.innerHTML = `
+      <div class="section-heading compact">
+        <div><span class="eyebrow">Albumhoezen</span><h2>Coverarchief aanvullen</h2><p id="cover-progress-subtitle">De bestaande muziekdatabase wordt op de achtergrond aangevuld.</p></div>
+        <span class="status-badge status-downloading">Actief</span>
+      </div>
+      <div class="progress"><span id="cover-progress-bar" style="width:0%"></span></div>
+      <div class="cover-progress-stats">
+        <div class="cover-progress-stat"><b id="cover-found">0</b><span>Hoezen gevonden</span></div>
+        <div class="cover-progress-stat"><b id="cover-checked">0</b><span>Nummers gecontroleerd</span></div>
+        <div class="cover-progress-stat"><b id="cover-remaining">0</b><span>Nog te controleren</span></div>
+        <div class="cover-progress-stat"><b id="cover-percent">0%</b><span>Controle voltooid</span></div>
+      </div>
+      <p id="cover-progress-current" class="cover-progress-current"></p>`;
+    metrics.insertAdjacentElement("afterend", panel);
+    return panel;
+  }
+
+  function updateCovers(data) {
+    const covers = data.cover_progress || {};
+    const panel = ensureCoverPanel();
+    if (!panel) return;
+    panel.hidden = !covers.visible;
+    if (panel.hidden) return;
+
+    setText("cover-found", covers.found ?? 0);
+    setText("cover-checked", `${covers.checked ?? 0} / ${covers.total ?? 0}`);
+    setText("cover-remaining", covers.remaining ?? 0);
+    setText("cover-percent", `${covers.percent ?? 0}%`);
+    const bar = $("cover-progress-bar");
+    if (bar) bar.style.width = `${Math.max(0, Math.min(100, Number(covers.percent || 0)))}%`;
+
+    const current = [covers.current_artist, covers.current_title].filter(Boolean).join(" — ");
+    setText(
+      "cover-progress-current",
+      current ? `Nu controleren: ${current}` : "Coverworker werkt de achterstand automatisch bij."
+    );
+    setText(
+      "cover-progress-subtitle",
+      covers.running
+        ? "De continue coverworker vult de achterstand aan en blijft daarna nieuwe nummers automatisch volgen."
+        : "Coverworker wordt opnieuw gestart; de voortgang blijft zichtbaar zolang er achterstand is."
+    );
   }
 
   function updateArchive(data) {
@@ -322,6 +395,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function render(data) {
     if (!data?.ok) return;
     updateMetrics(data);
+    updateCovers(data);
     updateArchive(data);
     updateStorage(data);
     updateChart(data, "top40");
