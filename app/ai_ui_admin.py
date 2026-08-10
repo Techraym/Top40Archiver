@@ -11,7 +11,12 @@ from pydantic import BaseModel, Field
 from . import ai_ui_designer_legacy as control_ui
 from .ai_log_control import STATE_FILE as LOG_STATE_FILE
 from .ai_log_ui_designer import manual_rollback as rollback_log_ui
-from .ai_session_console import acknowledge_guidance, close_guidance, create_operator_guidance
+from .ai_session_console import (
+    acknowledge_guidance,
+    active_guidance,
+    close_guidance,
+    create_operator_guidance,
+)
 from .ai_ui_policy import page_policy
 
 router = APIRouter()
@@ -69,6 +74,7 @@ def ui_policy():
     return {
         "ok": True,
         **page_policy(),
+        "active_ui_guidance": active_guidance("ui", 100),
         "control_room_state": _json(control_ui.STATE_FILE),
         "log_control_state": _json(LOG_STATE_FILE),
     }
