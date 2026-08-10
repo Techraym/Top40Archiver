@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import os
+from pathlib import Path
 import sqlite3
 from typing import Any
 
@@ -111,13 +113,7 @@ def set_ai_download_workers(
 
 
 def evidence_worker_ceiling(snapshot: dict[str, Any]) -> int:
-    """Hard deterministic ceiling above Qwen's requested worker count.
-
-    Scaling is earned by real completed downloads in the last 24 hours. This
-    deliberately uses successful end-to-end downloads rather than search hits,
-    so resolver/provider noise can never convince the model to jump directly to
-    six workers. A sizeable queue is also required before extra workers help.
-    """
+    """Bound scale-up using only real end-to-end download success evidence."""
     jobs = snapshot.get("jobs") or {}
     backlog = int(jobs.get("queued") or 0) + int(jobs.get("waiting_retry") or 0)
     successes = int(snapshot.get("downloads_24h") or 0)
@@ -131,3 +127,69 @@ def evidence_worker_ceiling(snapshot: dict[str, Any]) -> int:
     if successes < 60:
         return 5
     return 6
+
+
+def system_capacity_snapshot() -> dict[str, Any]:
+    """Read lightweight local CPU/load and memory evidence without psutil."""
+    cpu_count = max(1, int(os.cpu_count() or 1))
+    try:
+        load1, load5, load15 = os.getloadavg()
+    except OSError:
+        load1 = load5 = load15 = 0.0
+
+    mem_total_kb = 0
+    mem_available_kb = 0
+    try:
+        values: dict[str, int] = {}
+        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+            if ":" not in line:
+                continue
+            key, raw = line.split(":", 1)
+            token = raw.strip().split()[0]
+            if token.isdigit():
+                values[key] = int(token)
+        mem_total_kb = int(values.get("MemTotal") or 0)
+        mem_available_kb = int(values.get("MemAvailable") or 0)
+    except (OSError, ValueError):
+        pass
+
+    available_percent = (
+        round(mem_available_kb / mem_total_kb * 100, 1) if mem_total_kb else None
+    )
+    return {
+        "cpu_count": cpu_count,
+        "load_1m": round(float(load1), 2),
+        "load_5m": round(float(load5), 2),
+        "load_15m": round(float(load15), 2),
+        "load_1m_per_cpu": round(float(load1) / cpu_count, 3),
+        "memory_available_percent": available_percent,
+    }
+
+
+def system_worker_ceiling(system: dict[str, Any]) -> int:
+    """Hard host-health ceiling used by both manager and Qwen tuner."""
+    load = float(system.get("load_1m_per_cpu") or 0.0)
+    available = system.get("memory_available_percent")
+    memory = float(available) if available is not None else 100.0
+
+    if load >= 1.20 or memory < 10.0:
+        return 2
+    if load >= 1.00 or memory < 15.0:
+        return 3
+    if load >= 0.85 or memory < 20.0:
+        return 4
+    if load >= 0.70 or memory < 25.0:
+        return 5
+    return 6
+
+
+def hard_worker_ceiling(snapshot: dict[str, Any], system: dict[str, Any] | None = None) -> int:
+    host = system or system_capacity_snapshot()
+    return max(
+        DEFAULT_DOWNLOAD_WORKERS,
+        min(
+            MAX_DOWNLOAD_WORKERS,
+            evidence_worker_ceiling(snapshot),
+            system_worker_ceiling(host),
+        ),
+    )
