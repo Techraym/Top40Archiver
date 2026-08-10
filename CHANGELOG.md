@@ -2,6 +2,37 @@
 
 Alle noemenswaardige wijzigingen worden in dit bestand bijgehouden.
 
+## [1.16.22] - 2026-08-10
+
+### Gewijzigd
+
+- GitHub is gesynchroniseerd met de gevalideerde draaiende NUC-code.
+- Downloadactiviteit is uitgebreider zichtbaar in het hoofddashboard.
+- Downloadmatching is verder aangescherpt.
+- Dynamische downloadconcurrency is bijgewerkt.
+- Cover-art matching en verwerking zijn verbeterd.
+- Hoofdinterface HTML, CSS en JavaScript zijn bijgewerkt.
+- Nieuwe AI UI CSS- en theme-designer modules zijn toegevoegd.
+- De bestaande AI UI designer en legacy designer zijn bijgewerkt.
+
+### Release en update
+
+- VERSION is bijgewerkt naar 1.16.22.
+- scripts/install-1.16.22.sh is toegevoegd voor de bestaande transactionele updateketen.
+- Browser-assets gebruiken een nieuwe cacheversie.
+- De actuele documentatie wordt bijgewerkt naar de 1.16.22-architectuur.
+
+### Veiligheid
+
+- Bestaande audio wordt niet autonoom verwijderd of overschreven.
+- AI blijft begrensd door bestaande policy-, backup-, canary- en rollbackmechanismen.
+- CAPTCHA-, rate-limit- en proxy-bypass blijven buiten het ondersteunde beleid.
+
+### Validatie
+
+- Python syntaxcontrole: 0 fouten.
+- Volledige pytest-suite: 257 tests geslaagd.
+
 ## [1.16.9] - 2026-08-08
 
 ### Opgelost
