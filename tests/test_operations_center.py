@@ -38,7 +38,27 @@ def test_health_score_range(monkeypatch):
     assert 0 <= result['score'] <= 100
 
 
-def test_oneshot_cover_worker_is_healthy_while_timer_waits(monkeypatch):
+def test_continuous_cover_worker_is_healthy_only_while_running(monkeypatch):
+    from app import service_watchdog as watchdog
+
+    def fake_show(unit):
+        if unit == 'top40-archiver-cover-art.timer':
+            return {'LoadState': 'loaded', 'ActiveState': 'active', 'SubState': 'waiting', 'Result': 'success'}
+        if unit == 'top40-archiver-cover-art.service':
+            return {'LoadState': 'loaded', 'ActiveState': 'active', 'SubState': 'running', 'Result': 'success'}
+        return {'LoadState': 'loaded', 'ActiveState': 'active', 'SubState': 'running', 'Result': 'success'}
+
+    monkeypatch.setattr(watchdog, '_show', fake_show)
+    items = {item['unit']: item for item in watchdog.service_monitor()}
+    cover = items['top40-archiver-cover-art.service']
+    assert cover['health'] == 'healthy'
+    assert cover['status'] == 'active'
+    assert cover['systemd_status'] == 'active'
+    assert cover['display_status'] == 'actief'
+    assert cover['expected'] == 'continu actief'
+
+
+def test_stopped_continuous_cover_worker_is_critical_even_if_timer_waits(monkeypatch):
     from app import service_watchdog as watchdog
 
     def fake_show(unit):
@@ -51,10 +71,8 @@ def test_oneshot_cover_worker_is_healthy_while_timer_waits(monkeypatch):
     monkeypatch.setattr(watchdog, '_show', fake_show)
     items = {item['unit']: item for item in watchdog.service_monitor()}
     cover = items['top40-archiver-cover-art.service']
-    assert cover['health'] == 'healthy'
-    assert cover['status'] == 'active'
-    assert cover['systemd_status'] == 'inactive'
-    assert cover['display_status'] == 'stand-by'
+    assert cover['health'] == 'critical'
+    assert cover['repair_action'] == 'restart_cover_art'
 
 
 def test_inactive_required_timer_has_bounded_repair_action(monkeypatch):
