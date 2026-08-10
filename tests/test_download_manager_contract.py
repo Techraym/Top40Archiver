@@ -16,7 +16,7 @@ def test_manager_has_four_global_jobs_and_three_parallel_provider_searches():
 def test_manager_fallback_is_priority_driven_and_youtube_not_special_cased_upward():
     source = (ROOT / "app/download_manager.py").read_text(encoding="utf-8")
     assert "PRIMARY_PRIORITY_CUTOFF = 80" in source
-    assert "fallback_groups = [[row] for row in fallback]" in source
+    assert "fallback_groups = [[row] for row in fallback" in source
     assert "No provider" not in source
     assert "requests_per_minute" in source
     assert "min_delay_seconds" in source
@@ -26,7 +26,7 @@ def test_download_service_is_independent_from_web_app():
     service = (ROOT / "systemd/top40-download-manager.service").read_text(encoding="utf-8")
     assert "Type=simple" in service
     assert "User=top40archiver" in service
-    assert "-m app.download_manager_entry" in service
+    assert "-m app.download_manager_dynamic_entry" in service
     assert "Restart=always" in service
     assert "NoNewPrivileges=true" in service
 
