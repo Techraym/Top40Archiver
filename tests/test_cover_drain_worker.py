@@ -54,13 +54,20 @@ def test_drain_backs_off_when_transient_source_makes_no_progress(monkeypatch):
     assert result["status"] == "drained"
 
 
-def test_continuous_watcher_drains_new_work_then_remains_watching(monkeypatch):
+def test_continuous_watcher_requeues_current_chart_then_drains_and_watches(monkeypatch):
     queue = [3, 0]
     drains = []
     states = []
+    requeues = []
 
     monkeypatch.setattr(cover_watch, "cover_queue_count", lambda: queue[0])
     monkeypatch.setattr(cover_watch, "total_without_cover", lambda: queue[0])
+    monkeypatch.setattr(cover_watch, "_current_chart_signature", lambda: (32, 32))
+    monkeypatch.setattr(
+        cover_watch,
+        "_requeue_current_chart_covers",
+        lambda signature: requeues.append(signature) or 2,
+    )
 
     def fake_drain(**kwargs):
         drains.append(kwargs)
@@ -78,9 +85,11 @@ def test_continuous_watcher_drains_new_work_then_remains_watching(monkeypatch):
     with pytest.raises(RuntimeError, match="stop-test-loop"):
         cover_watch.watch_missing_covers(batch_size=40, poll_seconds=60)
 
+    assert requeues == [(32, 32)]
     assert len(drains) == 1
     assert drains[0]["batch_size"] == 40
     assert any(state.get("phase") == "starting" for state in states)
+    assert any(state.get("current_chart_requeued") == 2 for state in states)
     assert states[-1]["phase"] == "watching"
     assert states[-1]["queue_remaining"] == 0
     assert states[-1]["running"] is True
@@ -102,9 +111,12 @@ def test_cover_systemd_unit_is_continuous_daemon_with_watch_mode():
 def test_dashboard_hides_cover_progress_after_catchup_but_keeps_worker_running():
     state = Path("app/cover_art_state.py").read_text(encoding="utf-8")
     live = Path("app/static/live.js").read_text(encoding="utf-8")
+    main = Path("app/main.py").read_text(encoding="utf-8")
     assert '"visible": bool(remaining > 0 or actively_catching_up)' in state
     assert '"found": found' in state
     assert '"remaining": remaining' in state
+    assert '"cover_progress": cover_dashboard_state()' in main
+    assert '"cover_progress": data["cover_progress"]' in main
     assert "panel.hidden = !covers.visible" in live
     assert "Hoezen gevonden" in live
     assert "blijft daarna nieuwe nummers automatisch volgen" in live
