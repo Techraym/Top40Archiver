@@ -16,6 +16,8 @@ def test_only_three_top_level_page_slots_exist_and_8040_is_human_owned():
     assert policy["ai_mutable"] == [8041, 8042]
     assert set(policy["ai_page_slots"]) == {8041, 8042}
     assert policy["ai_can_create_extra_top_level_pages"] is False
+    assert policy["ai_can_modify_its_ui_policy"] is False
+    assert policy["trusted_ui_runtime_ai_mutable"] is False
 
 
 def test_8040_rendering_sources_are_hard_blocked_for_qwen_code_promotion():
@@ -30,8 +32,31 @@ def test_8040_rendering_sources_are_hard_blocked_for_qwen_code_promotion():
             ai_ui_policy.assert_ai_source_mutation_allowed(path)
 
 
-def test_code_repair_rejects_main_dashboard_even_if_patch_validation_says_ok():
-    for path in ("app/main.py", "app/dashboard.py"):
+def test_ai_cannot_modify_the_guard_or_human_override_mechanism_itself():
+    expected = {
+        "app/ai_ui_policy.py",
+        "app/ai_ui_admin.py",
+        "app/ai_ui_operator_overlay.py",
+        "app/ai_log_control.py",
+        "app/ai_log_ui_designer.py",
+        "app/ai_control_room.py",
+        "app/ai_sidecar.py",
+        "app/log_reader_service.py",
+    }
+    assert expected.issubset(ai_ui_policy.AI_UI_POLICY_IMMUTABLE_FILES)
+    for path in expected:
+        assert ai_ui_policy.is_ai_ui_policy_immutable_path(path)
+        with pytest.raises(ValueError, match="beveiligings- of operatorcontrolecode"):
+            ai_ui_policy.assert_ai_source_mutation_allowed(path)
+
+
+def test_code_repair_rejects_main_dashboard_and_ui_policy_files():
+    for path in (
+        "app/main.py",
+        "app/dashboard.py",
+        "app/ai_ui_policy.py",
+        "app/ai_ui_admin.py",
+    ):
         with pytest.raises(ValueError):
             ai_code_repair._safe_touched_files({"proposal": {"files": [path]}})
 
@@ -65,12 +90,17 @@ def test_8041_has_non_ai_operator_overlay_and_ui_admin_routes():
     assert '"/api/ai/ui-rollback/{port}"' in admin
 
 
-def test_qwen_ui_designer_can_only_run_for_8041_and_8042():
+def test_qwen_ui_designer_can_only_run_for_8041_and_8042_and_hold_blocks_new_revisions():
     source = (ROOT / "app/ai_ui_designer.py").read_text(encoding="utf-8")
     assert 'model_slot("ui-designer-8041"' in source
     assert 'model_slot("ui-designer-8042"' in source
+    assert 'model_slot("ui-designer-8040"' not in source
     assert "MAX_TOP_LEVEL_PAGES" in source
-    assert "8040 is intentionally absent" in source
+    assert 'held = scope_held("ui")' in source
+    assert '"action": "skipped_operator_hold", "port": 8041' in source
+    assert '"action": "skipped_operator_hold", "port": 8042' in source
+    assert "if control_active" in source
+    assert "if log_active" in source
 
 
 def test_root_logreader_remains_localhost_only_despite_8042_page():
