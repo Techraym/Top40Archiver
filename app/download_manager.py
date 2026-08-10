@@ -294,7 +294,9 @@ def _ffprobe(path: Path) -> dict[str, Any]:
 def _validate_download(path: Path, track: dict[str, Any]) -> dict[str, Any]:
     if not path.is_file() or path.stat().st_size < MIN_FILE_BYTES:
         raise DownloadValidationError("Bronbestand ontbreekt of is te klein")
-    prefix = path.read_bytes()[:2048].lstrip().casefold()
+    # Dit is binaire data. bytes heeft geen casefold(); lower() is voldoende
+    # voor de ASCII HTML-signatures en werkt veilig voor willekeurige audio-bytes.
+    prefix = path.read_bytes()[:2048].lstrip().lower()
     if prefix.startswith(b"<!doctype html") or prefix.startswith(b"<html"):
         raise DownloadValidationError("Download bevat HTML in plaats van audio")
     info = _ffprobe(path)
