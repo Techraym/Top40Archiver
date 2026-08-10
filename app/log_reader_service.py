@@ -4,6 +4,7 @@ import asyncio
 import re
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -12,7 +13,15 @@ from fastapi.responses import HTMLResponse
 from .ai_log_control import log_control_response
 from .ai_ui_policy import page_policy
 
-VERSION = "1.16.19"
+
+def _release_version() -> str:
+    try:
+        return (Path(__file__).resolve().parents[1] / "VERSION").read_text(encoding="utf-8").strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
+VERSION = _release_version()
 app = FastAPI(title="Top40 Log Reader", version=VERSION, docs_url=None, redoc_url=None)
 
 SERVICE_UNITS = {
@@ -78,8 +87,6 @@ def _journal(service: str, minutes: int, limit: int, grep: str | None = None) ->
 
 @app.get("/", response_class=HTMLResponse)
 def home() -> HTMLResponse:
-    # Only HTML/CSS in the bounded data-file slot may evolve. The root logreader
-    # process, API and trusted JavaScript remain fixed policy-code.
     return log_control_response()
 
 
