@@ -26,7 +26,7 @@ def test_download_service_is_independent_from_web_app():
     service = (ROOT / "systemd/top40-download-manager.service").read_text(encoding="utf-8")
     assert "Type=simple" in service
     assert "User=top40archiver" in service
-    assert "-m app.download_manager_entry" in service
+    assert "-m app.download_manager_dynamic_entry" in service
     assert "Restart=always" in service
     assert "NoNewPrivileges=true" in service
 
