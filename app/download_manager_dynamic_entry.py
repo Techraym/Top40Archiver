@@ -23,6 +23,7 @@ from .download_metrics import provider_dashboard
 from .download_policy import (
     FIRST_PROVIDER,
     TRANSIENT_CANDIDATE_ERRORS,
+    apply_current_chart_fast_retry,
     claim_jobs_current_first,
     enqueue_pending_tracks_current_first,
     ensure_provider_order_policy,
@@ -60,8 +61,6 @@ def _youtube_first_provider_groups() -> tuple[list[list[dict[str, Any]]], list[l
     first = [row for row in rows if str(row.get("provider")) == FIRST_PROVIDER]
     remaining = [row for row in rows if str(row.get("provider")) != FIRST_PROVIDER]
 
-    # YouTube staat als losse groep vooraan. Daardoor kan een 100-punten match van
-    # een andere bron nooit een iets lagere maar geldige YouTube-match voorbijgaan.
     primary_groups: list[list[dict[str, Any]]] = [[first[0]]] if first else []
     primary_groups.extend(
         remaining[index : index + download_manager.MAX_PARALLEL_PROVIDER_SEARCHES]
@@ -135,6 +134,8 @@ def _write_state(
             "retry": int(jobs.get("waiting_retry", 0)),
             "first_provider": FIRST_PROVIDER,
             "queue_priority": "current_top40,current_tipparade,archive",
+            "single_queue_class_per_batch": True,
+            "current_chart_fast_retry": True,
             "transient_candidate_retry": True,
             "youtube_errors": sum(
                 int(item.get("consecutive_errors") or 0)
@@ -152,6 +153,11 @@ def _write_state(
         tmp.replace(download_manager.STATE_FILE)
     except Exception:
         pass
+
+
+def _run_one_job(job: dict[str, Any]) -> dict[str, Any]:
+    result = download_manager.process_job(job)
+    return apply_current_chart_fast_retry(job, result)
 
 
 def run_dynamic_download_manager(batch_limit: int = 20, idle_seconds: float = 5.0) -> None:
@@ -178,7 +184,6 @@ def run_dynamic_download_manager(batch_limit: int = 20, idle_seconds: float = 5.
                     continue
 
                 download_manager.enqueue_pending_tracks(max(100, batch_limit * 5))
-                # Re-read queue, success evidence and host load for this exact batch.
                 config = _worker_configuration()
                 worker_limit = int(config["effective"])
                 jobs = download_manager.claim_jobs(
@@ -195,7 +200,7 @@ def run_dynamic_download_manager(batch_limit: int = 20, idle_seconds: float = 5.
                     thread_name_prefix="download-job",
                 ) as executor:
                     futures = {
-                        executor.submit(download_manager.process_job, job): int(job["track_id"])
+                        executor.submit(_run_one_job, job): int(job["track_id"])
                         for job in jobs
                     }
                     for future in as_completed(futures):
@@ -245,6 +250,8 @@ def main() -> None:
         ai_worker_active=bool(initial.get("ai_active")),
         first_provider=FIRST_PROVIDER,
         queue_priority="current_top40,current_tipparade,archive",
+        single_queue_class_per_batch=True,
+        current_chart_fast_retry=True,
         transient_candidate_retry=True,
         max_parallel_provider_searches=download_manager.MAX_PARALLEL_PROVIDER_SEARCHES,
         audio_delete_allowed=False,
