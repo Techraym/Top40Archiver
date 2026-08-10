@@ -41,10 +41,12 @@ def ensure_provider_order_policy() -> None:
             con.execute(
                 """
                 UPDATE download_provider_config
-                SET priority=?,updated_at=?
+                SET priority=?,
+                    enabled=CASE WHEN provider=? THEN 1 ELSE enabled END,
+                    updated_at=?
                 WHERE provider=?
                 """,
-                (int(defaults["priority"]), stamp, provider),
+                (int(defaults["priority"]), FIRST_PROVIDER, stamp, provider),
             )
 
         # Oude AI-prioriteitsadviezen zijn gemaakt onder de vorige fallbackpolicy.
@@ -52,6 +54,18 @@ def ensure_provider_order_policy() -> None:
         con.execute(
             "UPDATE download_provider_state SET ai_priority_adjustment=0,updated_at=?",
             (stamp,),
+        )
+
+        # De eerste probe na migratie moet actuele YouTube-evidence opleveren en
+        # niet worden overgeslagen door een oude cooldown uit de fallbackperiode.
+        con.execute(
+            """
+            UPDATE download_provider_state
+            SET status='healthy',consecutive_errors=0,error_window_started_at=NULL,
+                cooldown_until=NULL,updated_at=?
+            WHERE provider=?
+            """,
+            (stamp, FIRST_PROVIDER),
         )
 
         # Maak kandidaten die uitsluitend door een tijdelijke transportfout in het
