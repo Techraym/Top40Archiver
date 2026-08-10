@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from .cover_art_state import cover_dashboard_state
 from .dashboard import download_chart, history_progress, storage_status
 from .db import connect, get_settings, init_db, now_iso, set_settings
 from .service import (
@@ -207,6 +208,7 @@ def _dashboard_data(q: str = "") -> dict[str, Any]:
         "tipparade_edition_count": tipparade_edition_count,
         "download_chart": download_chart(status_counts),
         "history_progress": history_progress(settings),
+        "cover_progress": cover_dashboard_state(),
         "storage": storage_status(settings["download_dir"]),
         "history": history,
         "q": q,
@@ -243,6 +245,7 @@ def _live_payload() -> dict[str, Any]:
         "edition_count": data["edition_count"],
         "download_chart": data["download_chart"],
         "history_progress": data["history_progress"],
+        "cover_progress": data["cover_progress"],
         "history_last_edition": data["settings"].get("history_last_edition", ""),
         "tip_history_last_edition": data["settings"].get("tip_history_last_edition", ""),
         "history_last_error": data["settings"].get("history_last_error", ""),
@@ -437,6 +440,7 @@ def dashboard_api():
             "download_status": payload["status_counts"],
             "spotify_configured": payload["spotify_configured"],
             "history": payload["history_progress"],
+            "covers": payload["cover_progress"],
         }
     )
 
