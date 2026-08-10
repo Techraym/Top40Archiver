@@ -1,19 +1,28 @@
 [Unit]
-Description=Top40Archiver cover art drain worker
+Description=Top40Archiver continuous cover art watcher
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
-Type=oneshot
+Type=simple
 User=top40archiver
 Group=top40archiver
 WorkingDirectory=/opt/top40-archiver
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/opt/top40-archiver/venv/bin/python -m app.cover_art --drain --limit 40 --transient-retry-seconds 120
+Environment=TOP40_DATA_DIR=/var/lib/top40-archiver
+Environment=PYTHONPATH=/opt/top40-archiver
+EnvironmentFile=-/etc/top40-archiver.env
+ExecStart=/opt/top40-archiver/venv/bin/python -m app.cover_watch --limit 40 --poll-seconds 60 --transient-retry-seconds 120
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
-TimeoutStartSec=infinity
-Restart=on-failure
-RestartSec=2min
+Restart=always
+RestartSec=30
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
