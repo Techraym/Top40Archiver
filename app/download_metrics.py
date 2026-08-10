@@ -6,11 +6,11 @@ from .download_db import provider_dashboard as _provider_dashboard
 
 
 def provider_dashboard() -> dict[str, Any]:
-    """Return provider metrics with direct YouTube as the primary dependency KPI.
+    """Return provider metrics for the fixed YouTube-first source policy.
 
-    ``without_youtube_24h`` means neither YouTube Music nor YouTube, matching
-    the Operations Center count. Direct YouTube remains the primary <10% KPI;
-    the complete YouTube family is exposed separately as a stricter metric.
+    YouTube share is now informational rather than a target to minimize. Direct
+    YouTube is intentionally the first source; YouTube Music and the remaining
+    providers are fallbacks whenever the first source cannot complete the track.
     """
     payload = dict(_provider_dashboard())
     providers = list(payload.get("providers") or [])
@@ -35,8 +35,11 @@ def provider_dashboard() -> dict[str, Any]:
             "youtube_family_24h": family,
             "youtube_dependency_percent": direct_percent,
             "youtube_family_dependency_percent": family_percent,
-            "target_youtube_dependency_percent": 10.0,
-            "target_met": direct_percent < 10.0 if total else None,
+            "youtube_share_percent": direct_percent,
+            "youtube_family_share_percent": family_percent,
+            "youtube_primary_download_source": True,
+            "target_youtube_dependency_percent": None,
+            "target_met": None,
         }
     )
     return payload
