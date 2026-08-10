@@ -11,6 +11,8 @@ from fastapi.responses import HTMLResponse
 
 from .ai_control_room import control_room_response, router as control_room_router
 from .ai_memory import best_learning, remember_event, timeline
+from .ai_ui_admin import router as ui_admin_router
+from .ai_ui_policy import page_policy
 from .incident_engine import incident_summary, list_incidents, scan_journal
 from .operations_center import cover_dashboard, database_dashboard, download_dashboard, health_score, service_monitor
 
@@ -48,7 +50,7 @@ def _ollama() -> dict[str, object]:
 
 @app.get("/", response_class=HTMLResponse)
 def home() -> HTMLResponse:
-    """De hoofdroute wordt visueel door de lokale AI beheerd, met vaste veilige runtime."""
+    """AI-owned monitoring page on :8041; :8040 is never part of this UI loop."""
     return control_room_response()
 
 
@@ -63,6 +65,7 @@ def overview():
         "database": database_dashboard(),
         "incidents": incident_summary(),
         "ollama": _ollama(),
+        "page_policy": page_policy(),
     }
 
 
@@ -151,7 +154,10 @@ def healthz():
         "port": 8041,
         "log_reader": LOG_READER,
         "control_room": True,
+        "operator_ui_controls": True,
+        "page_policy": page_policy(),
     }
 
 
 app.include_router(control_room_router)
+app.include_router(ui_admin_router)
