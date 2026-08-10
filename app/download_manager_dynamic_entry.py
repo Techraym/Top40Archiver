@@ -18,7 +18,64 @@ from .download_concurrency import (
     system_worker_ceiling,
     worker_state,
 )
+from .download_db import reject_candidate as _store_rejected_candidate
 from .download_metrics import provider_dashboard
+from .download_policy import (
+    FIRST_PROVIDER,
+    TRANSIENT_CANDIDATE_ERRORS,
+    claim_jobs_current_first,
+    enqueue_pending_tracks_current_first,
+    ensure_provider_order_policy,
+)
+
+
+def _persistent_reject_candidate(
+    track_id: int,
+    provider: str,
+    url: str,
+    reason: str,
+    match_score: float | None,
+    detail: dict[str, Any] | None = None,
+) -> None:
+    """Persist only candidate/content failures, never temporary transport failures."""
+    if str(reason or "") in TRANSIENT_CANDIDATE_ERRORS:
+        return
+    _store_rejected_candidate(track_id, provider, url, reason, match_score, detail)
+
+
+def _youtube_first_provider_groups() -> tuple[list[list[dict[str, Any]]], list[list[dict[str, Any]]]]:
+    """Give direct YouTube one exclusive first attempt before every other source."""
+    rows = [
+        row
+        for row in download_manager.provider_configs(enabled_only=True)
+        if download_manager._provider_available(row)
+    ]
+    rows.sort(
+        key=lambda row: (
+            int(row.get("priority") or 999)
+            + int(row.get("ai_priority_adjustment") or 0),
+            str(row.get("provider") or ""),
+        )
+    )
+    first = [row for row in rows if str(row.get("provider")) == FIRST_PROVIDER]
+    remaining = [row for row in rows if str(row.get("provider")) != FIRST_PROVIDER]
+
+    # YouTube staat als losse groep vooraan. Daardoor kan een 100-punten match van
+    # een andere bron nooit een iets lagere maar geldige YouTube-match voorbijgaan.
+    primary_groups: list[list[dict[str, Any]]] = [[first[0]]] if first else []
+    primary_groups.extend(
+        remaining[index : index + download_manager.MAX_PARALLEL_PROVIDER_SEARCHES]
+        for index in range(0, len(remaining), download_manager.MAX_PARALLEL_PROVIDER_SEARCHES)
+    )
+    return primary_groups, []
+
+
+def _install_download_policy() -> None:
+    ensure_provider_order_policy()
+    download_manager.enqueue_pending_tracks = enqueue_pending_tracks_current_first
+    download_manager.claim_jobs = claim_jobs_current_first
+    download_manager._provider_groups = _youtube_first_provider_groups
+    download_manager.reject_candidate = _persistent_reject_candidate
 
 
 def _worker_configuration(snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -76,6 +133,9 @@ def _write_state(
                 for key in ("searching", "downloading", "validating", "processing")
             ),
             "retry": int(jobs.get("waiting_retry", 0)),
+            "first_provider": FIRST_PROVIDER,
+            "queue_priority": "current_top40,current_tipparade,archive",
+            "transient_candidate_retry": True,
             "youtube_errors": sum(
                 int(item.get("consecutive_errors") or 0)
                 for item in dashboard.get("providers", [])
@@ -98,6 +158,7 @@ def run_dynamic_download_manager(batch_limit: int = 20, idle_seconds: float = 5.
     download_manager.DATA_DIR.mkdir(parents=True, exist_ok=True)
     (download_manager.DATA_DIR / "download-temp").mkdir(parents=True, exist_ok=True)
     download_manager.init_download_db()
+    _install_download_policy()
 
     with download_manager.MANAGER_LOCK.open("w") as lock:
         try:
@@ -165,6 +226,8 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    download_manager.init_download_db()
+    _install_download_policy()
     recovered = download_manager_entry.recover_interrupted_jobs()
     download_manager_entry._install_runtime_guards()
     initial = _worker_configuration()
@@ -180,6 +243,9 @@ def main() -> None:
         ai_worker_scaling=True,
         ai_worker_target=initial.get("ai_target"),
         ai_worker_active=bool(initial.get("ai_active")),
+        first_provider=FIRST_PROVIDER,
+        queue_priority="current_top40,current_tipparade,archive",
+        transient_candidate_retry=True,
         max_parallel_provider_searches=download_manager.MAX_PARALLEL_PROVIDER_SEARCHES,
         audio_delete_allowed=False,
         overwrite_existing_audio_allowed=False,

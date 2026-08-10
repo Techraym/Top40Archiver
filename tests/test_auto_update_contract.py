@@ -29,6 +29,7 @@ def test_normal_updater_installs_and_validates_complete_ai_stack():
         "top40-ai-recovery.timer",
         "top40-archiver-freshness.service",
         "top40-archiver-freshness.timer",
+        "top40-archiver-cover-art.service",
         "http://127.0.0.1:8040/health",
         "http://127.0.0.1:8041/healthz",
         "http://127.0.0.1:8042/healthz",
@@ -58,6 +59,8 @@ def test_normal_updater_installs_and_validates_complete_ai_stack():
     assert "top40-archiver-id3-cover.timer" in updater
     assert "top40-archiver-incident-scan.timer" in updater
     assert "tests/test_cover_drain_worker.py" in updater
+    assert "tests/test_download_policy.py" in updater
+    assert "tests/test_download_concurrency.py" in updater
     assert "tests/test_ai_operations_worker.py" in updater
     assert "tests/test_service_watchdog.py" in updater
     assert "tests/test_chart_freshness.py" in updater
@@ -65,12 +68,19 @@ def test_normal_updater_installs_and_validates_complete_ai_stack():
     assert "tests/test_ai_control_room.py" in updater
     assert "tests/test_ai_session_console.py" in updater
     assert "systemctl start --no-block top40-ai-recovery.service" in updater
+    assert "systemctl enable --now top40-archiver-cover-art.service" in updater
+    assert "systemctl is-active --quiet top40-archiver-cover-art.service" in updater
     assert 'assert x.get("ai_control_room") is True' in updater
     assert 'assert x.get("local_ai_owned_control_room_html_css") is True' in updater
     assert 'assert x.get("ai_session_console") is True' in updater
     assert 'assert x.get("operator_guidance") is True' in updater
     assert 'assert x.get("operator_domain_hold") is True' in updater
     assert 'assert x.get("human_approval_per_cycle_required") is False' in updater
+    assert 'assert x.get("cover_continuous_worker") is True' in updater
+    assert 'assert x.get("youtube_primary_download_source") is True' in updater
+    assert 'assert x.get("youtube_last_resort") is False' in updater
+    assert 'assert x.get("current_chart_download_priority") is True' in updater
+    assert 'assert x.get("transient_candidate_retry") is True' in updater
     assert "http://127.0.0.1:8041/api/ai/control-room?limit=25" in updater
     assert "http://127.0.0.1:8041/api/ai/session/status" in updater
     assert "http://127.0.0.1:8041/ai-session" in updater
@@ -108,9 +118,11 @@ def test_service_watchdog_units_and_entrypoint_are_release_managed():
     cover_service_text = cover_service.read_text(encoding="utf-8")
     cover_timer_text = cover_timer.read_text(encoding="utf-8")
     freshness_timer_text = freshness_timer.read_text(encoding="utf-8")
-    assert "Type=oneshot" in cover_service_text
-    assert "--drain" in cover_service_text
-    assert "TimeoutStartSec=infinity" in cover_service_text
+    assert "Type=simple" in cover_service_text
+    assert "-m app.cover_watch" in cover_service_text
+    assert "--poll-seconds 60" in cover_service_text
+    assert "Restart=always" in cover_service_text
+    assert "WantedBy=multi-user.target" in cover_service_text
     assert "OnUnitInactiveSec=30min" in cover_timer_text
     assert "OnUnitInactiveSec=10min" in freshness_timer_text
     assert "app.ai_recovery_entry" in recovery_service
@@ -123,6 +135,7 @@ def test_service_watchdog_units_and_entrypoint_are_release_managed():
     assert "restart_cover_art" in safe_action
     assert "repair_freshness_timer" in safe_action
     assert "run_chart_freshness" in safe_action
+    assert '"top40-archiver-cover-art.service": {"group": "cover", "kind": "daemon"' in watchdog
     assert "top40-archiver-cover-art.timer" in watchdog
     assert "top40-archiver-freshness.timer" in watchdog
     assert "paired_timer" in watchdog

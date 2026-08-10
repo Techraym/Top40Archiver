@@ -20,10 +20,31 @@ PROVIDER_CLASSES: dict[str, type[AudioProvider]] = {
     "youtube": YouTubeProvider,
 }
 
+# De directe YouTube-provider is bewust de eerste bron. In productie bleek een
+# latere retry via YouTube regelmatig wel te slagen terwijl eerdere alternatieve
+# providers al DRM/preview/transient-fouten hadden opgeleverd. De ruime
+# prioriteitsgaten zorgen er bovendien voor dat een begrensde AI-adjustment de
+# vaste eerste positie van YouTube niet onbedoeld kan opheffen.
 DEFAULT_PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
-    "soundcloud": {
+    "youtube": {
         "enabled": True,
         "priority": 10,
+        "max_concurrent": 1,
+        "requests_per_minute": 3,
+        "min_delay_seconds": 20.0,
+        "error_backoff_seconds": 300,
+    },
+    "youtube_music": {
+        "enabled": True,
+        "priority": 40,
+        "max_concurrent": 1,
+        "requests_per_minute": 3,
+        "min_delay_seconds": 20.0,
+        "error_backoff_seconds": 300,
+    },
+    "soundcloud": {
+        "enabled": True,
+        "priority": 80,
         "max_concurrent": 2,
         "requests_per_minute": 30,
         "min_delay_seconds": 3.0,
@@ -31,7 +52,7 @@ DEFAULT_PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
     },
     "audiomack": {
         "enabled": True,
-        "priority": 20,
+        "priority": 120,
         "max_concurrent": 2,
         "requests_per_minute": 30,
         "min_delay_seconds": 3.0,
@@ -39,7 +60,7 @@ DEFAULT_PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
     },
     "audius": {
         "enabled": True,
-        "priority": 30,
+        "priority": 160,
         "max_concurrent": 2,
         "requests_per_minute": 60,
         "min_delay_seconds": 2.0,
@@ -47,27 +68,11 @@ DEFAULT_PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
     },
     "bandcamp": {
         "enabled": True,
-        "priority": 40,
+        "priority": 200,
         "max_concurrent": 1,
         "requests_per_minute": 20,
         "min_delay_seconds": 3.0,
         "error_backoff_seconds": 180,
-    },
-    "youtube_music": {
-        "enabled": True,
-        "priority": 90,
-        "max_concurrent": 1,
-        "requests_per_minute": 3,
-        "min_delay_seconds": 20.0,
-        "error_backoff_seconds": 300,
-    },
-    "youtube": {
-        "enabled": True,
-        "priority": 100,
-        "max_concurrent": 1,
-        "requests_per_minute": 3,
-        "min_delay_seconds": 20.0,
-        "error_backoff_seconds": 300,
     },
 }
 
