@@ -7,13 +7,17 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
 
-VERSION = "1.16.0"
+from .ai_log_control import log_control_response
+from .ai_ui_policy import page_policy
+
+VERSION = "1.16.19"
 app = FastAPI(title="Top40 Log Reader", version=VERSION, docs_url=None, redoc_url=None)
 
 SERVICE_UNITS = {
     "web": ["top40-archiver-web.service"],
-    "download": ["top40-archiver-download.service"],
+    "download": ["top40-archiver-download.service", "top40-download-manager.service"],
     "cover": [
         "top40-archiver-cover-art.service", "top40-archiver-cover-art.timer",
         "top40-archiver-id3-cover.service", "top40-archiver-id3-cover.timer",
@@ -72,6 +76,13 @@ def _journal(service: str, minutes: int, limit: int, grep: str | None = None) ->
     return rows
 
 
+@app.get("/", response_class=HTMLResponse)
+def home() -> HTMLResponse:
+    # Only HTML/CSS in the bounded data-file slot may evolve. The root logreader
+    # process, API and trusted JavaScript remain fixed policy-code.
+    return log_control_response()
+
+
 @app.get("/api/logs/live")
 def live(service: str = Query("all"), minutes: int = Query(2, ge=1, le=10), lines: int = Query(200, ge=1, le=1000)):
     return {"ok": True, "items": _journal(service, minutes, lines)}
@@ -115,4 +126,13 @@ async def ws_logs(websocket: WebSocket):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "service": "top40-log-reader", "version": VERSION, "allowed": sorted(SERVICE_UNITS)}
+    return {
+        "ok": True,
+        "service": "top40-log-reader",
+        "version": VERSION,
+        "port": 8042,
+        "allowed": sorted(SERVICE_UNITS),
+        "ai_mutable_html_css": True,
+        "trusted_runtime_mutable_by_ai": False,
+        "page_policy": page_policy(),
+    }
