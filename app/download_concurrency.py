@@ -41,11 +41,12 @@ def _bounded_workers(value: object, default: int = DEFAULT_DOWNLOAD_WORKERS) -> 
 
 
 def worker_state() -> dict[str, Any]:
-    """Return the operator baseline and the currently valid AI worker target.
+    """Return the fixed two-worker baseline and a currently valid AI target.
 
-    The operator-configured baseline is the existing ``download_workers`` setting
-    (default 2). Ollama may only scale upward within 2..6 and its decision expires
-    automatically. A stale/missing AI decision therefore falls back to the base.
+    ``download_workers`` remains readable for legacy UI/config compatibility, but
+    the new Multi Source coordinator deliberately starts at exactly two workers.
+    Only a fresh bounded Ollama decision may scale global jobs above two, and that
+    decision expires automatically back to the fixed baseline.
     """
     rows: dict[str, str] = {}
     try:
@@ -60,15 +61,17 @@ def worker_state() -> dict[str, Any]:
     except sqlite3.Error:
         rows = {}
 
-    base = _bounded_workers(rows.get(BASE_SETTING), DEFAULT_DOWNLOAD_WORKERS)
+    configured_base = _bounded_workers(rows.get(BASE_SETTING), DEFAULT_DOWNLOAD_WORKERS)
+    base = DEFAULT_DOWNLOAD_WORKERS
     ai_target = _bounded_workers(rows.get(AI_SETTING), base) if rows.get(AI_SETTING) else None
     ai_until = _parse_time(rows.get(AI_UNTIL_SETTING))
     ai_active = bool(ai_target is not None and ai_until is not None and ai_until > _utcnow())
-    effective = max(base, int(ai_target)) if ai_active and ai_target is not None else base
+    effective = int(ai_target) if ai_active and ai_target is not None else base
     effective = _bounded_workers(effective, base)
 
     return {
         "base": base,
+        "configured_legacy_base": configured_base,
         "effective": effective,
         "maximum": MAX_DOWNLOAD_WORKERS,
         "ai_target": ai_target,
