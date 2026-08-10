@@ -94,8 +94,8 @@ def test_qwen_ui_designer_can_only_run_for_8041_and_8042_and_hold_blocks_new_rev
     source = (ROOT / "app/ai_ui_designer.py").read_text(encoding="utf-8")
     assert 'model_slot("ui-designer-8041"' in source
     assert 'model_slot("ui-designer-8042"' in source
+    assert 'model_slot("ui-designer-8040"' not in source
     assert "MAX_TOP_LEVEL_PAGES" in source
-    assert ":8040 is intentionally absent" in source
     assert 'held = scope_held("ui")' in source
     assert '"action": "skipped_operator_hold", "port": 8041' in source
     assert '"action": "skipped_operator_hold", "port": 8042' in source
