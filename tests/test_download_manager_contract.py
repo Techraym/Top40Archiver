@@ -107,6 +107,30 @@ def test_post_download_validation_is_required_before_completion():
     assert "MIN_FILE_BYTES" in source
 
 
+def test_binary_audio_header_validation_does_not_call_bytes_casefold(tmp_path, monkeypatch):
+    source = tmp_path / "source.webm"
+    source.write_bytes(b"\x1aE\xdf\xa3" + (b"\x00" * download_manager.MIN_FILE_BYTES))
+    expected = {"duration": 287.0, "codec": "opus", "format_name": "matroska,webm"}
+    monkeypatch.setattr(download_manager, "_ffprobe", lambda path: dict(expected))
+
+    info = download_manager._validate_download(source, {"duration_ms": None})
+
+    assert info == expected
+
+
+def test_uppercase_html_payload_is_rejected_before_ffprobe(tmp_path, monkeypatch):
+    source = tmp_path / "fake-audio.bin"
+    source.write_bytes(b"  \r\n<HTML><BODY>blocked</BODY></HTML>" + (b"x" * download_manager.MIN_FILE_BYTES))
+
+    def fail_ffprobe(path):
+        raise AssertionError("ffprobe mag niet worden aangeroepen voor HTML")
+
+    monkeypatch.setattr(download_manager, "_ffprobe", fail_ffprobe)
+
+    with pytest.raises(download_manager.DownloadValidationError, match="HTML"):
+        download_manager._validate_download(source, {"duration_ms": None})
+
+
 def test_post_download_preview_guard_rejects_short_audio_without_reference_duration():
     with pytest.raises(download_manager.DownloadValidationError, match="preview_duration"):
         download_manager_entry._validate_full_track_duration(
