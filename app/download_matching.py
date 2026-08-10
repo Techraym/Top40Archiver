@@ -72,27 +72,91 @@ def _ratio(wanted: object, found: object) -> float:
     return max(0.0, min(1.0, score))
 
 
+def _artist_variants(value: object) -> list[str]:
+    raw = str(value or "").strip()
+    result: list[str] = []
+
+    def add(item: str) -> None:
+        item = _collaboration_clean(item)
+        if item and item not in result:
+            result.append(item)
+
+    add(raw)
+
+    for part in re.split(r"\s*/\s*", raw):
+        add(part)
+
+        for sub in re.split(
+            r"\s+(?:feat\.?|featuring|ft\.?|x|with|vs\.?|&|and|\+)\s+",
+            part,
+            flags=re.I,
+        ):
+            add(sub)
+
+    return result
+
+
+def _title_variants(value: object) -> list[str]:
+    raw = str(value or "").strip()
+    result: list[str] = []
+
+    def add(item: str) -> None:
+        item = _clean(item)
+        if item and item not in result:
+            result.append(item)
+
+    add(raw)
+
+    for part in re.split(r"\s*/\s*", raw):
+        add(part)
+
+        simplified = re.sub(
+            r"\s*[-–—]?\s*\(?"
+            r"(?:remix|radio edit|original mix|edit|version)"
+            r"[^)]*\)?\s*$",
+            "",
+            part,
+            flags=re.I,
+        )
+        add(simplified)
+
+    return result
+
+
 def _artist_ratio(wanted_artist: object, found_artist: object, found_title: object) -> float:
     best = _ratio(wanted_artist, found_artist)
-    wanted = _collaboration_clean(wanted_artist)
-    title = _collaboration_clean(found_title)
-    if wanted and title and (title == wanted or title.startswith(wanted + " ")):
-        # Veel yt-dlp flat-searchresultaten leveren geen artist/uploader maar wel
-        # 'ARTIST - TITLE'. Dat is positief artiestbewijs en geen reden om 30
-        # artiestpunten kwijt te raken.
-        best = max(best, 1.0)
-    return best
+
+    found_artist_clean = _collaboration_clean(found_artist)
+    found_title_clean = _collaboration_clean(found_title)
+
+    for wanted in _artist_variants(wanted_artist):
+        if found_artist_clean:
+            best = max(best, _ratio(wanted, found_artist_clean))
+
+        if found_title_clean:
+            if found_title_clean == wanted or found_title_clean.startswith(wanted + " "):
+                best = max(best, 1.0)
+
+    return min(1.0, best)
 
 
 def _title_ratio(wanted_artist: object, wanted_title: object, found_title: object) -> float:
     best = _ratio(wanted_title, found_title)
-    wanted_artist_clean = _collaboration_clean(wanted_artist)
     found = _collaboration_clean(found_title)
-    if wanted_artist_clean and found.startswith(wanted_artist_clean + " "):
-        stripped = found[len(wanted_artist_clean) :].strip()
-        best = max(best, _ratio(wanted_title, stripped))
-    return best
 
+    artist_variants = _artist_variants(wanted_artist)
+
+    stripped_candidates = [found]
+
+    for artist in artist_variants:
+        if artist and found.startswith(artist + " "):
+            stripped_candidates.append(found[len(artist):].strip())
+
+    for wanted in _title_variants(wanted_title):
+        for candidate in stripped_candidates:
+            best = max(best, _ratio(wanted, candidate))
+
+    return min(1.0, best)
 
 def _duration_points(expected_seconds: float | None, found_seconds: float | None) -> tuple[float, float | None]:
     if not expected_seconds or not found_seconds:

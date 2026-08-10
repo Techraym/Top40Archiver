@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from .cover_art_state import cover_dashboard_state
 from .dashboard import download_chart, history_progress, storage_status
+from .download_api import router as download_router
 from .db import connect, get_settings, init_db, now_iso, set_settings
 from .service import (
     history_pause,
@@ -39,6 +40,7 @@ APP_VERSION = _load_app_version()
 LIVE_INTERVAL_SECONDS = 1.0
 
 app = FastAPI(title="Top 40 Archiver", version=APP_VERSION)
+app.include_router(download_router)
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 templates = Jinja2Templates(directory=BASE / "templates")
 

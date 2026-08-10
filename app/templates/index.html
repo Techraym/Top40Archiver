@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f7f5">
   <title>Top 40 Archiver</title>
-  <link rel="stylesheet" href="/static/style.css?v=32">
-  <script src="/static/live.js?v=32" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=33">
+  <script src="/static/live.js?v=33" defer></script>
 </head>
 <body>
 
@@ -177,16 +177,46 @@
     </div>
   </section>
 
-  <div class="two-column">
+  <div class="download-three-column">
     <section class="panel">
-      <div class="section-heading compact"><div><span class="eyebrow">Downloads</span><h2>Wachtrij</h2></div><span id="queue-count" class="count-chip">{{ status_counts.pending + status_counts.downloading }}</span></div>
+      <div class="section-heading compact">
+        <div>
+          <span class="eyebrow">Downloads</span>
+          <h2>Wachtrij</h2>
+        </div>
+        <span id="queue-count" class="count-chip">{{ status_counts.pending + status_counts.downloading }}</span>
+      </div>
       <div id="queue-list" class="compact-list">
         {% for x in queue %}<article><div><b>{{ x.artist }}</b><span>{{ x.title }}</span></div><span class="status-badge status-{{ x.download_status }}">{{ status_labels.get(x.download_status, x.download_status) }}</span></article>
         {% else %}<p class="empty">De wachtrij is leeg.</p>{% endfor %}
       </div>
     </section>
+
+    <section class="panel active-download-panel">
+      <div class="section-heading compact">
+        <div>
+          <span class="eyebrow">Nu bezig</span>
+          <h2>Actieve downloads</h2>
+        </div>
+        <span id="active-download-count" class="count-chip active-count-chip">—</span>
+      </div>
+
+      <div id="active-worker-summary" class="active-worker-summary">
+        Downloadworkers laden…
+      </div>
+
+      <div id="active-download-list" class="compact-list active-download-list">
+        <p class="empty">Actieve downloads laden…</p>
+      </div>
+    </section>
+
     <section class="panel">
-      <div class="section-heading compact"><div><span class="eyebrow">Logboek</span><h2>Laatste activiteit</h2></div></div>
+      <div class="section-heading compact">
+        <div>
+          <span class="eyebrow">Logboek</span>
+          <h2>Laatste activiteit</h2>
+        </div>
+      </div>
       <div id="activity-list" class="compact-list activity-list">
         {% for x in activity %}<article><div><b>{{ x.artist }}</b><span>{{ x.title }}</span></div><span class="status-badge status-{{ x.download_status }}">{{ status_labels.get(x.download_status, x.download_status) }}</span></article>
         {% else %}<p class="empty">Nog geen activiteit.</p>{% endfor %}

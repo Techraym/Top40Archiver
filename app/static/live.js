@@ -106,10 +106,21 @@ document.addEventListener("DOMContentLoaded", () => {
   "use strict";
 
   const $ = (id) => document.getElementById(id);
-  const state = { source: null, fallbackTimer: null };
+  const state = {
+    source: null,
+    fallbackTimer: null,
+    watchdogTimer: null,
+    lastDataAt: 0,
+    pollBusy: false,
+  };
   const labels = {
     pending: "In wachtrij",
-    downloading: "Bezig",
+    queued: "In wachtrij",
+    waiting_retry: "Wacht op retry",
+    searching: "Zoeken",
+    downloading: "Downloaden",
+    validating: "Valideren",
+    processing: "Verwerken",
     downloaded: "Gedownload",
     failed: "Mislukt",
     unavailable: "Niet online beschikbaar",
@@ -344,6 +355,93 @@ document.addEventListener("DOMContentLoaded", () => {
       : '<p class="empty">Geen gegevens.</p>';
   }
 
+  function activeDownloadRows(rows) {
+    const names = {
+      searching: "Zoeken",
+      downloading: "Downloaden",
+      validating: "Valideren",
+      processing: "Verwerken",
+    };
+
+    return rows.length
+      ? rows.map((row) => {
+          const provider = row.preferred_provider
+            ? `<small class="active-provider">Bron: ${escapeHtml(row.preferred_provider)}</small>`
+            : "";
+
+          return `<article class="active-download-item active-${escapeHtml(row.status)}">
+            <div class="active-download-main">
+              <span class="active-pulse" aria-hidden="true"></span>
+              <div>
+                <b>${escapeHtml(row.artist)}</b>
+                <span>${escapeHtml(row.title)}</span>
+                ${provider}
+              </div>
+            </div>
+            <span class="status-badge status-job-${escapeHtml(row.status)}">
+              ${escapeHtml(names[row.status] || row.status)}
+            </span>
+          </article>`;
+        }).join("")
+      : `<div class="active-empty">
+          <span class="active-empty-dot"></span>
+          <div>
+            <b>Geen actieve download</b>
+            <span>De manager wacht op de volgende beschikbare job.</span>
+          </div>
+        </div>`;
+  }
+
+  async function updateActiveDownloads() {
+    const list = $("active-download-list");
+    if (!list) return;
+
+    try {
+      const response = await fetch("/api/download/active", {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      const rows = data.items || [];
+      const active = Number(data.active_count || rows.length || 0);
+      const workers = Number(data.workers || 0);
+
+      setText(
+        "active-download-count",
+        workers > 0 ? `${active} / ${workers}` : active
+      );
+
+      setText(
+        "active-worker-summary",
+        workers > 0
+          ? `${active} van ${workers} workers actief`
+          : `${active} actieve download${active === 1 ? "" : "s"}`
+      );
+
+      updateHtml(
+        "active-download-list",
+        JSON.stringify(data),
+        activeDownloadRows(rows)
+      );
+    } catch (_error) {
+      setText("active-download-count", "—");
+      setText(
+        "active-worker-summary",
+        "Actieve downloadstatus tijdelijk niet beschikbaar"
+      );
+
+      updateHtml(
+        "active-download-list",
+        "active-error",
+        '<p class="empty">Kan actieve downloads nu niet uitlezen.</p>'
+      );
+    }
+  }
+
   function updateQueueAndActivity(data) {
     const statusLabels = data.status_labels || labels;
     const queue = data.queue || [];
@@ -401,64 +499,174 @@ document.addEventListener("DOMContentLoaded", () => {
     updateChart(data, "top40");
     updateChart(data, "tipparade");
     updateQueueAndActivity(data);
+    updateActiveDownloads();
     updateFailed(data);
     updateUnavailable(data);
     updateSuccess(data);
   }
 
+  function markDataReceived() {
+    state.lastDataAt = Date.now();
+    setConnection("online", "Live");
+  }
+
+  function updateConnectionHealth() {
+    if (!state.lastDataAt) return;
+
+    const age = Date.now() - state.lastDataAt;
+
+    if (age > 30000) {
+      setConnection("offline", "Geen actuele data");
+    } else if (age > 15000) {
+      setConnection("connecting", "Vertraagd");
+    }
+  }
+
   async function pollOnce() {
+    if (state.pollBusy) return;
+
+    state.pollBusy = true;
+
     try {
-      const response = await fetch("/api/live", { cache: "no-store" });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      render(await response.json());
-      setConnection("online", "Live");
+      const response = await fetch("/api/live", {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      render(data);
+      markDataReceived();
     } catch (_error) {
-      setConnection("offline", "Offline");
+      if (
+        !state.lastDataAt ||
+        Date.now() - state.lastDataAt > 15000
+      ) {
+        setConnection("offline", "Offline");
+      }
+    } finally {
+      state.pollBusy = false;
     }
   }
 
   function startFallback() {
-    if (state.fallbackTimer) return;
-    pollOnce();
-    state.fallbackTimer = window.setInterval(pollOnce, 3000);
+    /*
+     * Belangrijk:
+     * polling blijft bewust actief naast EventSource.
+     *
+     * Een geopende SSE-socket betekent niet automatisch dat
+     * er nog dashboard-events worden ontvangen.
+     */
+    if (!state.fallbackTimer) {
+      pollOnce();
+
+      state.fallbackTimer = window.setInterval(
+        pollOnce,
+        5000
+      );
+    }
+
+    if (!state.watchdogTimer) {
+      state.watchdogTimer = window.setInterval(
+        updateConnectionHealth,
+        5000
+      );
+    }
   }
 
   function stopFallback() {
-    if (!state.fallbackTimer) return;
-    window.clearInterval(state.fallbackTimer);
-    state.fallbackTimer = null;
+    if (state.fallbackTimer) {
+      window.clearInterval(state.fallbackTimer);
+      state.fallbackTimer = null;
+    }
+
+    if (state.watchdogTimer) {
+      window.clearInterval(state.watchdogTimer);
+      state.watchdogTimer = null;
+    }
   }
 
   function connect() {
     setConnection("connecting", "Verbinden…");
+
+    /*
+     * De HTTP-watchdog wordt altijd gestart.
+     * SSE blijft daarnaast de snelle live-update leveren.
+     */
+    startFallback();
+
     if (!("EventSource" in window)) {
-      startFallback();
       return;
     }
+
     const source = new EventSource("/events");
     state.source = source;
+
     source.addEventListener("open", () => {
-      stopFallback();
-      setConnection("online", "Live");
+      /*
+       * Alleen een open socket is niet genoeg om "Live"
+       * te mogen tonen. Daarvoor moet echt data binnenkomen.
+       */
+      if (!state.lastDataAt) {
+        setConnection("connecting", "Verbonden…");
+      }
     });
+
     source.addEventListener("dashboard", (event) => {
       try {
-        render(JSON.parse(event.data));
-        setConnection("online", "Live");
+        const data = JSON.parse(event.data);
+
+        render(data);
+        markDataReceived();
       } catch (_error) {
         setConnection("offline", "Datafout");
       }
     });
-    source.addEventListener("dashboard-error", () => setConnection("offline", "Serverfout"));
+
+    source.addEventListener("dashboard-error", () => {
+      if (
+        !state.lastDataAt ||
+        Date.now() - state.lastDataAt > 15000
+      ) {
+        setConnection("offline", "Serverfout");
+      }
+    });
+
     source.addEventListener("error", () => {
-      setConnection("offline", "Herverbinden…");
-      startFallback();
+      if (
+        !state.lastDataAt ||
+        Date.now() - state.lastDataAt > 15000
+      ) {
+        setConnection("connecting", "Herverbinden…");
+      }
+
+      /*
+       * EventSource probeert zelf opnieuw te verbinden.
+       * De HTTP-watchdog vangt intussen de live-data op.
+       */
+      pollOnce();
     });
   }
+
+  /*
+   * Na slaapstand, achtergrondtab of terugkeren naar de
+   * browser onmiddellijk actuele gegevens ophalen.
+   */
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      pollOnce();
+    }
+  });
+
+  window.addEventListener("online", pollOnce);
 
   window.addEventListener("beforeunload", () => {
     state.source?.close();
     stopFallback();
   });
+
   document.addEventListener("DOMContentLoaded", connect);
 })();

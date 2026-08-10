@@ -42,6 +42,56 @@ def download_jobs(limit: int = Query(default=100, ge=1, le=500)):
     return {"ok": True, "items": jobs(limit)}
 
 
+@router.get("/api/download/active")
+def active_download_jobs():
+    from .db import connect
+    from .download_concurrency import worker_state
+
+    active_statuses = ("searching", "downloading", "validating", "processing")
+
+    with connect() as con:
+        rows = con.execute(
+            """
+            SELECT
+                j.id,
+                j.track_id,
+                j.status,
+                j.attempts,
+                j.preferred_provider,
+                j.started_at,
+                j.updated_at,
+                t.artist,
+                t.title
+            FROM download_jobs j
+            JOIN tracks t ON t.id=j.track_id
+            WHERE j.status IN ('searching','downloading','validating','processing')
+              AND j.cancel_requested=0
+            ORDER BY
+                CASE j.status
+                    WHEN 'downloading' THEN 0
+                    WHEN 'processing' THEN 1
+                    WHEN 'validating' THEN 2
+                    WHEN 'searching' THEN 3
+                    ELSE 4
+                END,
+                j.updated_at DESC
+            """
+        ).fetchall()
+
+    workers = worker_state()
+
+    return {
+        "ok": True,
+        "active_count": len(rows),
+        "workers": int(workers.get("effective") or 0),
+        "workers_base": int(workers.get("base") or 0),
+        "workers_max": int(workers.get("maximum") or 0),
+        "ai_active": bool(workers.get("ai_active")),
+        "ai_target": workers.get("ai_target"),
+        "items": [dict(row) for row in rows],
+    }
+
+
 @router.get("/api/download/providers")
 def download_providers():
     return _provider_overview()

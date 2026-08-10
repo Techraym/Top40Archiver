@@ -24,13 +24,13 @@ MODEL = _legacy.MODEL
 
 # UI work is deliberately evaluated more frequently than before, but it remains
 # below direct operator traffic in the shared model scheduler.
-_legacy.ERROR_RETRY_MINUTES = 15
-_legacy.STABLE_OPTIMIZE_HOURS = 2
+_legacy.ERROR_RETRY_MINUTES = 3
+_legacy.STABLE_OPTIMIZE_HOURS = 0.5
 
 
 def _run_control_room(cycle_id: str, force: bool) -> dict[str, Any]:
     try:
-        with model_slot("ui-designer-8041", priority="background", wait_seconds=4.0):
+        with model_slot("ui-designer-8041", priority="normal", wait_seconds=20.0):
             return _legacy.run_ui_designer(cycle_id, force=force)
     except ModelBusy as exc:
         return {

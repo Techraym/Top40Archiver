@@ -1916,3 +1916,144 @@ pre {
 .track-cover{display:block;object-fit:cover;background:#f2f1ed}
 .cover-placeholder{display:grid;place-items:center;color:#ef5846;background:linear-gradient(145deg,#fff3ef,#f7eee9);font-size:18px;font-weight:700}
 td{vertical-align:middle}
+
+/* 8040 actieve download drieluik */
+.download-three-column {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  align-items: stretch;
+}
+
+.download-three-column > .panel {
+  min-width: 0;
+  margin-bottom: 18px;
+}
+
+.active-download-panel {
+  position: relative;
+}
+
+.active-worker-summary {
+  margin: -5px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.active-download-list article {
+  position: relative;
+}
+
+.active-download-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+}
+
+.active-download-main > div {
+  min-width: 0;
+}
+
+.active-download-main b,
+.active-download-main span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.active-provider {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.active-pulse {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 0 rgba(40, 140, 85, .35);
+  animation: active-download-pulse 1.8s infinite;
+}
+
+@keyframes active-download-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(40, 140, 85, .35);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(40, 140, 85, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(40, 140, 85, 0);
+  }
+}
+
+.status-job-searching {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.status-job-downloading {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.status-job-validating {
+  color: var(--purple);
+  background: var(--purple-soft);
+}
+
+.status-job-processing {
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.active-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 0;
+  color: var(--muted);
+}
+
+.active-empty b,
+.active-empty span {
+  display: block;
+}
+
+.active-empty b {
+  color: var(--text);
+}
+
+.active-empty-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: .45;
+}
+
+@media (max-width: 1180px) {
+  .download-three-column {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .download-three-column > .panel:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .download-three-column {
+    grid-template-columns: 1fr;
+  }
+
+  .download-three-column > .panel:last-child {
+    grid-column: auto;
+  }
+}

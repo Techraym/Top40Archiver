@@ -16,7 +16,7 @@ MUSICBRAINZ_SEARCH = "https://musicbrainz.org/ws/2/recording/"
 COVER_ART_RELEASE = "https://coverartarchive.org/release/{release_id}/front-500"
 USER_AGENT = "Top40Archiver/1.16.2 (https://github.com/Techraym/Top40Archiver)"
 TRANSIENT = {429, 500, 502, 503, 504}
-MIN_INTERVAL = 1.35
+MIN_INTERVAL = 1.05
 DEFAULT_BATCH_SIZE = 40
 DEFAULT_TRANSIENT_RETRY_SECONDS = 120
 _last_request = 0.0
@@ -110,64 +110,173 @@ def _paced_get(
     raise last_error or RuntimeError("Onbekende netwerkfout")
 
 
+
+_COLLAB_SPLIT = re.compile(
+    r"\s+(?:feat\.?|featuring|ft\.?|x|with|vs\.?|&|and|\+)\s+",
+    re.I,
+)
+
+
+def _cover_artist_variants(artist: str) -> list[str]:
+    raw = " ".join(str(artist or "").split())
+    values: list[str] = []
+
+    def add(value: str) -> None:
+        value = " ".join(str(value or "").strip(" ,-/").split())
+        if value and value.casefold() not in {x.casefold() for x in values}:
+            values.append(value)
+
+    add(raw)
+
+    for slash_part in raw.split("/"):
+        add(slash_part)
+
+        for part in _COLLAB_SPLIT.split(slash_part):
+            add(part)
+
+    return values[:6]
+
+
+def _cover_title_variants(title: str) -> list[str]:
+    raw = " ".join(str(title or "").split())
+    values: list[str] = []
+
+    def add(value: str) -> None:
+        value = _clean_title(value)
+        value = " ".join(value.strip(" ,-/").split())
+        if value and value.casefold() not in {x.casefold() for x in values}:
+            values.append(value)
+
+    add(raw)
+
+    for slash_part in raw.split("/"):
+        add(slash_part)
+
+        simple = re.sub(
+            r"\s*[-–—]?\s*\(?"
+            r"(?:remix|radio edit|original mix|edit|version)"
+            r"[^)]*\)?\s*$",
+            "",
+            slash_part,
+            flags=re.I,
+        )
+        add(simple)
+
+    return values[:5]
+
+
+def _cover_queries(artist: str, title: str) -> list[str]:
+    artists = _cover_artist_variants(artist)
+    titles = _cover_title_variants(title)
+
+    queries: list[str] = []
+
+    def add(value: str) -> None:
+        if value and value not in queries:
+            queries.append(value)
+
+    if artists and titles:
+        add(f'recording:"{titles[0]}" AND artist:"{artists[0]}"')
+
+    for t in titles:
+        for a in artists:
+            add(f'recording:"{t}" AND artist:"{a}"')
+            if len(queries) >= 8:
+                return queries
+
+    return queries
+
 def lookup_cover(artist: str, title: str) -> dict[str, str]:
     clean_title = _clean_title(title)
-    queries = [
-        f'recording:"{clean_title}" AND artist:"{artist}"',
-        f'"{clean_title}" AND "{artist}"',
-    ]
+    queries = _cover_queries(artist, clean_title)
+
+    if not queries:
+        queries = [
+            f'recording:"{clean_title}" AND artist:"{artist}"',
+        ]
 
     best: list[dict] = []
+
     for query in queries:
         response = _paced_get(
             MUSICBRAINZ_SEARCH,
-            params={"query": query, "fmt": "json", "limit": 12},
+            params={"query": query, "fmt": "json", "limit": 8},
         )
+
         recordings = list(response.json().get("recordings") or [])
-        recordings.sort(key=lambda item: _score(artist, clean_title, item), reverse=True)
-        best.extend(recordings[:6])
-        if best and _score(artist, clean_title, best[0]) >= 0.82:
+
+        recordings.sort(
+            key=lambda item: _score(artist, clean_title, item),
+            reverse=True,
+        )
+
+        best.extend(recordings[:4])
+
+        if recordings and _score(artist, clean_title, recordings[0]) >= 0.80:
             break
 
     seen: set[str] = set()
-    best.sort(key=lambda item: _score(artist, clean_title, item), reverse=True)
+
+    best.sort(
+        key=lambda item: _score(artist, clean_title, item),
+        reverse=True,
+    )
 
     for recording in best:
         score = _score(artist, clean_title, recording)
-        if score < 0.58:
+
+        if score < 0.52:
             continue
 
         releases = recording.get("releases") or []
+
         releases.sort(
-            key=lambda item: (not bool(item.get("date")), str(item.get("date") or "9999"))
+            key=lambda item: (
+                not bool(item.get("date")),
+                str(item.get("date") or "9999"),
+            )
         )
 
-        for release in releases[:8]:
+        for release in releases[:4]:
             release_id = str(release.get("id") or "").strip()
+
             if not release_id or release_id in seen:
                 continue
+
             seen.add(release_id)
 
-            url = COVER_ART_RELEASE.format(release_id=quote(release_id))
+            url = COVER_ART_RELEASE.format(
+                release_id=quote(release_id)
+            )
+
             try:
                 check = _paced_get(url, timeout=20)
             except requests.HTTPError as exc:
                 status = getattr(exc.response, "status_code", None)
+
                 if status == 404:
                     continue
+
                 raise
 
-            content_type = str(check.headers.get("Content-Type") or "")
-            if check.status_code == 200 and content_type.startswith("image/"):
+            content_type = str(
+                check.headers.get("Content-Type") or ""
+            )
+
+            if (
+                check.status_code == 200
+                and content_type.startswith("image/")
+            ):
                 return {
                     "cover_url": url,
                     "cover_source": "cover_art_archive",
-                    "musicbrainz_recording_id": str(recording.get("id") or ""),
+                    "musicbrainz_recording_id": str(
+                        recording.get("id") or ""
+                    ),
                     "musicbrainz_release_id": release_id,
                 }
 
     return {}
-
 
 def _latest_edition_ids(con) -> tuple[int, int]:
     latest_top = con.execute(

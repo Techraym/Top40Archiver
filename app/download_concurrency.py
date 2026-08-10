@@ -64,7 +64,7 @@ def worker_state() -> dict[str, Any]:
         rows = {}
 
     configured_base = _bounded_workers(rows.get(BASE_SETTING), DEFAULT_DOWNLOAD_WORKERS)
-    base = DEFAULT_DOWNLOAD_WORKERS
+    base = configured_base
     ai_target = _bounded_workers(rows.get(AI_SETTING), base) if rows.get(AI_SETTING) else None
     ai_until = _parse_time(rows.get(AI_UNTIL_SETTING))
     ai_active = bool(ai_target is not None and ai_until is not None and ai_until > _utcnow())

@@ -24,7 +24,7 @@ from .ai_learning import complete_action, start_action
 
 BACKUP_DIR = CONTROL_ROOM_DIR / "backups"
 MODEL = os.getenv("TOP40_AI_MODEL", "qwen3:4b")
-VERIFY_MINUTES = 20
+VERIFY_MINUTES = 10
 STABLE_OPTIMIZE_HOURS = 6
 ERROR_RETRY_MINUTES = 5
 MIN_HEALTH_EVENTS_FOR_VERIFY = 3
@@ -190,48 +190,67 @@ def _extract_html(text: str) -> str:
 
 def _ask_model(reason: str, state: dict[str, Any], current_html: str) -> str:
     required = ", ".join(REQUIRED_SECTION_IDS)
-    context = json.dumps(_design_context(state), ensure_ascii=False, indent=2)[:32_000]
-    current = current_html[:24_000]
-    prompt = f"""Je bent de lokale Top40Archiver UI engineer. Jij bezit de HTML en CSS van de hoofdpagina op poort 8041.
-Je opdracht is een professionele, extreem duidelijke Operations/AI Control Room te schrijven waarmee een beheerder ALLES kan zien wat jij doet, bewaakt, leert en aanpast.
 
-REDEN VOOR DEZE REVISIE:
+    prompt = f"""Je bent de lokale Top40Archiver UI engineer.
+
+Maak uitsluitend een compact volledig HTML5-document voor de hoofdpagina op poort 8041.
+
+DOEL:
+- menselijk
+- modern
+- licht kleurgebruik
+- duidelijke navigatie
+- professionele AI Operations Control Room
+
+HARDE REGELS:
+- begin exact met <!doctype html>
+- eindig exact met </html>
+- GEEN JavaScript
+- GEEN script-tags
+- GEEN externe URLs, fonts, afbeeldingen, CDN, iframe of forms
+- mobiel + desktop bruikbaar
+- geen horizontale overflow
+- gebruik lichte achtergrond en rustige kaarten
+- zet bovenaan duidelijke navigatieknoppen naar de hoofdsecties
+- gebruik classes good, warn en bad
+- tekst Nederlands en zakelijk
+
+VERPLICHTE IDS, ieder exact eenmaal:
+{required}
+
+Daarnaast verplicht:
+- id="cr-updated"
+- id="cr-revision"
+
+BELANGRIJK:
+De applicatie vult alle data later zelf in via vaste JavaScript-runtime.
+Schrijf daarom GEEN uitgebreide data, tabellen of voorbeeldrecords.
+Maak alleen een sterke layout, navigatie, sectiekoppen, lege containers en CSS.
+
+Reden revisie:
 {reason}
 
-HARDE CONTRACTREGELS:
-- Geef uitsluitend EEN volledig HTML5-document, beginnend met <!doctype html> en eindigend met </html>.
-- Schrijf HTML en CSS volledig zelf. GEEN JavaScript en GEEN <script>-tags; de beveiligde runtime wordt na validatie door de applicatie geïnjecteerd.
-- GEEN externe URLs, fonts, afbeeldingen, CDN's, iframes, forms, event-handlers of javascript: links.
-- De pagina moet mobiel, tablet en desktop bruikbaar zijn en horizontale overflow vermijden.
-- Gebruik exact deze verplichte lege/structurele containers, ieder precies eenmaal: {required}.
-- Gebruik daarnaast id='cr-updated' en id='cr-revision' voor de actuele tijd en UI-revisie.
-- Zet de belangrijkste operationele toestand bovenaan: health, actieve taken, lopende canaries, achterstanden en fouten.
-- Maak daarna alle AI-acties, services, downloads, covers, database, charts, incidenten, codewijzigingen, learning, UI-evolutie en logs gemakkelijk scanbaar.
-- De container cr-raw moet aanwezig zijn zodat de volledige snapshot altijd inspecteerbaar blijft.
-- Gebruik duidelijke statushiërarchie met classes good, warn en bad.
-- Houd tekst Nederlands en zakelijk. Geen marketingtaal.
-- De vaste runtime vervangt de inhoud van de containers; schrijf in de containers alleen zinvolle laadtekst/sectiekoppen.
-
-LIVE CONTEXT:
-{context}
-
-HUIDIGE HTML (kan leeg zijn; verbeter aantoonbare problemen, maak geen cosmetische verandering zonder reden):
-{current}
+Lever ALLEEN het HTML-document.
 """
+
     response = requests.post(
         os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate"),
         json={
             "model": MODEL,
             "prompt": prompt,
             "stream": False,
-            "keep_alive": "30m",
-            "options": {"temperature": 0.25},
+            "think": False,
+            "keep_alive": "2h",
+            "options": {
+                "temperature": 0.18,
+                "num_ctx": 2048,
+                "num_predict": 700,
+            },
         },
-        timeout=150,
+        timeout=90,
     )
     response.raise_for_status()
     return _extract_html(str(response.json().get("response") or ""))
-
 
 def _rollback(state: dict[str, Any], active: dict[str, Any], reason: str) -> dict[str, Any]:
     backup = Path(str(active.get("backup") or ""))
