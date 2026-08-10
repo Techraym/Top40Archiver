@@ -18,6 +18,14 @@ def test_current_top40_is_claimed_before_tipparade_and_archive():
     assert 'ELSE 2' in claim
 
 
+def test_claim_batch_never_mixes_archive_with_ready_current_chart_work():
+    source = (ROOT / "app/download_policy.py").read_text(encoding="utf-8")
+    claim = source[source.index("def claim_jobs_current_first") : source.index("def apply_current_chart_fast_retry")]
+    assert 'selected_class = str(rows[0]["queue_class"])' in claim
+    assert 'if str(row["queue_class"]) == selected_class' in claim
+    assert "[:wanted]" in claim
+
+
 def test_pending_enqueue_uses_same_current_chart_priority():
     source = (ROOT / "app/download_policy.py").read_text(encoding="utf-8")
     enqueue = source[
@@ -29,6 +37,26 @@ def test_pending_enqueue_uses_same_current_chart_priority():
     assert "THEN 0" in enqueue
     assert "THEN 1" in enqueue
     assert "ELSE 2" in enqueue
+
+
+def test_current_chart_fast_retry_is_short_and_bounded():
+    source = (ROOT / "app/download_policy.py").read_text(encoding="utf-8")
+    assert "CURRENT_TOP40_FAST_RETRY_SECONDS = 20" in source
+    assert "CURRENT_TIPPARADE_FAST_RETRY_SECONDS = 30" in source
+    assert "CURRENT_CHART_FAST_RETRY_ATTEMPTS = 5" in source
+    retry = source[source.index("def apply_current_chart_fast_retry") :]
+    assert "download_status='pending'" in retry
+    assert 'updated["fast_retry"] = True' in retry
+    assert "attempts > CURRENT_CHART_FAST_RETRY_ATTEMPTS" in retry
+
+
+def test_dynamic_manager_applies_fast_retry_to_real_process_job_result():
+    source = (ROOT / "app/download_manager_dynamic_entry.py").read_text(encoding="utf-8")
+    assert "def _run_one_job" in source
+    assert "result = download_manager.process_job(job)" in source
+    assert "return apply_current_chart_fast_retry(job, result)" in source
+    assert '"single_queue_class_per_batch": True' in source
+    assert '"current_chart_fast_retry": True' in source
 
 
 def test_youtube_gets_exclusive_first_provider_group(monkeypatch):
