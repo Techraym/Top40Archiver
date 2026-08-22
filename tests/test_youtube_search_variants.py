@@ -68,3 +68,14 @@ def test_provider_interleaves_results_from_multiple_queries(monkeypatch):
     assert result[0].title == "Candidate 1-0"
     assert result[1].title == "Candidate 2-0"
     assert result[2].title == "Candidate 3-0"
+
+
+def test_direct_youtube_download_uses_mweb_client():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app/providers/youtube.py").read_text(encoding="utf-8")
+
+    assert "youtube:player_client=mweb" in source
+    assert "ytdlp_download_original" in source
+    assert "extra_args=self.EXTRACTOR_ARGS" in source

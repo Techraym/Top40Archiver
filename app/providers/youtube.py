@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
 import re
 from typing import Any
 
-from .base import AudioProvider, ProviderCandidate, candidate_from_ytdlp, run_ytdlp_json
+from .base import (
+    AudioProvider,
+    ProviderCandidate,
+    candidate_from_ytdlp,
+    run_ytdlp_json,
+    ytdlp_download_original,
+)
 
 
 _CONNECTOR_RE = re.compile(
@@ -68,6 +75,22 @@ def _query_variants(track: dict[str, Any]) -> list[str]:
 
 class YouTubeProvider(AudioProvider):
     name = "youtube"
+    EXTRACTOR_ARGS = ["--extractor-args", "youtube:player_client=mweb"]
+
+    def download(
+        self,
+        candidate: ProviderCandidate,
+        destination_dir: Path,
+        *,
+        timeout: int = 600,
+    ) -> Path:
+        return ytdlp_download_original(
+            candidate.url,
+            destination_dir,
+            timeout=timeout,
+            provider=self.name,
+            extra_args=self.EXTRACTOR_ARGS,
+        )
 
     def search(self, track: dict[str, Any], *, limit: int = 8) -> list[ProviderCandidate]:
         wanted = max(1, min(int(limit), 10))

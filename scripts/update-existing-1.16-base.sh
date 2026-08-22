@@ -15,6 +15,7 @@ BACKUP_ROOT="$DATA_DIR/backups/auto-update"
 WEB_SERVICE=top40-archiver-web.service
 DOWNLOAD_SERVICE=top40-archiver-download.service
 DOWNLOAD_TIMER=top40-archiver-download.timer
+BGUTIL_SERVICE=top40-bgutil-pot.service
 AI_SERVICE=top40-archiver-ai.service
 LOG_SERVICE=top40-log-reader.service
 RECOVERY_SERVICE=top40-ai-recovery.service
@@ -164,7 +165,8 @@ rollback_app() {
 
 recover_previous_services() {
   systemctl daemon-reload 2>/dev/null || true
-  systemctl reset-failed "$WEB_SERVICE" "$DOWNLOAD_SERVICE" "$AI_SERVICE" "$LOG_SERVICE" 2>/dev/null || true
+  systemctl reset-failed "$WEB_SERVICE" "$DOWNLOAD_SERVICE" "$AI_SERVICE" "$LOG_SERVICE" "$BGUTIL_SERVICE" 2>/dev/null || true
+  systemctl start "$BGUTIL_SERVICE" 2>/dev/null || true
   systemctl start "$WEB_SERVICE" 2>/dev/null || true
   systemctl start "$DOWNLOAD_SERVICE" 2>/dev/null || true
   systemctl start "$LOG_SERVICE" 2>/dev/null || true
@@ -229,7 +231,7 @@ done
 echo "=== Preflight 1.16.0 ==="
 echo "Systeempakketten controleren terwijl dashboard actief blijft..."
 apt-get update
-apt-get install -y ffmpeg ca-certificates curl unzip util-linux openssl sqlite3
+apt-get install -y ffmpeg ca-certificates curl unzip util-linux openssl sqlite3 git
 update-ca-certificates
 
 echo "Python-pakketten controleren..."
@@ -239,10 +241,13 @@ if ! "$VENV_PY" -c 'import pytest' >/dev/null 2>&1; then
 fi
 
 if ! command -v deno >/dev/null 2>&1; then
-  echo "Deno installeren..."
-  curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/opt/deno sh
+  echo "Deno 2.9.4 installeren..."
+  curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/opt/deno sh -s v2.9.4
   ln -sf /opt/deno/bin/deno /usr/local/bin/deno
 fi
+
+echo "BGUtil YouTube PO-tokenprovider controleren..."
+bash "$SRC/scripts/install-bgutil-pot.sh"
 
 if [ ! -f /etc/top40-archiver.env ]; then
   cat >/etc/top40-archiver.env <<'EOF'
@@ -256,7 +261,7 @@ EOF
 fi
 
 echo "Shell- en Python-syntax controleren..."
-bash -n "$SRC/update-existing.sh" "$SRC/auto-update.sh" "$SRC/install-1.16.0.sh" "$SRC/scripts/safe-update.sh" "$SRC/scripts/install-1.16.0.sh"
+bash -n "$SRC/update-existing.sh" "$SRC/auto-update.sh" "$SRC/install-1.16.0.sh" "$SRC/scripts/safe-update.sh" "$SRC/scripts/install-1.16.0.sh" "$SRC/scripts/install-bgutil-pot.sh"
 "$VENV_PY" -m compileall -q "$SRC/app"
 
 echo "Regressietests in geïsoleerde testdata uitvoeren..."
@@ -332,7 +337,7 @@ runuser -u "$SERVICE_USER" -- env \
   PYTHONPATH="$APP_ROOT" \
   "$VENV_PY" -c 'from app.ai_memory import connect; c=connect(); c.__enter__(); c.__exit__(None,None,None)'
 
-systemctl reset-failed "$WEB_SERVICE" "$LOG_SERVICE" "$AI_SERVICE" "$DOWNLOAD_SERVICE" 2>/dev/null || true
+systemctl reset-failed "$WEB_SERVICE" "$LOG_SERVICE" "$AI_SERVICE" "$DOWNLOAD_SERVICE" "$BGUTIL_SERVICE" 2>/dev/null || true
 systemctl enable "$WEB_SERVICE" "$LOG_SERVICE" "$AI_SERVICE" >/dev/null 2>&1
 systemctl start "$WEB_SERVICE"
 wait_for_url "webinterface 8040" "http://127.0.0.1:8040/health" 30 1
@@ -383,6 +388,10 @@ PY
 # Download- en onderhoudsservices pas na geslaagde 8040/8041/8042-validatie
 # definitief inschakelen.
 systemctl disable --now "$DOWNLOAD_TIMER" 2>/dev/null || true
+
+# Direct YouTube gebruikt de lokale BGUtil HTTP PO-tokenprovider.
+systemctl enable --now "$BGUTIL_SERVICE"
+systemctl is-active --quiet "$BGUTIL_SERVICE"
 systemctl enable --now \
   "$DOWNLOAD_SERVICE" \
   top40-archiver-history.timer \
@@ -400,6 +409,7 @@ systemctl start --no-block top40-archiver-history.service 2>/dev/null || true
 wait_for_url "webinterface finale controle" "http://127.0.0.1:8040/health" 15 1
 wait_for_url "AI-platform finale controle" "http://127.0.0.1:8041/healthz" 15 1
 wait_for_url "logreader finale controle" "http://127.0.0.1:8042/healthz" 15 1
+systemctl is-active --quiet "$BGUTIL_SERVICE"
 systemctl is-active --quiet "$DOWNLOAD_SERVICE"
 systemctl is-active --quiet "$AI_SERVICE"
 systemctl is-active --quiet "$LOG_SERVICE"

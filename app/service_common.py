@@ -142,10 +142,10 @@ def _persist_chart(chart: ChartEdition, force: bool = False) -> dict:
                         artist,title,normalized_artist,normalized_title,
                         first_chart_date,first_edition,first_position,first_chart_type,
                         peak_position,last_position,processed_at,download_status,youtube_url,
-                        updated_at,seen_top40,seen_tipparade,
+                        source_track_id,updated_at,seen_top40,seen_tipparade,
                         top40_peak_position,top40_last_position,
                         tipparade_peak_position,tipparade_last_position
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         item.artist,
@@ -161,6 +161,7 @@ def _persist_chart(chart: ChartEdition, force: bool = False) -> dict:
                         now_iso(),
                         "pending",
                         item.youtube_url,
+                        item.source_track_id,
                         now_iso(),
                         seen_top40,
                         seen_tipparade,
@@ -197,6 +198,10 @@ def _persist_chart(chart: ChartEdition, force: bool = False) -> dict:
                     SET peak_position=MIN(peak_position,?),
                         last_position=?,
                         youtube_url=COALESCE(youtube_url,?),
+                        source_track_id=COALESCE(
+                            NULLIF(trim(source_track_id),''),
+                            ?
+                        ),
                         {fields['seen']}=1,
                         {fields['peak']}=CASE
                             WHEN {fields['peak']} IS NULL THEN ?
@@ -210,6 +215,7 @@ def _persist_chart(chart: ChartEdition, force: bool = False) -> dict:
                         item.position,
                         item.position,
                         item.youtube_url,
+                        item.source_track_id,
                         item.position,
                         item.position,
                         item.position,

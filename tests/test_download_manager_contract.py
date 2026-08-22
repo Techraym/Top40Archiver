@@ -208,3 +208,176 @@ def test_updater_migrates_from_legacy_daemon_to_manager():
     assert 'systemctl disable --now "$LEGACY_DOWNLOAD_SERVICE"' in updater
     assert "top40-provider-ai.timer" in updater
     assert "/api/download/providers" in updater
+
+
+def test_retryable_provider_transport_errors_are_not_permanently_rejected():
+    source = (ROOT / "app/download_manager.py").read_text(encoding="utf-8")
+    assert 'if exc.category in {"drm", "unavailable"}:' in source
+
+
+def test_offline_provider_can_probe_again_after_cooldown():
+    source = (ROOT / "app/download_manager.py").read_text(encoding="utf-8")
+    assert "Na een verlopen cooldown" in source
+    assert 'return str(row.get("status") or "healthy") != "offline"' not in source
+
+
+def test_waiting_retry_keeps_track_pending_and_never_overwrites_downloaded():
+    source = (ROOT / "app/download_manager.py").read_text(encoding="utf-8")
+    assert "download_status='pending'" in source
+    assert "AND download_status!='downloaded'" in source
+
+
+def test_process_job_has_already_downloaded_guard():
+    source = (ROOT / "app/download_manager.py").read_text(encoding="utf-8")
+    assert '"already_downloaded": True' in source
+    assert '"completed_inconsistent"' in source
+
+
+def test_qwen_recovery_cannot_bypass_deterministic_matching():
+    source = (ROOT / "app/download_manager.py").read_text(encoding="utf-8")
+    recovery = source.index("recovery = prepare_recovery_query(job, track)")
+    provider_loop = source.index("for group in [*primary_groups, *fallback_groups]:")
+    assert provider_loop < recovery
+
+    recovery_source = (ROOT / "app/download_recovery_ai.py").read_text(
+        encoding="utf-8"
+    )
+    assert "custom_search_query" in recovery_source
+    assert "score_candidate" not in recovery_source
+    assert "TOP40_DOWNLOAD_RECOVERY_AI" in recovery_source
+
+
+def test_bgutil_pot_runtime_is_release_managed():
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    assert "yt-dlp[default]>=2026.7.4" in requirements
+    assert "bgutil-ytdlp-pot-provider==1.3.2" in requirements
+
+    service = (ROOT / "systemd/top40-bgutil-pot.service").read_text(
+        encoding="utf-8"
+    )
+    assert "User=top40archiver" in service
+    assert "WorkingDirectory=/var/lib/top40-archiver/bgutil-ytdlp-pot-provider/server/node_modules" in service
+    assert "/usr/local/bin/deno run" in service
+    assert "--allow-ffi=." in service
+    assert "../src/main.ts" in service
+
+    manager_service = (
+        ROOT / "systemd/top40-download-manager.service"
+    ).read_text(encoding="utf-8")
+    assert "Requires=top40-bgutil-pot.service" in manager_service
+    assert "DENO_DIR=/var/lib/top40-archiver/.cache/deno" in manager_service
+
+
+def test_bgutil_installer_is_version_and_commit_pinned():
+    installer = (ROOT / "scripts/install-bgutil-pot.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "BGUTIL_VERSION=1.3.2" in installer
+    assert "7511309af023b09788dc8f2efc96cc3671291e6c" in installer
+    assert "deno install --allow-scripts=npm:canvas --frozen" not in installer
+    assert 'install --allow-scripts=npm:canvas --frozen' in installer
+    assert "server/node_modules" in installer
+
+
+def test_transactional_updater_installs_bgutil_before_download_manager():
+    source = (
+        ROOT / "scripts/update-existing-1.16-base.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "BGUTIL_SERVICE=top40-bgutil-pot.service" in source
+    assert 'bash "$SRC/scripts/install-bgutil-pot.sh"' in source
+    assert "Deno 2.9.4 installeren" in source
+    assert 'systemctl enable --now "$BGUTIL_SERVICE"' in source
+
+    bgutil = source.index('systemctl enable --now "$BGUTIL_SERVICE"')
+    manager = source.index(
+        'systemctl restart "$DOWNLOAD_SERVICE"'
+    )
+    assert bgutil < manager
+
+
+def test_qwen_recovery_state_has_formal_download_schema():
+    source = (ROOT / "app/download_db.py").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS download_recovery_ai_state" in source
+    assert "track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE" in source
+    assert "suggested_query TEXT" in source
+    assert "confidence REAL" in source
+
+
+def test_source_track_id_is_formally_persisted_and_claimed():
+    db_source = (ROOT / "app/db.py").read_text(encoding="utf-8")
+    persist_source = (
+        ROOT / "app/service_common.py"
+    ).read_text(encoding="utf-8")
+    queue_source = (
+        ROOT / "app/download_db.py"
+    ).read_text(encoding="utf-8")
+    manager_source = (
+        ROOT / "app/download_manager.py"
+    ).read_text(encoding="utf-8")
+
+    assert '"source_track_id": "TEXT"' in db_source
+    assert "idx_tracks_source_track_id" in db_source
+
+    # De index wordt pas na de kolommigratie gemaakt.
+    migration = db_source.index(
+        '_ensure_columns(con, "tracks", TRACK_MIGRATION_COLUMNS)'
+    )
+    index = db_source.index(
+        "CREATE INDEX IF NOT EXISTS idx_tracks_source_track_id"
+    )
+    assert migration < index
+
+    assert "item.source_track_id" in persist_source
+    assert "t.custom_search_query,t.youtube_url,t.source_track_id" in queue_source
+    assert '"source_track_id": str(job.get("source_track_id")' in manager_source
+
+
+def test_top40_fallback_only_accepts_numeric_top40_source_ids():
+    from app import download_manager
+
+    result = download_manager._top40_youtube_candidate(
+        {"track_id": 123},
+        {
+            "track_id": 123,
+            "artist": "Example Artist",
+            "title": "Example Song",
+            "source_track_id": "p2lJGKVIGvU",
+        },
+    )
+
+    # Niet-numerieke generieke/YouTube IDs mogen nooit worden gebruikt om een
+    # Top40.nl detail-URL af te leiden. Dit retourneert vóór enig netwerk/DB-werk.
+    assert result is None
+
+
+def test_top40_fallback_stays_between_providers_and_qwen():
+    source = (
+        ROOT / "app/download_manager.py"
+    ).read_text(encoding="utf-8")
+
+    provider_loop = source.index(
+        "for group in [*primary_groups, *fallback_groups]:"
+    )
+    top40 = source.index(
+        "top40_fallback = _top40_youtube_candidate"
+    )
+    qwen = source.index(
+        "recovery = prepare_recovery_query(job, track)"
+    )
+
+    assert provider_loop < top40 < qwen
+
+
+def test_top40_fallback_keeps_hard_match_safety():
+    source = (
+        ROOT / "app/download_manager.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'decision.reason == "try_other_provider"' in source
+    assert "decision.score >= 85" in source
+    assert "and not decision.penalties" in source
+    assert 'reason="top40_verified_source"' in source
+    assert "score_candidate(" in source
+    assert "_try_candidate(" in source

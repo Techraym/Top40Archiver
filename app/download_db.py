@@ -121,6 +121,14 @@ CREATE TABLE IF NOT EXISTS rejected_candidates (
   rejected_at TEXT NOT NULL,
   UNIQUE(track_id,provider,candidate_url)
 );
+
+CREATE TABLE IF NOT EXISTS download_recovery_ai_state (
+  track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+  attempted_at TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  suggested_query TEXT,
+  confidence REAL
+);
 """
 
 
@@ -366,7 +374,7 @@ def claim_jobs(limit: int) -> list[dict[str, Any]]:
             """
             SELECT j.*,t.artist,t.title,t.genre,t.spotify_album,t.spotify_release_date,
                    t.spotify_duration_ms,t.spotify_isrc,t.spotify_artist,t.spotify_title,
-                   t.custom_search_query,t.youtube_url
+                   t.custom_search_query,t.youtube_url,t.source_track_id
             FROM download_jobs j JOIN tracks t ON t.id=j.track_id
             WHERE j.cancel_requested=0
               AND (

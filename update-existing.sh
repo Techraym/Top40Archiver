@@ -119,6 +119,7 @@ new_tests = "\n".join([
     "      tests/test_download_matching.py " + bs,
     "      tests/test_download_provider_policy.py " + bs,
     "      tests/test_download_manager_contract.py " + bs,
+    "      tests/test_youtube_search_variants.py " + bs,
     "      tests/test_download_concurrency.py " + bs,
     "      tests/test_download_policy.py " + bs,
     "      tests/test_auto_update_contract.py",

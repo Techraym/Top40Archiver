@@ -151,3 +151,49 @@ def test_normalized_score_exposes_available_evidence_budget():
     decision = score_candidate(track, candidate)
     assert decision.components["available_max"] == 65.0
     assert decision.components["raw_positive"] == 65.0
+
+
+def test_major_lazer_full_collaboration_official_video_is_accepted():
+    track = {
+        "artist": "Major Lazer x DJ Snake feat. Mø",
+        "title": "Lean on",
+        "duration_ms": None,
+    }
+    candidate = {
+        "title": "Major Lazer & DJ Snake - Lean On (feat. MØ) [Official 4K Music Video]",
+        "uploader": "Major Lazer Official",
+        "duration": 179,
+    }
+    decision = score_candidate(track, candidate)
+    assert decision.score == 100.0
+    assert decision.accepted is True
+    assert decision.reason == "strong_identity_without_reference_duration"
+
+
+def test_major_lazer_extended_version_is_rejected():
+    track = {
+        "artist": "Major Lazer x DJ Snake feat. Mø",
+        "title": "Lean on",
+        "duration_ms": None,
+    }
+    candidate = {
+        "title": "Major Lazer & DJ Snake - Lean On (feat. MØ) [EXTENDED VERSION]",
+        "duration": 337,
+    }
+    decision = score_candidate(track, candidate)
+    assert decision.accepted is False
+    assert any(item["marker"] == "extended" for item in decision.penalties)
+
+
+def test_partial_collaboration_does_not_gain_title_core_acceptance():
+    track = {
+        "artist": "Major Lazer x DJ Snake feat. Mø",
+        "title": "Lean on",
+        "duration_ms": None,
+    }
+    candidate = {
+        "title": "MØ - LEAN ON - The 2015 Nobel Peace Prize Concert",
+        "duration": 201,
+    }
+    decision = score_candidate(track, candidate)
+    assert decision.accepted is False

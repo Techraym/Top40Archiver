@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS tracks (
   processed_at TEXT NOT NULL,
   download_status TEXT NOT NULL DEFAULT 'pending',
   youtube_url TEXT,
+  source_track_id TEXT,
   genre TEXT,
   mp3_filename TEXT,
   error_message TEXT,
@@ -153,6 +154,7 @@ TRACK_MIGRATION_COLUMNS = {
     "youtube_match_score": "REAL",
     "youtube_channel": "TEXT",
     "youtube_duration_seconds": "INTEGER",
+    "source_track_id": "TEXT",
 }
 
 UNAVAILABLE_MIGRATION_PREFIX = (
@@ -360,6 +362,13 @@ def init_db():
     with connect() as con:
         con.executescript(SCHEMA)
         _ensure_columns(con, "tracks", TRACK_MIGRATION_COLUMNS)
+
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_tracks_source_track_id
+            ON tracks(source_track_id)
+            """
+        )
 
         con.execute(
             """

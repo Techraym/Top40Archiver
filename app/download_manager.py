@@ -1,18 +1,24 @@
 from __future__ import annotations
 
+import logging
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import threading
 import time
+from urllib.parse import urljoin
 from typing import Any
+
+from bs4 import BeautifulSoup
 
 from .ai_session_console import scope_held
 from .config import DATA_DIR
@@ -33,9 +39,19 @@ from .download_db import (
     update_provider_runtime,
 )
 from .download_matching import MatchDecision, score_candidate
+from .download_recovery_ai import prepare_recovery_query
 from .metadata import UNKNOWN_GENRE, clean_genre, resolve_genre, track_relative_path
 from .providers import provider_from_row
-from .providers.base import AudioProvider, ProviderCandidate, ProviderError
+from .providers.base import (
+    AudioProvider,
+    ProviderCandidate,
+    ProviderError,
+    candidate_from_ytdlp,
+    run_ytdlp_json,
+)
+from .top40 import _http_session, _ca_bundle
+
+logger = logging.getLogger("top40.download_manager")
 
 MAX_GLOBAL_DOWNLOADS = 4
 MAX_PARALLEL_PROVIDER_SEARCHES = 3
@@ -118,7 +134,10 @@ def _provider_available(row: dict[str, Any]) -> bool:
     cooldown = _parse_time(row.get("cooldown_until"))
     if cooldown and cooldown > _utcnow():
         return False
-    return str(row.get("status") or "healthy") != "offline"
+
+    # Na een verlopen cooldown moet ook een eerder offline provider opnieuw
+    # kunnen worden geprobed. Alleen een nieuwe poging kan hem healthy maken.
+    return True
 
 
 def _candidate_from_dict(provider: str, value: dict[str, Any]) -> ProviderCandidate | None:
@@ -160,6 +179,7 @@ def _track_context(job: dict[str, Any]) -> dict[str, Any]:
         "isrc": str(job.get("spotify_isrc") or "").strip() or None,
         "year": year,
         "custom_search_query": str(job.get("custom_search_query") or "").strip() or None,
+        "source_track_id": str(job.get("source_track_id") or "").strip() or None,
     }
 
 
@@ -534,7 +554,17 @@ def _try_candidate(
                 error=str(exc),
                 started_at=started_at,
             )
-            reject_candidate(int(job["track_id"]), provider_name, candidate.url, exc.category, decision.score)
+            # Alleen kandidaat-specifieke harde fouten permanent afwijzen.
+            # Transport/providerfouten zoals 403, timeout en rate-limit mogen
+            # een goede kandidaat niet permanent blokkeren.
+            if exc.category in {"drm", "unavailable"}:
+                reject_candidate(
+                    int(job["track_id"]),
+                    provider_name,
+                    candidate.url,
+                    exc.category,
+                    decision.score,
+                )
             raise
         except DownloadValidationError as exc:
             if str(exc).startswith("existing_target_conflict:"):
@@ -561,6 +591,225 @@ def _try_candidate(
             raise
 
 
+
+def _top40_youtube_candidate(
+    job: dict[str, Any],
+    track: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Gebruik een YouTube-video die rechtstreeks aan de Top40.nl-track hangt.
+
+    Deze fallback draait uitsluitend nadat de normale providers niets bruikbaars
+    opleverden. De gevonden video passeert altijd de normale matcher en daarna
+    dezelfde download-/FFprobe-/FFmpeg-validatie als iedere andere kandidaat.
+    """
+    source_track_id = str(track.get("source_track_id") or "").strip()
+
+    # Top40-detail-IDs uit hrefs zijn numeriek. De parser kan in aanvullende
+    # JSON ook andere generieke `id`-waarden tegenkomen (bijvoorbeeld een
+    # YouTube-ID). Gebruik die hier bewust NIET als Top40-detail-ID.
+    if not source_track_id.isdigit():
+        return None
+
+    with connect() as con:
+        sources = con.execute(
+            """
+            SELECT source_url
+            FROM (
+                SELECT e.source_url,e.year,e.week,1 AS chart_order
+                FROM chart_entries ce
+                JOIN editions e ON e.id=ce.edition_id
+                WHERE ce.track_id=?
+
+                UNION ALL
+
+                SELECT e.source_url,e.year,e.week,2 AS chart_order
+                FROM tipparade_entries ce
+                JOIN tipparade_editions e ON e.id=ce.edition_id
+                WHERE ce.track_id=?
+            )
+            WHERE source_url IS NOT NULL
+              AND trim(source_url)<>''
+            ORDER BY year DESC,week DESC,chart_order
+            """,
+            (int(job["track_id"]), int(job["track_id"])),
+        ).fetchall()
+
+    if not sources:
+        return None
+
+    detail_url = None
+    id_pattern = re.compile(
+        rf"-{re.escape(source_track_id)}(?:[/?#]|$)",
+        re.I,
+    )
+
+    with _http_session() as session:
+        for source in sources[:8]:
+            source_url = str(source["source_url"] or "").strip()
+            if not source_url:
+                continue
+
+            try:
+                response = session.get(
+                    source_url,
+                    timeout=30,
+                    verify=_ca_bundle(),
+                )
+                response.raise_for_status()
+            except Exception:
+                continue
+
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            for link in soup.select("a[href]"):
+                href = str(link.get("href") or "").strip()
+
+                if href and id_pattern.search(href):
+                    detail_url = urljoin(response.url, href)
+                    break
+
+            if detail_url:
+                break
+
+        if not detail_url:
+            return None
+
+        response = session.get(
+            detail_url,
+            timeout=30,
+            verify=_ca_bundle(),
+        )
+        response.raise_for_status()
+
+        html = response.text
+        video_ids: list[str] = []
+
+        for match in re.finditer(
+            r'(?:img\.youtube\.com|i\.ytimg\.com)/vi/([A-Za-z0-9_-]{6,20})/',
+            html,
+            re.I,
+        ):
+            video_id = match.group(1)
+
+            if video_id not in video_ids:
+                video_ids.append(video_id)
+
+        for pattern in (
+            r'youtube\.com/watch\?v=([A-Za-z0-9_-]{6,20})',
+            r'youtube\.com/embed/([A-Za-z0-9_-]{6,20})',
+            r'youtu\.be/([A-Za-z0-9_-]{6,20})',
+        ):
+            for match in re.finditer(pattern, html, re.I):
+                video_id = match.group(1)
+
+                if video_id not in video_ids:
+                    video_ids.append(video_id)
+
+    if not video_ids:
+        return None
+
+    youtube_rows = [
+        row
+        for row in provider_configs(enabled_only=True)
+        if str(row.get("provider") or "") == "youtube"
+        and _provider_available(row)
+    ]
+
+    if not youtube_rows:
+        return None
+
+    provider_row = youtube_rows[0]
+    provider = provider_from_row(provider_row)
+
+    for video_id in video_ids[:4]:
+        youtube_url = f"https://www.youtube.com/watch?v={video_id}"
+
+        try:
+            payload = run_ytdlp_json(
+                youtube_url,
+                timeout=75,
+            )
+        except Exception:
+            continue
+
+        candidate = candidate_from_ytdlp(
+            "youtube",
+            payload,
+        )
+
+        if candidate is None:
+            continue
+
+        decision = score_candidate(
+            track,
+            candidate.as_match_dict(),
+        )
+
+        # De link komt uit de Top40.nl-detailpagina van exact deze numerieke
+        # source_track_id. Alleen de zachte identity-drempel mag daardoor worden
+        # opgewaardeerd. Penalties en harde afwijzingen blijven onaangeraakt.
+        if (
+            not decision.accepted
+            and decision.reason == "try_other_provider"
+            and decision.score >= 85
+            and not decision.penalties
+        ):
+            decision = MatchDecision(
+                score=decision.score,
+                accepted=True,
+                excellent=False,
+                reason="top40_verified_source",
+                duration_difference=decision.duration_difference,
+                penalties=decision.penalties,
+                components=decision.components,
+            )
+
+        cache_candidate(
+            track,
+            "youtube",
+            candidate.url,
+            asdict(candidate),
+            decision.score,
+        )
+
+        if not decision.accepted:
+            reject_candidate(
+                int(track["track_id"]),
+                "youtube",
+                candidate.url,
+                "top40.nl fallback: " + decision.reason,
+                decision.score,
+                {
+                    "source": "top40.nl",
+                    "source_track_id": source_track_id,
+                    "detail_url": detail_url,
+                    "duration_difference": decision.duration_difference,
+                    "penalties": decision.penalties,
+                    "components": decision.components,
+                },
+            )
+            continue
+
+        result = {
+            "provider": "youtube",
+            "provider_row": provider_row,
+            "provider_object": provider,
+            "search_ms": None,
+            "cache_hits": 0,
+            "accepted": [],
+            "error": None,
+        }
+
+        item = {
+            "candidate": candidate,
+            "decision": decision,
+        }
+
+        return result, item
+
+    return None
+
+
 def _provider_groups() -> tuple[list[list[dict[str, Any]]], list[list[dict[str, Any]]]]:
     rows = [row for row in provider_configs(enabled_only=True) if _provider_available(row)]
     primary = [row for row in rows if int(row.get("effective_priority", int(row["priority"]) + int(row.get("ai_priority_adjustment") or 0))) < PRIMARY_PRIORITY_CUTOFF]
@@ -572,6 +821,51 @@ def _provider_groups() -> tuple[list[list[dict[str, Any]]], list[list[dict[str, 
 
 def process_job(job: dict[str, Any]) -> dict[str, Any]:
     track = _track_context(job)
+
+    # job kan door een handmatige/stale invocation verouderd zijn.
+    # SQLite blijft leidend: downloaded mag nooit opnieuw worden verwerkt.
+    with connect() as con:
+        persisted = con.execute(
+            """
+            SELECT
+                t.download_status,
+                t.mp3_filename,
+                j.status AS job_status,
+                j.preferred_provider
+            FROM tracks t
+            JOIN download_jobs j ON j.track_id=t.id
+            WHERE t.id=?
+            """,
+            (int(job["track_id"]),),
+        ).fetchone()
+
+    if persisted is not None:
+        if str(persisted["download_status"] or "") == "downloaded":
+            if str(persisted["job_status"] or "") != "completed":
+                set_job_state(
+                    int(job["id"]),
+                    "completed",
+                    preferred_provider=persisted["preferred_provider"],
+                )
+
+            return {
+                "ok": True,
+                "track_id": int(job["track_id"]),
+                "status": "completed",
+                "provider": persisted["preferred_provider"],
+                "filename": persisted["mp3_filename"],
+                "already_downloaded": True,
+                "providers_tried": [],
+            }
+
+        if str(persisted["job_status"] or "") == "completed":
+            return {
+                "ok": False,
+                "track_id": int(job["track_id"]),
+                "status": "completed_inconsistent",
+                "error": "job is completed maar track is niet downloaded",
+            }
+
     providers_tried: list[str] = []
     errors: list[str] = []
     if job_cancel_requested(int(job["id"])):
@@ -609,8 +903,82 @@ def process_job(job: dict[str, Any]) -> dict[str, Any]:
                 continue
         # Geen acceptabele kandidaat in deze groep: pas dan de volgende groep proberen.
 
+    # Alle normale providers zijn uitgeput. Probeer eerst een officiële
+    # YouTube-verwijzing uit de gekoppelde Top40.nl-detailpagina.
+    try:
+        logger.info(
+            "top40_fallback_start track_id=%s source_track_id=%s",
+            job.get("track_id"),
+            track.get("source_track_id"),
+        )
+
+        top40_fallback = _top40_youtube_candidate(
+            job,
+            track,
+        )
+
+        logger.info(
+            "top40_fallback_result track_id=%s found=%s",
+            job.get("track_id"),
+            top40_fallback is not None,
+        )
+
+    except Exception as exc:
+        top40_fallback = None
+        errors.append(f"top40.nl: {exc}")
+
+        logger.warning(
+            "top40_fallback_error track_id=%s error=%r",
+            job.get("track_id"),
+            exc,
+        )
+
+    if top40_fallback is not None:
+        result, item = top40_fallback
+
+        if "top40.nl" not in providers_tried:
+            providers_tried.append("top40.nl")
+
+        try:
+            completed = _try_candidate(
+                job,
+                track,
+                result,
+                item,
+            )
+
+            completed["providers_tried"] = providers_tried
+            completed["top40_fallback"] = True
+
+            set_job_state(
+                int(job["id"]),
+                "completed",
+                providers_tried=providers_tried,
+            )
+
+            return completed
+
+        except Exception as exc:
+            errors.append(
+                f"top40.nl youtube: {exc}"
+            )
+
+    # Deterministische provider/matcher-route inclusief Top40.nl heeft niets
+    # opgeleverd. Qwen mag alleen een zoekterm voor de VOLGENDE poging maken.
+    recovery = prepare_recovery_query(job, track)
+
+    if recovery.get("prepared"):
+        errors.append(
+            "Qwen recovery query: "
+            + str(recovery.get("query") or "")
+        )
+
     attempt = int(job.get("attempts") or 0) + 1
     backoff = RETRY_BACKOFF_SECONDS[min(attempt - 1, len(RETRY_BACKOFF_SECONDS) - 1)]
+
+    if recovery.get("prepared"):
+        backoff = min(backoff, 30)
+
     next_attempt = (_utcnow() + timedelta(seconds=backoff)).isoformat()
     message = " | ".join(errors)[-3000:] or "Geen provider leverde een voldoende betrouwbare kandidaat."
     set_job_state(
@@ -623,7 +991,7 @@ def process_job(job: dict[str, Any]) -> dict[str, Any]:
     )
     with connect() as con:
         con.execute(
-            "UPDATE tracks SET download_status='failed',download_attempts=download_attempts+1,error_message=?,updated_at=? WHERE id=?",
+            "UPDATE tracks SET download_status='pending',download_attempts=download_attempts+1,error_message=?,updated_at=? WHERE id=? AND download_status!='downloaded'",
             (message, now_iso(), int(job["track_id"])),
         )
     return {

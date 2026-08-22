@@ -1,7 +1,8 @@
 [Unit]
 Description=Top40Archiver Multi Source Download Manager
-After=network-online.target top40-archiver-web.service
+After=network-online.target top40-archiver-web.service top40-bgutil-pot.service
 Wants=network-online.target
+Requires=top40-bgutil-pot.service
 StartLimitIntervalSec=0
 
 [Service]
@@ -11,6 +12,8 @@ Group=top40archiver
 WorkingDirectory=/opt/top40-archiver
 Environment=TOP40_DATA_DIR=/var/lib/top40-archiver
 Environment=PYTHONPATH=/opt/top40-archiver
+Environment=HOME=/var/lib/top40-archiver
+Environment=DENO_DIR=/var/lib/top40-archiver/.cache/deno
 EnvironmentFile=-/etc/top40-archiver.env
 ExecStart=/opt/top40-archiver/venv/bin/python -m app.download_manager_dynamic_entry
 Restart=always

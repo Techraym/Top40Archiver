@@ -19,6 +19,7 @@ VERSION_PENALTIES: tuple[tuple[str, int], ...] = (
     ("instrumental", 30),
     ("live", 25),
     ("remix", 20),
+    ("extended", 20),
     ("radio edit", 10),
 )
 
@@ -140,6 +141,80 @@ def _artist_ratio(wanted_artist: object, found_artist: object, found_title: obje
     return min(1.0, best)
 
 
+_COLLABORATION_SPLIT_RE = re.compile(
+    r"\s+(?:feat\.?|featuring|ft\.?|x|with|vs\.?|\+)\s+",
+    re.I,
+)
+
+
+def _collaboration_parts(value: object) -> list[str]:
+    raw = str(value or "").strip()
+
+    if not raw or not _COLLABORATION_SPLIT_RE.search(raw):
+        return []
+
+    result: list[str] = []
+
+    for part in _COLLABORATION_SPLIT_RE.split(raw):
+        cleaned = _clean(part)
+
+        if cleaned and cleaned not in result:
+            result.append(cleaned)
+
+    return result
+
+
+def _candidate_has_full_collaboration(
+    wanted_artist: object,
+    found_title: object,
+) -> bool:
+    parts = _collaboration_parts(wanted_artist)
+
+    if not parts:
+        return False
+
+    candidate = _clean(found_title)
+
+    return bool(candidate) and all(part in candidate for part in parts)
+
+
+def _candidate_title_core(
+    wanted_artist: object,
+    found_title: object,
+) -> str | None:
+    """Isoleer TITLE uitsluitend bij aantoonbaar dezelfde artiestcredit."""
+    raw = str(found_title or "").strip()
+
+    if not raw:
+        return None
+
+    parts = re.split(r"\s+[-–—]\s+", raw, maxsplit=1)
+
+    if len(parts) != 2:
+        return None
+
+    left, right = parts
+
+    collaboration = _collaboration_parts(wanted_artist)
+
+    if collaboration:
+        if not _candidate_has_full_collaboration(wanted_artist, raw):
+            return None
+    else:
+        if _ratio(wanted_artist, left) < 0.90:
+            return None
+
+    right = re.sub(
+        r"\s*[\[(]\s*(?:feat\.?|featuring|ft\.?)\s+[^)\]]+[\])]\s*",
+        " ",
+        right,
+        flags=re.I,
+    )
+
+    core = _clean(right)
+    return core or None
+
+
 def _title_ratio(wanted_artist: object, wanted_title: object, found_title: object) -> float:
     best = _ratio(wanted_title, found_title)
     found = _collaboration_clean(found_title)
@@ -155,6 +230,12 @@ def _title_ratio(wanted_artist: object, wanted_title: object, found_title: objec
     for wanted in _title_variants(wanted_title):
         for candidate in stripped_candidates:
             best = max(best, _ratio(wanted, candidate))
+
+    title_core = _candidate_title_core(wanted_artist, found_title)
+
+    if title_core:
+        for wanted in _title_variants(wanted_title):
+            best = max(best, _ratio(wanted, title_core))
 
     return min(1.0, best)
 
