@@ -2057,3 +2057,1275 @@ td{vertical-align:middle}
     grid-column: auto;
   }
 }
+
+/* Hitlijstenbeheer */
+.hitlijsten-panel {
+  scroll-margin-top: 24px;
+}
+
+.hitlijsten-input-card {
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface, #fff);
+}
+
+.hitlijsten-input-card label {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.hitlijsten-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.hitlijsten-input-row input {
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
+
+.chart-analysis-result {
+  margin-top: 16px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--soft, #f5f5f3);
+}
+
+.chart-analysis-result p {
+  margin: 6px 0;
+}
+
+.hitlijsten-active-heading {
+  margin-top: 24px;
+}
+
+.configured-chart-list {
+  display: grid;
+  gap: 10px;
+}
+
+.configured-chart-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.configured-chart-item:first-child {
+  border-top: 0;
+}
+
+.configured-chart-item b,
+.configured-chart-item span {
+  display: block;
+}
+
+.configured-chart-item > div > span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .hitlijsten-input-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Aparte instellingenpagina */
+body:has(.settings-page) .settings-panel > summary {
+  pointer-events: none;
+  cursor: default;
+}
+
+body:has(.settings-page) .settings-panel > summary::marker {
+  display: none;
+}
+
+body:has(.settings-page) .settings-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Hitlijstenpagina - zelfde visuele hiërarchie als dashboard */
+.hitlijsten-page .hitlijsten-panel {
+  margin-top: 0;
+}
+
+.hitlijsten-page .hitlijsten-input-card {
+  margin-top: 0;
+}
+
+.hitlijsten-page .configured-chart-list {
+  margin-top: 4px;
+}
+
+.hitlijsten-page .page-header {
+  margin-bottom: 22px;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+#latest-chart-title,
+#cover-progress-panel,
+#archive-card,
+#queue-list,
+#failed-list,
+#success-list {
+  scroll-margin-top: 24px;
+}
+
+/* Extra ruimte rond Zoeken in de Home-sidebar */
+.app-sidebar nav a[href="/zoeken"] {
+  margin-top: 14px;
+  margin-bottom: 14px;
+}
+
+/* Iets meer ruimte onder Zoeken in de Home-sidebar */
+.app-sidebar nav a[href="/zoeken"] {
+  margin-top: 14px;
+  margin-bottom: 24px;
+}
+
+/* Zoekpagina: lichte invoerbalk */
+.search-page .search-form input[type="search"] {
+  background: #ffffff;
+  color: #1f1f1f;
+  border: 1px solid #d9d5cf;
+}
+
+.search-page .search-form input[type="search"]::placeholder {
+  color: #8a847d;
+}
+
+.search-page .search-form input[type="search"]:focus {
+  background: #ffffff;
+  color: #1f1f1f;
+  border-color: #f05a4f;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(240, 90, 79, 0.10);
+}
+
+/* Home-sidebar: extra ruimte boven Beheerinstellingen */
+.app-sidebar nav a[href="/instellingen"] {
+  margin-top: 24px;
+}
+
+/* Alle sidebars: iconen 50% kleiner, klikvlakken blijven gelijk */
+.app-sidebar svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Alle sidebars: iconen 1,5x zo groot */
+.app-sidebar svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Alle sidebars: iconen nogmaals 1,5x groter */
+.app-sidebar svg {
+  width: 27px;
+  height: 27px;
+}
+
+/* =========================================================
+   Sidebar iconen - functionele kleuren
+   ========================================================= */
+
+/* Standaard */
+.app-sidebar nav a {
+  color: #626762;
+}
+
+/* Home */
+.app-sidebar .side-logo {
+  color: #ef5a4f;
+}
+
+/* Zoeken */
+.app-sidebar nav a[href="/zoeken"] {
+  color: #4f7185;
+}
+
+/* Archiefopbouw */
+.app-sidebar nav a[href="#archive-card"] {
+  color: #8a745d;
+}
+
+/* Laatste lijsten */
+.app-sidebar nav a[href="#latest-chart-title"] {
+  color: #667487;
+}
+
+/* Downloads */
+.app-sidebar nav a[href="#queue-list"] {
+  color: #397ea3;
+}
+
+/* Mislukte downloads */
+.app-sidebar nav a[href="#failed-list"] {
+  color: #d46a45;
+}
+
+/* Onlangs opgeslagen */
+.app-sidebar nav a[href="#success-list"] {
+  color: #3d9a68;
+}
+
+/* Hitlijsten */
+.app-sidebar nav a[href="/hitlijsten"] {
+  color: #6e668f;
+}
+
+/* Beheerinstellingen */
+.app-sidebar nav a[href="/instellingen"] {
+  color: #666c68;
+}
+
+/* Thema */
+.app-sidebar .theme-toggle {
+  color: #59636a;
+}
+
+/* SVG gebruikt de kleur van de knop */
+.app-sidebar svg {
+  stroke: currentColor;
+}
+
+/* Actieve pagina: zacht vlak + sterkere kleur */
+.app-sidebar a.active {
+  color: #ef5a4f;
+  background: #fff2ef;
+  border-color: #ffc8c0;
+}
+
+/* Hover */
+.app-sidebar nav a:hover,
+.app-sidebar .theme-toggle:hover {
+  background: #f4f4f1;
+  transform: translateY(-1px);
+}
+
+/* Beheerinstellingen: rustig blauwgrijs tandwiel */
+.app-sidebar nav a[href="/instellingen"] {
+  color: #5f7184;
+}
+
+/* Beheerpagina's: iconen exact uitlijnen met Home-sidebar */
+.hitlijsten-page .app-sidebar nav,
+.settings-page .app-sidebar nav {
+  margin-top: 92px;
+}
+
+/* Op beheerpagina's geen extra 24px ruimte boven Instellingen */
+.hitlijsten-page .app-sidebar nav a[href="/instellingen"],
+.settings-page .app-sidebar nav a[href="/instellingen"] {
+  margin-top: 0;
+}
+
+/* Normale afstand tussen Hitlijsten en Instellingen */
+.hitlijsten-page .app-sidebar nav a + a,
+.settings-page .app-sidebar nav a + a {
+  margin-top: 0;
+}
+
+/* Hitlijsten + Instellingen exact op Home-posities */
+.hitlijsten-page .app-sidebar nav,
+.settings-page .app-sidebar nav {
+  margin-top: 92px;
+}
+
+.hitlijsten-page .app-sidebar nav a[href="/instellingen"],
+.settings-page .app-sidebar nav a[href="/instellingen"] {
+  margin-top: 0;
+}
+
+/* Beheerpagina's:
+   alleen extra ruimte tussen Home en eerste beheericoon
+*/
+.hitlijsten-layout .app-sidebar nav,
+.settings-layout .app-sidebar nav {
+  margin-top: 120px;
+}
+
+/* Geen extra marge tussen Hitlijsten en Instellingen */
+.hitlijsten-layout .app-sidebar nav a,
+.settings-layout .app-sidebar nav a {
+  margin-top: 0;
+}
+
+/* Oude extra marge op Instellingen uitschakelen */
+.hitlijsten-layout .app-sidebar nav a[href="/instellingen"],
+.settings-layout .app-sidebar nav a[href="/instellingen"] {
+  margin-top: 0;
+}
+
+/* Hitlijsten op dezelfde verticale hoogte als Archiefopbouw op Home */
+.hitlijsten-layout .app-sidebar nav,
+.settings-layout .app-sidebar nav {
+  margin-top: 84px;
+}
+
+/* Geen extra marge op Instellingen binnen beheerpagina's */
+.hitlijsten-layout .app-sidebar nav a[href="/instellingen"],
+.settings-layout .app-sidebar nav a[href="/instellingen"] {
+  margin-top: 0;
+}
+
+/* Beheerpagina's: Hitlijsten-knop verder omlaag */
+.hitlijsten-layout .app-sidebar nav a[href="/hitlijsten"],
+.settings-layout .app-sidebar nav a[href="/hitlijsten"] {
+  margin-top: 28px;
+}
+
+/* Beheerpagina's: Hitlijsten-knop verder naar beneden */
+.hitlijsten-layout .app-sidebar nav a[href="/hitlijsten"],
+.settings-layout .app-sidebar nav a[href="/hitlijsten"] {
+  margin-top: 56px;
+}
+
+/* Beheer-sidebar ongeveer één icoon omhoog */
+body.hitlijsten-layout .app-sidebar nav a[href="/hitlijsten"],
+body.settings-layout .app-sidebar nav a[href="/hitlijsten"] {
+  margin-top: 48px !important;
+}
+
+/* Definitieve uitlijning beheer-sidebars */
+body.hitlijsten-layout .app-sidebar,
+body.settings-layout .app-sidebar {
+  position: fixed;
+}
+
+body.hitlijsten-layout .app-sidebar nav,
+body.settings-layout .app-sidebar nav {
+  position: relative;
+  margin-top: 0 !important;
+}
+
+/* Hitlijsten exact hoger plaatsen */
+body.hitlijsten-layout .app-sidebar nav a[href="/hitlijsten"],
+body.settings-layout .app-sidebar nav a[href="/hitlijsten"] {
+  position: absolute;
+  top: 118px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0 !important;
+}
+
+/* Instellingen exact daaronder */
+body.hitlijsten-layout .app-sidebar nav a[href="/instellingen"],
+body.settings-layout .app-sidebar nav a[href="/instellingen"] {
+  position: absolute;
+  top: 178px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0 !important;
+}
+
+/* Beheer-sidebars nog iets omhoog */
+body.hitlijsten-layout .app-sidebar nav a[href="/hitlijsten"],
+body.settings-layout .app-sidebar nav a[href="/hitlijsten"] {
+  top: 96px !important;
+}
+
+body.hitlijsten-layout .app-sidebar nav a[href="/instellingen"],
+body.settings-layout .app-sidebar nav a[href="/instellingen"] {
+  top: 156px !important;
+}
+
+/* Beheer-sidebars laatste kleine correctie omhoog */
+body.hitlijsten-layout .app-sidebar nav a[href="/hitlijsten"],
+body.settings-layout .app-sidebar nav a[href="/hitlijsten"] {
+  top: 86px !important;
+}
+
+body.hitlijsten-layout .app-sidebar nav a[href="/instellingen"],
+body.settings-layout .app-sidebar nav a[href="/instellingen"] {
+  top: 146px !important;
+}
+
+/* Home taalkeuze rechtsboven */
+.language-switcher {
+  position: absolute !important;
+  top: 22px !important;
+  right: 28px !important;
+
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center;
+  gap: 8px;
+
+  margin: 0 !important;
+  z-index: 20;
+}
+
+/* Geen rode vierkante taalknoppen meer */
+.language-switcher button {
+  width: 38px !important;
+  height: 30px !important;
+  padding: 0 !important;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border: 1px solid transparent !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+
+  cursor: pointer;
+  box-shadow: none !important;
+}
+
+/* Vlag zelf */
+.language-switcher .flag {
+  display: block;
+  font-size: 25px;
+  line-height: 1;
+}
+
+/* Hover */
+.language-switcher button:hover {
+  background: #f4f4f1 !important;
+  border-color: #ddd8d2 !important;
+}
+
+/* Geselecteerde taal */
+.language-switcher button.active {
+  background: #fff2ef !important;
+  border-color: #ffc8c0 !important;
+}
+
+/* Zorg dat de header als anker voor rechtsboven dient */
+.page-header {
+  position: relative;
+}
+
+/* Taalvlaggen hoger rechtsboven */
+.language-switcher {
+  top: 6px !important;
+  right: 28px !important;
+}
+
+/* Taalvlaggen strak tegen de bovenrand */
+.language-switcher {
+  top: 0 !important;
+  right: 20px !important;
+}
+
+/* Taalvlaggen vast rechtsboven tegen de vensterrand */
+.language-switcher {
+  position: fixed !important;
+  top: 2px !important;
+  right: 22px !important;
+  z-index: 9999 !important;
+}
+
+/* Taalkeuze: alleen echte vlaggen, geen gekleurde tekstblokken */
+.language-switcher button {
+  width: 34px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 6px !important;
+  font-size: 23px !important;
+  line-height: 1 !important;
+}
+
+.language-switcher button:hover {
+  background: rgba(0,0,0,.05) !important;
+}
+
+.language-switcher button.active {
+  background: rgba(239,90,79,.10) !important;
+  outline: 1px solid rgba(239,90,79,.25);
+}
+
+/* Echte CSS-vlaggen rechtsboven */
+.language-switcher button {
+  width: 38px !important;
+  height: 28px !important;
+  padding: 3px !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+
+.country-flag {
+  display: block;
+  width: 30px;
+  height: 20px;
+  border-radius: 2px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.14);
+}
+
+/* Nederland */
+.flag-nl {
+  background:
+    linear-gradient(
+      to bottom,
+      #ae1c28 0 33.333%,
+      #ffffff 33.333% 66.666%,
+      #21468b 66.666% 100%
+    );
+}
+
+/* Duitsland */
+.flag-de {
+  background:
+    linear-gradient(
+      to bottom,
+      #000000 0 33.333%,
+      #dd0000 33.333% 66.666%,
+      #ffce00 66.666% 100%
+    );
+}
+
+/* Frankrijk */
+.flag-fr {
+  background:
+    linear-gradient(
+      to right,
+      #0055a4 0 33.333%,
+      #ffffff 33.333% 66.666%,
+      #ef4135 66.666% 100%
+    );
+}
+
+/* Verenigd Koninkrijk */
+.flag-gb {
+  position: relative;
+  background: #012169;
+}
+
+.flag-gb::before,
+.flag-gb::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.flag-gb::before {
+  background:
+    linear-gradient(33deg,
+      transparent 42%,
+      #ffffff 42% 47%,
+      #c8102e 47% 53%,
+      #ffffff 53% 58%,
+      transparent 58%),
+    linear-gradient(-33deg,
+      transparent 42%,
+      #ffffff 42% 47%,
+      #c8102e 47% 53%,
+      #ffffff 53% 58%,
+      transparent 58%);
+}
+
+.flag-gb::after {
+  background:
+    linear-gradient(
+      to right,
+      transparent 38%,
+      #ffffff 38% 44%,
+      #c8102e 44% 56%,
+      #ffffff 56% 62%,
+      transparent 62%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 32%,
+      #ffffff 32% 40%,
+      #c8102e 40% 60%,
+      #ffffff 60% 68%,
+      transparent 68%
+    );
+}
+
+.language-switcher button:hover {
+  background: rgba(0,0,0,.05) !important;
+}
+
+.language-switcher button.active {
+  background: #fff2ef !important;
+  border-color: #ffc8c0 !important;
+}
+
+/* Taalvlaggen blijven bovenaan de Home-pagina en scrollen mee uit beeld */
+.language-switcher {
+  position: absolute !important;
+  top: 2px !important;
+  right: 22px !important;
+  z-index: 20 !important;
+}
+
+/* Taalvlaggen hoger, positie verder ongewijzigd */
+.language-switcher {
+  top: -34px !important;
+  right: 22px !important;
+}
+
+/* Taalvlaggen 50% groter */
+.language-switcher button {
+  width: 57px !important;
+  height: 42px !important;
+}
+
+.country-flag {
+  width: 45px !important;
+  height: 30px !important;
+}
+
+/* Taalvlaggen 50% kleiner */
+.language-switcher button {
+  width: 29px !important;
+  height: 21px !important;
+}
+
+.country-flag {
+  width: 23px !important;
+  height: 15px !important;
+}
+
+/* Klikvak achter taalvlag compacter */
+.language-switcher button {
+  width: 25px !important;
+  height: 18px !important;
+  padding: 1px !important;
+  border-radius: 4px !important;
+}
+
+/* =========================================================
+   Donkere modus - bediend door de knop linksonder
+   ========================================================= */
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+
+  --page: #121110;
+  --surface: #1a1816;
+  --surface-raised: #211e1b;
+  --surface-soft: #27231f;
+  --line: #37312b;
+  --line-strong: #4b433b;
+
+  --text: #f3eee8;
+  --muted: #aaa098;
+  --muted-2: #7e756e;
+
+  --accent: #d94b3d;
+  --accent-hover: #ee6253;
+  --accent-soft: #3b211f;
+
+  --green: #68b77a;
+  --green-soft: #1d3123;
+
+  --amber: #d5a84b;
+  --amber-soft: #382e1d;
+
+  --blue: #78a6d5;
+  --blue-soft: #202e3b;
+
+  --red: #e47870;
+  --red-soft: #3b211f;
+
+  --purple: #b39ac3;
+  --purple-soft: #302838;
+}
+
+html[data-theme="dark"] .app-sidebar {
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+html[data-theme="dark"] .app-sidebar nav a:hover,
+html[data-theme="dark"] .app-sidebar .theme-toggle:hover {
+  background: var(--surface-soft);
+}
+
+html[data-theme="dark"] .theme-toggle {
+  color: #f0c75e !important;
+}
+
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea {
+  background: var(--surface-raised);
+  color: var(--text);
+  border-color: var(--line);
+}
+
+/* =========================================================
+   Donkere modus - volledige 8040 interface
+   ========================================================= */
+
+html[data-theme="dark"],
+html[data-theme="dark"] body {
+  background: #171716 !important;
+  color: #f2f0ec !important;
+}
+
+/* Hoofdvlakken en kaarten */
+html[data-theme="dark"] .panel,
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .stat-card,
+html[data-theme="dark"] .archive-card,
+html[data-theme="dark"] .storage-card,
+html[data-theme="dark"] .downloads-panel,
+html[data-theme="dark"] .latest-panel,
+html[data-theme="dark"] .settings-panel,
+html[data-theme="dark"] .search-panel,
+html[data-theme="dark"] .chart-panel,
+html[data-theme="dark"] details,
+html[data-theme="dark"] section {
+  background: #232321 !important;
+  color: #f2f0ec !important;
+  border-color: #3a3935 !important;
+}
+
+/* Kleine binnenvlakken */
+html[data-theme="dark"] .metric,
+html[data-theme="dark"] .stat,
+html[data-theme="dark"] .status-box,
+html[data-theme="dark"] .download-item,
+html[data-theme="dark"] .history-item,
+html[data-theme="dark"] .queue-item,
+html[data-theme="dark"] .result-item {
+  background: #2b2a27 !important;
+  color: #f2f0ec !important;
+  border-color: #41403b !important;
+}
+
+/* Alle gewone teksten binnen donkere vlakken */
+html[data-theme="dark"] main,
+html[data-theme="dark"] main p,
+html[data-theme="dark"] main span,
+html[data-theme="dark"] main div,
+html[data-theme="dark"] main td,
+html[data-theme="dark"] main th,
+html[data-theme="dark"] main label,
+html[data-theme="dark"] main small {
+  color: inherit;
+}
+
+/* Koppen */
+html[data-theme="dark"] h1,
+html[data-theme="dark"] h2,
+html[data-theme="dark"] h3,
+html[data-theme="dark"] h4,
+html[data-theme="dark"] .section-title,
+html[data-theme="dark"] .panel-title {
+  color: #faf8f4 !important;
+}
+
+/* Secundaire tekst */
+html[data-theme="dark"] .muted,
+html[data-theme="dark"] .subtitle,
+html[data-theme="dark"] .meta,
+html[data-theme="dark"] .caption,
+html[data-theme="dark"] .help,
+html[data-theme="dark"] .small {
+  color: #aaa69f !important;
+}
+
+/* Tabellen */
+html[data-theme="dark"] table {
+  background: #232321 !important;
+  color: #f2f0ec !important;
+}
+
+html[data-theme="dark"] th {
+  background: #2b2a27 !important;
+  color: #d7d3cc !important;
+}
+
+html[data-theme="dark"] td,
+html[data-theme="dark"] th {
+  border-color: #41403b !important;
+}
+
+/* Formulieren */
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea {
+  background: #1f1f1d !important;
+  color: #f2f0ec !important;
+  border-color: #4a4944 !important;
+  -webkit-text-fill-color: #f2f0ec !important;
+}
+
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder {
+  color: #85827b !important;
+  opacity: 1;
+}
+
+/* Witte/light overrides uit oudere CSS neutraliseren */
+html[data-theme="dark"] [style*="background: #fff"],
+html[data-theme="dark"] [style*="background:#fff"] {
+  background: #232321 !important;
+}
+
+/* Sidebar */
+html[data-theme="dark"] .app-sidebar {
+  background: #1d1d1b !important;
+  border-color: #34332f !important;
+}
+
+html[data-theme="dark"] .app-sidebar nav a {
+  color: #9ea7ad;
+}
+
+html[data-theme="dark"] .app-sidebar nav a:hover,
+html[data-theme="dark"] .theme-toggle:hover {
+  background: #2a2926 !important;
+}
+
+html[data-theme="dark"] .app-sidebar nav a.active {
+  background: #3a2421 !important;
+  border-color: #6e3730 !important;
+  color: #ff7568 !important;
+}
+
+/* Header */
+html[data-theme="dark"] .page-header {
+  color: #f2f0ec !important;
+}
+
+html[data-theme="dark"] .page-header p,
+html[data-theme="dark"] .page-header .meta {
+  color: #aaa69f !important;
+}
+
+/* Knoppen */
+html[data-theme="dark"] button.secondary,
+html[data-theme="dark"] .button.secondary,
+html[data-theme="dark"] button.quiet {
+  background: #282724 !important;
+  color: #f2f0ec !important;
+  border-color: #4a4944 !important;
+}
+
+html[data-theme="dark"] button.secondary:hover,
+html[data-theme="dark"] .button.secondary:hover,
+html[data-theme="dark"] button.quiet:hover {
+  background: #33322e !important;
+}
+
+/* Statuskleuren duidelijk houden */
+html[data-theme="dark"] .success,
+html[data-theme="dark"] .status-success {
+  color: #6fd58b !important;
+}
+
+html[data-theme="dark"] .warning,
+html[data-theme="dark"] .status-warning {
+  color: #e7b758 !important;
+}
+
+html[data-theme="dark"] .danger,
+html[data-theme="dark"] .status-danger {
+  color: #f07b70 !important;
+}
+
+html[data-theme="dark"] .info,
+html[data-theme="dark"] .status-info {
+  color: #7eb8e6 !important;
+}
+
+/* Voortgangsbalken */
+html[data-theme="dark"] progress,
+html[data-theme="dark"] .progress,
+html[data-theme="dark"] .progress-track {
+  background: #373631 !important;
+}
+
+/* Footer */
+html[data-theme="dark"] footer,
+html[data-theme="dark"] .footer {
+  color: #85827b !important;
+  border-color: #34332f !important;
+}
+
+/* =========================================================
+   Dark mode - gerichte definitieve correcties
+   ========================================================= */
+
+/* Coverarchief: runtime aangemaakte statistiekvakken */
+html[data-theme="dark"] .cover-progress-stat {
+  background: #2b2a27 !important;
+  border-color: #41403b !important;
+  color: #f2f0ec !important;
+}
+
+html[data-theme="dark"] .cover-progress-stat b {
+  color: #f7f4ef !important;
+}
+
+html[data-theme="dark"] .cover-progress-stat span,
+html[data-theme="dark"] .cover-progress-current {
+  color: #aaa69f !important;
+}
+
+/* Historisch archief */
+html[data-theme="dark"] .archive-main {
+  background: #232321 !important;
+  color: #f2f0ec !important;
+  border-color: #3a3935 !important;
+}
+
+html[data-theme="dark"] .archive-main .archive-numbers {
+  border-color: #41403b !important;
+}
+
+html[data-theme="dark"] .archive-main .archive-numbers > div {
+  background: #232321 !important;
+  border-color: #41403b !important;
+}
+
+html[data-theme="dark"] .archive-main .archive-numbers strong {
+  color: #f7f4ef !important;
+}
+
+html[data-theme="dark"] .archive-main .archive-numbers span,
+html[data-theme="dark"] .archive-main .note,
+html[data-theme="dark"] #archive-subtitle {
+  color: #aaa69f !important;
+}
+
+/* Tabellen volledig donker */
+html[data-theme="dark"] table,
+html[data-theme="dark"] tbody,
+html[data-theme="dark"] tbody tr,
+html[data-theme="dark"] tbody tr.new {
+  background: #232321 !important;
+}
+
+html[data-theme="dark"] tbody tr:hover,
+html[data-theme="dark"] tbody tr.new:hover {
+  background: #2b2a27 !important;
+}
+
+html[data-theme="dark"] tbody td {
+  background: transparent !important;
+  color: #f2f0ec !important;
+  border-color: #41403b !important;
+}
+
+html[data-theme="dark"] tbody td b,
+html[data-theme="dark"] .artist-cell b,
+html[data-theme="dark"] .position {
+  color: #f7f4ef !important;
+}
+
+/* Tabelkop */
+html[data-theme="dark"] thead,
+html[data-theme="dark"] thead tr,
+html[data-theme="dark"] thead th {
+  background: #292824 !important;
+  color: #c8c4bd !important;
+  border-color: #41403b !important;
+}
+
+/* Ontbrekende coverplaceholder passend donker */
+html[data-theme="dark"] .cover-placeholder {
+  background: linear-gradient(145deg, #372724, #292321) !important;
+  color: #ff786a !important;
+  border-color: #51413d !important;
+}
+
+/* Progress achtergronden */
+html[data-theme="dark"] .progress {
+  background: #393833 !important;
+}
+
+/* =========================================================
+   DARK MODE - definitieve componentcorrecties
+   Alleen actief in donkere modus
+   ========================================================= */
+
+/* ---------- SIDEBAR ---------- */
+
+html[data-theme="dark"] body::before {
+  background: #171716 !important;
+  border-color: #34332f !important;
+}
+
+html[data-theme="dark"] .app-sidebar {
+  background: #20201e !important;
+  border-color: #393834 !important;
+  box-shadow: none !important;
+}
+
+html[data-theme="dark"] .app-sidebar .side-logo,
+html[data-theme="dark"] .app-sidebar nav a,
+html[data-theme="dark"] .app-sidebar .theme-toggle {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+/* actieve knop */
+html[data-theme="dark"] .app-sidebar a.active,
+html[data-theme="dark"] .app-sidebar .side-logo.active,
+html[data-theme="dark"] .app-sidebar nav a.active {
+  background: #392421 !important;
+  border: 1px solid #714039 !important;
+  color: #ff6b5d !important;
+}
+
+/* hover */
+html[data-theme="dark"] .app-sidebar nav a:hover,
+html[data-theme="dark"] .app-sidebar .theme-toggle:hover {
+  background: #2c2b28 !important;
+  border-color: #42413c !important;
+}
+
+/* zon in donkere modus */
+html[data-theme="dark"] .app-sidebar .theme-toggle {
+  color: #e8bf45 !important;
+}
+
+
+/* ---------- DOWNLOAD / ACTIVITEIT BLOKKEN ---------- */
+
+html[data-theme="dark"] .compact-list article,
+html[data-theme="dark"] .active-download-list article,
+html[data-theme="dark"] .success-list article,
+html[data-theme="dark"] .failed-list article,
+html[data-theme="dark"] #queue-list article,
+html[data-theme="dark"] #activity-list article,
+html[data-theme="dark"] #success-list article,
+html[data-theme="dark"] #failed-list article,
+html[data-theme="dark"] #unavailable-list article {
+  background: #292926 !important;
+  color: #f3f1ed !important;
+  border-color: #44423d !important;
+}
+
+/* iets donkerder bij hover */
+html[data-theme="dark"] .compact-list article:hover,
+html[data-theme="dark"] .active-download-list article:hover,
+html[data-theme="dark"] .success-list article:hover {
+  background: #302f2b !important;
+}
+
+html[data-theme="dark"] .compact-list b,
+html[data-theme="dark"] .active-download-list b,
+html[data-theme="dark"] .success-list b,
+html[data-theme="dark"] .failed-list b {
+  color: #f5f3ef !important;
+}
+
+html[data-theme="dark"] .compact-list span:not(.status-badge),
+html[data-theme="dark"] .compact-list small,
+html[data-theme="dark"] .active-download-list span:not(.status-badge),
+html[data-theme="dark"] .active-download-list small,
+html[data-theme="dark"] .success-list small,
+html[data-theme="dark"] .failed-list small {
+  color: #aaa69f !important;
+}
+
+/* groene vinkjes onlangs opgeslagen */
+html[data-theme="dark"] .success-list article > span {
+  background: #203428 !important;
+  border-color: #4d9c68 !important;
+  color: #72d68d !important;
+}
+
+
+/* ---------- MISLUKTE DOWNLOADS ---------- */
+
+html[data-theme="dark"] .failed-list details,
+html[data-theme="dark"] .failed-list pre {
+  background: #20201e !important;
+  color: #d8d5cf !important;
+  border-color: #42413c !important;
+}
+
+html[data-theme="dark"] .retry-form input {
+  background: #1d1d1b !important;
+  color: #f2f0ec !important;
+  -webkit-text-fill-color: #f2f0ec !important;
+  border-color: #4a4944 !important;
+}
+
+
+/* ---------- INSTELLINGENPAGINA ---------- */
+
+html[data-theme="dark"] .settings-panel,
+html[data-theme="dark"] .settings-panel[open],
+html[data-theme="dark"] .settings-panel summary,
+html[data-theme="dark"] .settings-panel .settings-grid,
+html[data-theme="dark"] .settings-panel .organize-box {
+  background: #232321 !important;
+  color: #f2f0ec !important;
+  border-color: #41403b !important;
+  box-shadow: none !important;
+}
+
+html[data-theme="dark"] .settings-panel summary b,
+html[data-theme="dark"] .settings-panel summary span,
+html[data-theme="dark"] .settings-panel label,
+html[data-theme="dark"] .settings-panel .organize-box b {
+  color: #f2f0ec !important;
+}
+
+html[data-theme="dark"] .settings-panel label > small,
+html[data-theme="dark"] .settings-panel .note,
+html[data-theme="dark"] .settings-panel .organize-box small {
+  color: #aaa69f !important;
+}
+
+/* invoervelden */
+html[data-theme="dark"] .settings-panel input,
+html[data-theme="dark"] .settings-panel select,
+html[data-theme="dark"] .settings-panel textarea,
+html[data-theme="dark"] .settings-grid input,
+html[data-theme="dark"] .settings-grid select {
+  background: #1d1d1b !important;
+  color: #f3f1ed !important;
+  -webkit-text-fill-color: #f3f1ed !important;
+  border-color: #4a4944 !important;
+  box-shadow: none !important;
+}
+
+html[data-theme="dark"] .settings-panel input:focus,
+html[data-theme="dark"] .settings-panel select:focus,
+html[data-theme="dark"] .settings-panel textarea:focus {
+  background: #1d1d1b !important;
+  color: #ffffff !important;
+  border-color: #ef5846 !important;
+  outline: 3px solid rgba(239,88,70,.16) !important;
+}
+
+/* checkboxregels */
+html[data-theme="dark"] .settings-panel .check-label {
+  background: #292926 !important;
+  color: #f2f0ec !important;
+  border-color: #45433e !important;
+}
+
+/* secondaire knop */
+html[data-theme="dark"] .settings-panel button.secondary {
+  background: #292926 !important;
+  color: #f2f0ec !important;
+  border-color: #4a4944 !important;
+}
+
+html[data-theme="dark"] .settings-panel button.secondary:hover {
+  background: #34332f !important;
+}
+
+/* codepaden */
+html[data-theme="dark"] .settings-panel code,
+html[data-theme="dark"] .settings-panel pre,
+html[data-theme="dark"] code {
+  background: #191918 !important;
+  color: #d9d6cf !important;
+  border-color: #44423d !important;
+}
+
+
+/* ---------- HITLIJSTENPAGINA ---------- */
+
+html[data-theme="dark"] .hitlijsten-panel,
+html[data-theme="dark"] .hitlijsten-input-card,
+html[data-theme="dark"] .chart-analysis-result {
+  background: #232321 !important;
+  color: #f2f0ec !important;
+  border-color: #41403b !important;
+  box-shadow: none !important;
+}
+
+html[data-theme="dark"] .hitlijsten-input-row input {
+  background: #1d1d1b !important;
+  color: #f3f1ed !important;
+  -webkit-text-fill-color: #f3f1ed !important;
+  border-color: #4a4944 !important;
+}
+
+html[data-theme="dark"] .hitlijsten-input-row input::placeholder {
+  color: #8e8a83 !important;
+}
+
+html[data-theme="dark"] .configured-chart-item {
+  background: transparent !important;
+  color: #f2f0ec !important;
+  border-color: #41403b !important;
+}
+
+html[data-theme="dark"] .configured-chart-item b {
+  color: #f4f2ee !important;
+}
+
+html[data-theme="dark"] .configured-chart-item > div > span {
+  color: #aaa69f !important;
+}
+
+
+/* ---------- ALGEMENE PANEL-INHOUD ---------- */
+
+html[data-theme="dark"] .panel .empty {
+  color: #aaa69f !important;
+}
+
+html[data-theme="dark"] .panel .text-link {
+  color: #ff8175 !important;
+}
+
+/* Dark mode: AI-herstelblok en runtime light-hotfix overrulen */
+html[data-theme="dark"] body .ai-recovery-note {
+  background: #292926 !important;
+  color: #aaa69f !important;
+  border-color: #44423d !important;
+}
+
+html[data-theme="dark"] body .ai-recovery-note b {
+  color: #f3f1ed !important;
+}
+
+html[data-theme="dark"] body .ai-recovery-shortcut {
+  background: #1d1d1b !important;
+  color: #f3f1ed !important;
+  border-color: #4a4944 !important;
+}
+
+html[data-theme="dark"] body .ai-recovery-shortcut:hover {
+  background: #34332f !important;
+  color: #ffffff !important;
+  border-color: #5a5852 !important;
+}
+
+html[data-theme="dark"] body .retry-form input,
+html[data-theme="dark"] body .search-form input,
+html[data-theme="dark"] body .settings-grid input,
+html[data-theme="dark"] body .settings-grid select,
+html[data-theme="dark"] body input[type="text"],
+html[data-theme="dark"] body input[type="search"],
+html[data-theme="dark"] body textarea,
+html[data-theme="dark"] body select {
+  background: #1d1d1b !important;
+  color: #f3f1ed !important;
+  -webkit-text-fill-color: #f3f1ed !important;
+  caret-color: #f3f1ed !important;
+  border-color: #4a4944 !important;
+  box-shadow: none !important;
+  color-scheme: dark !important;
+}

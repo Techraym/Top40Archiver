@@ -261,6 +261,41 @@ def index(request: Request, q: str = ""):
     return templates.TemplateResponse(request, "index.html", _dashboard_data(q))
 
 
+@app.get("/zoeken", response_class=HTMLResponse)
+def zoeken_page(request: Request, q: str = ""):
+    return templates.TemplateResponse(
+        request,
+        "zoeken.html",
+        _dashboard_data(q),
+    )
+
+
+@app.get("/hitlijsten", response_class=HTMLResponse)
+def hitlijsten_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "hitlijsten.html",
+        {
+            "app_version": APP_VERSION,
+        },
+    )
+
+
+@app.get("/instellingen", response_class=HTMLResponse)
+def instellingen_page(request: Request):
+    with connect() as con:
+        settings_data = get_settings(con)
+
+    return templates.TemplateResponse(
+        request,
+        "instellingen.html",
+        {
+            "settings": settings_data,
+            "app_version": APP_VERSION,
+        },
+    )
+
+
 @app.get("/api/live")
 def live_api():
     return JSONResponse(_live_payload())
@@ -376,7 +411,7 @@ def settings(
             "spotify_min_match_score": max(0.0, min(1.0, spotify_min_match_score)),
         }
     )
-    return RedirectResponse("/", 303)
+    return RedirectResponse("/instellingen", 303)
 
 
 @app.post("/track/{track_id}/query")

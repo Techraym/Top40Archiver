@@ -169,6 +169,8 @@ def _persist_chart(chart: ChartEdition, force: bool = False) -> dict:
                         top_peak,
                         tip_peak,
                         tip_peak,
+                        item.cover_url,
+                        "top40.nl" if item.cover_url else None,
                     ),
                 )
                 track_id = int(cursor.lastrowid)

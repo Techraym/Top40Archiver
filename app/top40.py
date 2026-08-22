@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 import certifi
 import requests
+from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -34,6 +35,7 @@ class ChartTrack:
     title: str
     youtube_url: str | None = None
     source_track_id: str | None = None
+    cover_url: str | None = None
 
 
 @dataclass
@@ -258,6 +260,44 @@ def _detail_link_texts(node: Any) -> tuple[list[str], str | None]:
     return values, track_id
 
 
+def _image_url_from_node(node, source_url: str) -> str | None:
+    """Lees een bruikbare coverafbeelding uit een Top40.nl lijstitem."""
+    for img in node.select("img"):
+        value = (
+            img.get("data-src")
+            or img.get("data-lazy-src")
+            or img.get("data-original")
+            or img.get("src")
+        )
+
+        if not value:
+            srcset = str(
+                img.get("data-srcset")
+                or img.get("srcset")
+                or ""
+            ).strip()
+
+            if srcset:
+                value = srcset.split(",")[0].strip().split()[0]
+
+        value = str(value or "").strip()
+
+        if not value:
+            continue
+
+        low = value.casefold()
+
+        if low.startswith("data:"):
+            continue
+
+        if "logo" in low or "icon" in low:
+            continue
+
+        return urljoin(source_url, value)
+
+    return None
+
+
 def _position_from_value(value: object, maximum: int) -> int | None:
     """Extract a plausible chart position without assuming a fixed list length."""
     match = re.search(r"\b([1-9]\d{0,2})\b", str(value or ""))
@@ -342,7 +382,14 @@ def parse_chart(
             source_track_id = _track_id_from_href(href)
 
         if title and artist and title != artist:
-            found[position] = ChartTrack(position, artist, title, None, source_track_id)
+            found[position] = ChartTrack(
+            position,
+            artist,
+            title,
+            None,
+            source_track_id,
+            _image_url_from_node(node, source_url),
+        )
 
     # Historische pagina's kunnen zichtbare regels en aanvullende JSON bevatten.
     # Lees beide bronnen en voeg alles samen; het aantal regels is niet normatief.

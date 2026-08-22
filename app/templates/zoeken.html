@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f7f5">
+  <title>Zoeken · Top 40 Archiver</title>
+  <link rel="stylesheet" href="/static/style.css?v=36">
+</head>
+<body>
+
+<aside class="app-sidebar" aria-label="Hoofdnavigatie">
+
+  <a class="side-logo" href="/" aria-label="Dashboard" title="Dashboard">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 11.5 12 4l9 7.5v8a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H4.5A1.5 1.5 0 0 1 3 19.5z"/>
+    </svg>
+  </a>
+
+  <nav>
+    <a class="active" href="/zoeken" aria-label="Archief zoeken" title="Archief zoeken">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="6"/>
+        <path d="m16 16 5 5"/>
+      </svg>
+    </a>
+  </nav>
+
+  <div class="side-bottom">
+    <button type="button" class="theme-toggle" aria-label="Thema wisselen" title="Thema wisselen">
+      <svg viewBox="0 0 24 24">
+        <path d="M20 15.2A8.5 8.5 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2z"/>
+      </svg>
+    </button>
+  </div>
+
+</aside>
+
+<main class="shell search-page">
+
+  <header class="page-header">
+    <div class="brand-block">
+      <div class="logo">
+        <span>TOP</span>
+        <b>40</b>
+      </div>
+
+      <div>
+        <div class="title-line">
+          <h1>Archief doorzoeken</h1>
+        </div>
+        <p>Zoek in het volledige muziekarchief op artiest of titel.</p>
+        <small>Lokale database op de NUC</small>
+      </div>
+    </div>
+  </header>
+
+  <section class="panel">
+    <div class="section-heading compact">
+      <div>
+        <span class="eyebrow">Archief zoeken</span>
+        <h2>Vind een artiest of titel</h2>
+      </div>
+    </div>
+
+    <form method="get" action="/zoeken" class="search-form">
+      <input
+        type="search"
+        name="q"
+        value="{{ q }}"
+        placeholder="Bijvoorbeeld artiest of titel"
+        autocomplete="off"
+      >
+      <button type="submit">Zoeken</button>
+    </form>
+  </section>
+
+  {% if q %}
+  <section class="panel">
+    <div class="section-heading compact">
+      <div>
+        <span class="eyebrow">Zoekresultaten</span>
+        <h2>Resultaten voor “{{ q }}”</h2>
+      </div>
+      <span class="count-chip">{{ history|length }}</span>
+    </div>
+
+    {% if history %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Artiest</th>
+            <th>Titel</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for x in history %}
+          <tr>
+            <td><b>{{ x.artist }}</b></td>
+            <td>{{ x.title }}</td>
+            <td>
+              <span class="status-badge status-{{ x.download_status }}">
+                {{ status_labels.get(x.download_status, x.download_status) }}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">Geen resultaten gevonden.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+</main>
+
+<script src="/static/i18n.js?v=3"></script>
+<script src="/static/theme.js?v=1"></script>
+</body>
+</html>

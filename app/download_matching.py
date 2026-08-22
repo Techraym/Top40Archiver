@@ -306,8 +306,24 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
     wanted_raw = f"{wanted_artist or ''} {wanted_title or ''} {track.get('album') or ''}".casefold()
     penalties: list[dict[str, Any]] = []
     penalty_points = 0
+
+    def has_version_marker(text: str, marker: str) -> bool:
+        # Version markers moeten als zelfstandig woord/frase voorkomen.
+        # Zo matcht 'live' bijvoorbeeld niet meer binnen woorden in een
+        # description, uploader- of channelnaam.
+        parts = [
+            re.escape(part)
+            for part in re.split(r"[\s_-]+", marker.strip())
+            if part
+        ]
+        if not parts:
+            return False
+
+        pattern = r"(?<!\w)" + r"[\s_-]+".join(parts) + r"(?!\w)"
+        return re.search(pattern, text, flags=re.I) is not None
+
     for marker, value in VERSION_PENALTIES:
-        if marker in raw and marker not in wanted_raw:
+        if has_version_marker(raw, marker) and not has_version_marker(wanted_raw, marker):
             penalty_points += value
             penalties.append({"marker": marker, "points": -value})
 

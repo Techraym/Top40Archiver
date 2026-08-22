@@ -131,6 +131,7 @@ def _parse_time(value: object) -> datetime | None:
 def _provider_available(row: dict[str, Any]) -> bool:
     if not bool(int(row.get("enabled", 0))):
         return False
+
     cooldown = _parse_time(row.get("cooldown_until"))
     if cooldown and cooldown > _utcnow():
         return False

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import argparse
 import re
@@ -237,6 +238,8 @@ def lookup_cover(artist: str, title: str) -> dict[str, str]:
             )
         )
 
+        candidates = []
+
         for release in releases[:4]:
             release_id = str(release.get("id") or "").strip()
 
@@ -249,32 +252,72 @@ def lookup_cover(artist: str, title: str) -> dict[str, str]:
                 release_id=quote(release_id)
             )
 
+            candidates.append((release_id, url))
+
+        def check_cover(candidate):
+            release_id, url = candidate
+
+            # Cover Art Archive bewust NIET via _paced_get().
+            # MusicBrainz blijft daardoor op de bestaande pacing,
+            # terwijl maximaal vier coverchecks parallel kunnen lopen.
+            session = requests.Session()
+            session.headers.update(_session.headers)
+
             try:
-                check = _paced_get(url, timeout=20)
-            except requests.HTTPError as exc:
-                status = getattr(exc.response, "status_code", None)
+                response = session.get(
+                    url,
+                    timeout=20,
+                    allow_redirects=True,
+                )
 
-                if status == 404:
-                    continue
+                if response.status_code == 404:
+                    return None
 
-                raise
+                response.raise_for_status()
 
-            content_type = str(
-                check.headers.get("Content-Type") or ""
-            )
+                content_type = str(
+                    response.headers.get("Content-Type") or ""
+                )
 
-            if (
-                check.status_code == 200
-                and content_type.startswith("image/")
-            ):
-                return {
-                    "cover_url": url,
-                    "cover_source": "cover_art_archive",
-                    "musicbrainz_recording_id": str(
-                        recording.get("id") or ""
-                    ),
-                    "musicbrainz_release_id": release_id,
-                }
+                if (
+                    response.status_code == 200
+                    and content_type.startswith("image/")
+                ):
+                    return release_id, url
+
+                return None
+
+            except requests.RequestException:
+                return None
+
+            finally:
+                session.close()
+
+        if candidates:
+            workers = min(4, len(candidates))
+
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [
+                    pool.submit(check_cover, candidate)
+                    for candidate in candidates
+                ]
+
+                for future in as_completed(futures):
+                    result = future.result()
+
+                    if not result:
+                        continue
+
+                    release_id, url = result
+
+                    return {
+                        "cover_url": url,
+                        "cover_source": "cover_art_archive",
+                        "musicbrainz_recording_id": str(
+                            recording.get("id") or ""
+                        ),
+                        "musicbrainz_release_id": release_id,
+                    }
 
     return {}
 

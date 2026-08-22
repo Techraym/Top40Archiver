@@ -379,9 +379,85 @@ def claim_jobs(limit: int) -> list[dict[str, Any]]:
             WHERE j.cancel_requested=0
               AND (
                 j.status='queued'
-                OR (j.status='waiting_retry' AND (j.next_attempt_at IS NULL OR datetime(j.next_attempt_at)<=datetime('now')))
+                OR (
+                    j.status='waiting_retry'
+                    AND (
+                        j.next_attempt_at IS NULL
+                        OR datetime(j.next_attempt_at)<=datetime('now')
+                        OR EXISTS (
+                            SELECT 1
+                            FROM chart_entries ce
+                            WHERE ce.track_id=t.id
+                              AND ce.edition_id=(
+                                SELECT id FROM editions
+                                ORDER BY year DESC,week DESC
+                                LIMIT 1
+                              )
+                        )
+                        OR EXISTS (
+                            SELECT 1
+                            FROM tipparade_entries te
+                            WHERE te.track_id=t.id
+                              AND te.edition_id=(
+                                SELECT id FROM tipparade_editions
+                                ORDER BY year DESC,week DESC
+                                LIMIT 1
+                              )
+                        )
+                    )
+                )
               )
-            ORDER BY j.updated_at,j.id LIMIT ?
+            ORDER BY
+              CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM chart_entries ce
+                    WHERE ce.track_id=t.id
+                      AND ce.edition_id=(
+                        SELECT id FROM editions
+                        ORDER BY year DESC,week DESC
+                        LIMIT 1
+                      )
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM tipparade_entries te
+                    WHERE te.track_id=t.id
+                      AND te.edition_id=(
+                        SELECT id FROM tipparade_editions
+                        ORDER BY year DESC,week DESC
+                        LIMIT 1
+                      )
+                )
+                THEN 0
+                ELSE 1
+              END,
+              COALESCE(
+                (
+                  SELECT ce.position
+                  FROM chart_entries ce
+                  WHERE ce.track_id=t.id
+                    AND ce.edition_id=(
+                      SELECT id FROM editions
+                      ORDER BY year DESC,week DESC
+                      LIMIT 1
+                    )
+                ),
+                (
+                  SELECT te.position
+                  FROM tipparade_entries te
+                  WHERE te.track_id=t.id
+                    AND te.edition_id=(
+                      SELECT id FROM tipparade_editions
+                      ORDER BY year DESC,week DESC
+                      LIMIT 1
+                    )
+                ),
+                999
+              ),
+              j.updated_at,
+              j.id
+            LIMIT ?
             """,
             (max(1, min(int(limit), 20)),),
         ).fetchall()

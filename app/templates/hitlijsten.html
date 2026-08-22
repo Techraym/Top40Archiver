@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Hitlijsten · Top 40 Archiver</title>
+  <link rel="stylesheet" href="/static/style.css?v=36">
+</head>
+<body class="hitlijsten-layout">
+
+<aside class="app-sidebar" aria-label="Hoofdnavigatie">
+  <a class="side-logo" href="/" aria-label="Dashboard" title="Dashboard">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 11.5 12 4l9 7.5v8a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H4.5A1.5 1.5 0 0 1 3 19.5z"/>
+    </svg>
+  </a>
+
+  <nav>
+<a class="active" href="/hitlijsten" aria-label="Hitlijsten" title="Hitlijsten">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="5" width="3" height="3" rx=".7"/>
+        <path d="M10 6.5h10"/>
+        <rect x="4" y="10.5" width="3" height="3" rx=".7"/>
+        <path d="M10 12h10"/>
+        <rect x="4" y="16" width="3" height="3" rx=".7"/>
+        <path d="M10 17.5h10"/>
+      </svg>
+    </a>
+
+    <a href="/instellingen" aria-label="Beheerinstellingen" title="Beheerinstellingen">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h8"/>
+        <path d="M16 7h4"/>
+        <circle cx="14" cy="7" r="2"/>
+
+        <path d="M4 12h3"/>
+        <path d="M11 12h9"/>
+        <circle cx="9" cy="12" r="2"/>
+
+        <path d="M4 17h10"/>
+        <path d="M18 17h2"/>
+        <circle cx="16" cy="17" r="2"/>
+      </svg>
+    </a>
+  </nav>
+
+  <div class="side-bottom">
+    <button type="button" class="theme-toggle" aria-label="Thema wisselen" title="Thema wisselen">
+      <svg viewBox="0 0 24 24">
+        <path d="M20 15.2A8.5 8.5 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2z"/>
+      </svg>
+    </button>
+  </div>
+</aside>
+
+<main class="shell hitlijsten-page">
+  <header class="page-header">
+    <div class="brand-block">
+      <div class="logo">
+        <span>TOP</span>
+        <b>40</b>
+      </div>
+
+      <div>
+        <div class="title-line">
+          <h1>Muzieklijsten beheren</h1>
+        </div>
+
+        <p>Voeg extra hitlijsten toe die Top40Archiver actueel en historisch mag verwerken.</p>
+        <small>Hitlijstbeheer · lokaal op de NUC</small>
+      </div>
+    </div>
+  </header>
+
+  <section class="panel hitlijsten-panel">
+    <div class="hitlijsten-input-card">
+      <label for="chart-request"><b>Welke hitlijst wil je toevoegen?</b></label>
+
+      <div class="hitlijsten-input-row">
+        <input
+          id="chart-request"
+          name="chart_request"
+          type="text"
+          placeholder="Bijvoorbeeld: UK Top 40 archief"
+          autocomplete="off"
+        >
+        <button type="button" id="chart-analyse-button">Analyseren met Qwen</button>
+      </div>
+
+      <div id="chart-analysis-result" class="chart-analysis-result" hidden>
+        <span class="eyebrow">Qwen analyse</span>
+        <div id="chart-analysis-content"></div>
+        <div class="actions">
+          <button type="button" id="chart-add-button">Toevoegen</button>
+          <button type="button" class="secondary" id="chart-cancel-button">Annuleren</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-heading compact hitlijsten-active-heading">
+      <div>
+        <span class="eyebrow">Actief</span>
+        <h2>Geconfigureerde hitlijsten</h2>
+      </div>
+    </div>
+
+    <div id="configured-chart-list" class="configured-chart-list">
+      <article class="configured-chart-item builtin">
+        <div>
+          <b>Nederlandse Top 40</b>
+          <span>Actueel en historisch</span>
+        </div>
+        <span class="status-badge status-downloaded">Actief</span>
+      </article>
+
+      <article class="configured-chart-item builtin">
+        <div>
+          <b>Tipparade</b>
+          <span>Actueel en historisch</span>
+        </div>
+        <span class="status-badge status-downloaded">Actief</span>
+      </article>
+    </div>
+  </section>
+</main>
+
+<script src="/static/i18n.js?v=3"></script>
+<script src="/static/theme.js?v=1"></script>
+</body>
+</html>

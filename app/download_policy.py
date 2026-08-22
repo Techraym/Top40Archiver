@@ -85,24 +85,131 @@ def ensure_provider_order_policy() -> None:
         )
 
 
-def _latest_ids(con) -> tuple[int, int]:
-    top = con.execute(
-        "SELECT id FROM editions ORDER BY year DESC,week DESC LIMIT 1"
-    ).fetchone()
-    tip = con.execute(
-        "SELECT id FROM tipparade_editions ORDER BY year DESC,week DESC LIMIT 1"
-    ).fetchone()
-    return (
-        int(top["id"]) if top else -1,
-        int(tip["id"]) if tip else -1,
+def _quote_identifier(value: str) -> str:
+    return '"' + str(value).replace('"', '""') + '"'
+
+
+def _current_chart_sources(con) -> list[dict[str, Any]]:
+    """Vind automatisch alle huidige hitlijst/edition-combinaties."""
+    tables = {
+        str(row["name"])
+        for row in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+
+    sources: list[dict[str, Any]] = []
+
+    for entries_table in sorted(tables):
+        if entries_table.startswith("sqlite_"):
+            continue
+
+        if entries_table != "chart_entries" and not entries_table.endswith("_entries"):
+            continue
+
+        q_entries = _quote_identifier(entries_table)
+
+        columns = {
+            str(row["name"])
+            for row in con.execute(
+                f"PRAGMA table_info({q_entries})"
+            ).fetchall()
+        }
+
+        if not {"track_id", "edition_id"}.issubset(columns):
+            continue
+
+        edition_table = None
+
+        for fk in con.execute(
+            f"PRAGMA foreign_key_list({q_entries})"
+        ).fetchall():
+            if str(fk["from"]) == "edition_id":
+                edition_table = str(fk["table"])
+                break
+
+        if not edition_table or edition_table not in tables:
+            continue
+
+        q_edition = _quote_identifier(edition_table)
+
+        edition_columns = {
+            str(row["name"])
+            for row in con.execute(
+                f"PRAGMA table_info({q_edition})"
+            ).fetchall()
+        }
+
+        if "id" not in edition_columns:
+            continue
+
+        if {"year", "week"}.issubset(edition_columns):
+            order_sql = "year DESC, week DESC, id DESC"
+        elif "chart_date" in edition_columns:
+            order_sql = "chart_date DESC, id DESC"
+        else:
+            continue
+
+        latest = con.execute(
+            f"SELECT id FROM {q_edition} ORDER BY {order_sql} LIMIT 1"
+        ).fetchone()
+
+        if latest is None:
+            continue
+
+        if entries_table == "chart_entries":
+            name = "top40"
+        else:
+            name = entries_table[:-8]
+
+        sources.append({
+            "name": name,
+            "entries_table": entries_table,
+            "edition_table": edition_table,
+            "edition_id": int(latest["id"]),
+        })
+
+    return sources
+
+
+def _prepare_current_track_table(con) -> list[dict[str, Any]]:
+    """Maak tijdelijke set met tracks uit de nieuwste editie van ALLE lijsten."""
+    sources = _current_chart_sources(con)
+
+    con.execute("DROP TABLE IF EXISTS temp.current_download_tracks")
+
+    con.execute(
+        """
+        CREATE TEMP TABLE current_download_tracks(
+            track_id INTEGER PRIMARY KEY
+        )
+        """
     )
+
+    for source in sources:
+        table = _quote_identifier(source["entries_table"])
+        edition_id = int(source["edition_id"])
+
+        con.execute(
+            f"""
+            INSERT OR IGNORE INTO current_download_tracks(track_id)
+            SELECT track_id
+            FROM {table}
+            WHERE edition_id=?
+            """,
+            (edition_id,),
+        )
+
+    return sources
 
 
 def enqueue_pending_tracks_current_first(limit: int = 500) -> int:
-    """Enqueue fresh Top40 first, then fresh Tipparade, then historical backlog."""
+    """Zet alle actuele lijsten vóór de historische backlog."""
     init_download_db()
+
     with connect() as con:
-        top_id, tip_id = _latest_ids(con)
+        _prepare_current_track_table(con)
+
         rows = con.execute(
             """
             SELECT t.id
@@ -111,53 +218,55 @@ def enqueue_pending_tracks_current_first(limit: int = 500) -> int:
             ORDER BY
               CASE
                 WHEN EXISTS(
-                  SELECT 1 FROM chart_entries ce
-                  WHERE ce.track_id=t.id AND ce.edition_id=?
+                  SELECT 1
+                  FROM current_download_tracks c
+                  WHERE c.track_id=t.id
                 ) THEN 0
-                WHEN EXISTS(
-                  SELECT 1 FROM tipparade_entries te
-                  WHERE te.track_id=t.id AND te.edition_id=?
-                ) THEN 1
-                ELSE 2
+                ELSE 1
               END,
               t.updated_at DESC,
               t.id
             LIMIT ?
             """,
-            (top_id, tip_id, max(1, min(int(limit), 5000))),
+            (max(1, min(int(limit), 5000)),),
         ).fetchall()
+
     return enqueue_track_ids([int(row["id"]) for row in rows])
 
 
 def claim_jobs_current_first(limit: int) -> list[dict[str, Any]]:
-    """Claim only the highest-priority ready queue class in each worker batch.
-
-    This prevents a batch with one ready current Top40 job from filling its other
-    worker slot(s) with historical archive work. If no current Top40 job is ready,
-    Tipparade may run; archive is selected only when neither current list has a
-    ready job at that moment.
-    """
+    """Claim alle actuele hitlijsten vóór ieder historisch nummer."""
     init_download_db()
     claimed: list[dict[str, Any]] = []
     wanted = max(1, min(int(limit), 20))
+
     with connect() as con:
-        top_id, tip_id = _latest_ids(con)
+        _prepare_current_track_table(con)
+
         rows = con.execute(
             """
-            SELECT j.*,t.artist,t.title,t.genre,t.spotify_album,t.spotify_release_date,
-                   t.spotify_duration_ms,t.spotify_isrc,t.spotify_artist,t.spotify_title,
-                   t.custom_search_query,t.youtube_url,
-                   CASE
-                     WHEN EXISTS(
-                       SELECT 1 FROM chart_entries ce
-                       WHERE ce.track_id=t.id AND ce.edition_id=?
-                     ) THEN 'current_top40'
-                     WHEN EXISTS(
-                       SELECT 1 FROM tipparade_entries te
-                       WHERE te.track_id=t.id AND te.edition_id=?
-                     ) THEN 'current_tipparade'
-                     ELSE 'archive'
-                   END AS queue_class
+            SELECT
+                j.*,
+                t.artist,
+                t.title,
+                t.genre,
+                t.spotify_album,
+                t.spotify_release_date,
+                t.spotify_duration_ms,
+                t.spotify_isrc,
+                t.spotify_artist,
+                t.spotify_title,
+                t.custom_search_query,
+                t.youtube_url,
+                t.source_track_id,
+                CASE
+                  WHEN EXISTS(
+                    SELECT 1
+                    FROM current_download_tracks c
+                    WHERE c.track_id=t.id
+                  ) THEN 'current'
+                  ELSE 'archive'
+                END AS queue_class
             FROM download_jobs j
             JOIN tracks t ON t.id=j.track_id
             WHERE j.cancel_requested=0
@@ -165,85 +274,110 @@ def claim_jobs_current_first(limit: int) -> list[dict[str, Any]]:
                 j.status='queued'
                 OR (
                   j.status='waiting_retry'
-                  AND (j.next_attempt_at IS NULL OR datetime(j.next_attempt_at)<=datetime('now'))
+                  AND (
+                    j.next_attempt_at IS NULL
+                    OR datetime(j.next_attempt_at)<=datetime('now')
+                  )
                 )
               )
             ORDER BY
               CASE
                 WHEN EXISTS(
-                  SELECT 1 FROM chart_entries ce
-                  WHERE ce.track_id=t.id AND ce.edition_id=?
+                  SELECT 1
+                  FROM current_download_tracks c
+                  WHERE c.track_id=t.id
                 ) THEN 0
-                WHEN EXISTS(
-                  SELECT 1 FROM tipparade_entries te
-                  WHERE te.track_id=t.id AND te.edition_id=?
-                ) THEN 1
-                ELSE 2
+                ELSE 1
               END,
               j.updated_at,
               j.id
             LIMIT 20
-            """,
-            (top_id, tip_id, top_id, tip_id),
+            """
         ).fetchall()
 
         if rows:
             selected_class = str(rows[0]["queue_class"])
-            rows = [row for row in rows if str(row["queue_class"]) == selected_class][:wanted]
+            rows = [
+                row for row in rows
+                if str(row["queue_class"]) == selected_class
+            ][:wanted]
 
         for row in rows:
             stamp = now_iso()
+
             updated = con.execute(
                 """
                 UPDATE download_jobs
-                SET status='searching',started_at=COALESCE(started_at,?),updated_at=?
+                SET status='searching',
+                    started_at=COALESCE(started_at,?),
+                    updated_at=?
                 WHERE id=?
                   AND status IN ('queued','waiting_retry')
                   AND cancel_requested=0
                 """,
                 (stamp, stamp, row["id"]),
             )
+
             if updated.rowcount:
                 item = dict(row)
                 item["status"] = "searching"
                 claimed.append(item)
+
     return claimed
 
 
 def apply_current_chart_fast_retry(job: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
-    """Shorten early retries for current charts and keep their track state pending."""
+    """Geef iedere actuele hitlijst de snelle retryroute."""
     if str(result.get("status") or "") != "waiting_retry":
         return result
 
     queue_class = str(job.get("queue_class") or "archive")
-    if queue_class not in {"current_top40", "current_tipparade"}:
+
+    if queue_class != "current":
         return result
 
-    # process_job increments attempts in SQLite after calculating its normal
-    # backoff. Read the new value and only use the fast lane for early attempts.
     with connect() as con:
         row = con.execute(
             "SELECT attempts FROM download_jobs WHERE id=?",
             (int(job["id"]),),
         ).fetchone()
-        attempts = int(row["attempts"] or 0) if row else int(job.get("attempts") or 0) + 1
+
+        attempts = (
+            int(row["attempts"] or 0)
+            if row
+            else int(job.get("attempts") or 0) + 1
+        )
+
         if attempts > CURRENT_CHART_FAST_RETRY_ATTEMPTS:
             return result
 
-        seconds = (
-            CURRENT_TOP40_FAST_RETRY_SECONDS
-            if queue_class == "current_top40"
-            else CURRENT_TIPPARADE_FAST_RETRY_SECONDS
+        seconds = min(
+            CURRENT_TOP40_FAST_RETRY_SECONDS,
+            CURRENT_TIPPARADE_FAST_RETRY_SECONDS,
         )
-        next_attempt = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+
+        next_attempt = (
+            datetime.now(timezone.utc)
+            + timedelta(seconds=seconds)
+        ).isoformat()
+
         con.execute(
-            "UPDATE download_jobs SET next_attempt_at=?,updated_at=? WHERE id=? AND status='waiting_retry'",
+            """
+            UPDATE download_jobs
+            SET next_attempt_at=?,updated_at=?
+            WHERE id=?
+              AND status='waiting_retry'
+            """,
             (next_attempt, now_iso(), int(job["id"])),
         )
-        # A waiting retry is not a terminal failed track. Keep the dashboard honest
-        # while the current-list fast lane is still actively trying alternatives.
+
         con.execute(
-            "UPDATE tracks SET download_status='pending',updated_at=? WHERE id=? AND download_status='failed'",
+            """
+            UPDATE tracks
+            SET download_status='pending',updated_at=?
+            WHERE id=?
+              AND download_status='failed'
+            """,
             (now_iso(), int(job["track_id"])),
         )
 
@@ -251,4 +385,5 @@ def apply_current_chart_fast_retry(job: dict[str, Any], result: dict[str, Any]) 
     updated["retry_seconds"] = seconds
     updated["fast_retry"] = True
     updated["queue_class"] = queue_class
+
     return updated

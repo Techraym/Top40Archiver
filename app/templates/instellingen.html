@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Instellingen · Top 40 Archiver</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="settings-layout">
+
+<aside class="app-sidebar" aria-label="Hoofdnavigatie">
+  <a class="side-logo" href="/" aria-label="Dashboard" title="Dashboard">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 11.5 12 4l9 7.5v8a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H4.5A1.5 1.5 0 0 1 3 19.5z"/>
+    </svg>
+  </a>
+
+  <nav>
+<a href="/hitlijsten" aria-label="Hitlijsten" title="Hitlijsten">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="5" width="3" height="3" rx=".7"/>
+        <path d="M10 6.5h10"/>
+        <rect x="4" y="10.5" width="3" height="3" rx=".7"/>
+        <path d="M10 12h10"/>
+        <rect x="4" y="16" width="3" height="3" rx=".7"/>
+        <path d="M10 17.5h10"/>
+      </svg>
+    </a>
+
+    <a class="active" href="/instellingen" aria-label="Beheerinstellingen" title="Beheerinstellingen">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h8"/>
+        <path d="M16 7h4"/>
+        <circle cx="14" cy="7" r="2"/>
+
+        <path d="M4 12h3"/>
+        <path d="M11 12h9"/>
+        <circle cx="9" cy="12" r="2"/>
+
+        <path d="M4 17h10"/>
+        <path d="M18 17h2"/>
+        <circle cx="16" cy="17" r="2"/>
+      </svg>
+    </a>
+  </nav>
+
+  <div class="side-bottom">
+    <button type="button" class="theme-toggle" aria-label="Thema wisselen" title="Thema wisselen">
+      <svg viewBox="0 0 24 24">
+        <path d="M20 15.2A8.5 8.5 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2z"/>
+      </svg>
+    </button>
+  </div>
+</aside>
+
+<main class="shell settings-page">
+  <header class="page-header">
+    <div class="brand-block">
+      <div class="logo"><span>TOP</span><b>40</b></div>
+      <div>
+        <div class="title-line">
+          <h1>Beheerinstellingen</h1>
+        </div>
+        <p>Technische instellingen voor Top40Archiver.</p>
+        <small>Lokale configuratie op de NUC</small>
+      </div>
+    </div>
+  </header>
+
+  <details class="panel settings-panel" open>
+    <summary><b>Beheerinstellingen</b></summary>
+    <form method="post" action="/settings" class="settings-grid">
+      <label>Startdatum wekelijkse controle<input type="date" name="start_date" value="{{ settings.start_date }}" required></label>
+      <label>Controledag<select name="weekly_day">{% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<option {% if settings.weekly_day==d %}selected{% endif %}>{{ d }}</option>{% endfor %}</select></label>
+      <label>Tijd<input type="time" name="weekly_time" value="{{ settings.weekly_time }}" required></label>
+      <label class="wide">Downloadmap<input name="download_dir" value="{{ settings.download_dir }}" required></label>
+      <label>Pogingen<input type="number" min="1" max="20" name="max_download_attempts" value="{{ settings.max_download_attempts }}"></label>
+      <label class="wide">Eerste YouTube-zoekopdracht<input name="search_template" value="{{ settings.search_template }}" required><small>Daarna worden automatisch aanvullende varianten geprobeerd.</small></label>
+      <label>Historisch startjaar Top 40<input type="number" min="1965" max="2100" name="history_start_year" value="{{ settings.history_start_year }}"></label>
+      <label>Historische startweek Top 40<input type="number" min="1" max="53" name="history_start_week" value="{{ settings.history_start_week }}"></label>
+      <label>Weken per lijst per batch<input type="number" min="1" max="52" name="history_batch_weeks" value="{{ settings.history_batch_weeks }}"></label>
+      <label>Wachttijd per pagina<input type="number" step="0.5" min="0" max="30" name="history_delay_seconds" value="{{ settings.history_delay_seconds }}"></label>
+      <label>Downloads per historische run<input type="number" min="0" max="100" name="history_download_limit" value="{{ settings.history_download_limit }}"></label>
+      <label>Spotify minimumscore<input type="number" step="0.01" min="0" max="1" name="spotify_min_match_score" value="{{ settings.spotify_min_match_score }}"></label>
+      <label class="check-label"><input type="checkbox" name="tipparade_enabled" value="true" {% if settings.tipparade_enabled == '1' %}checked{% endif %}> Tipparade wekelijks meenemen</label>
+      <label class="check-label"><input type="checkbox" name="spotify_validation_enabled" value="true" {% if settings.spotify_validation_enabled == '1' %}checked{% endif %}> Spotify uitsluitend voor metadata gebruiken</label>
+      <button>Instellingen opslaan</button>
+    </form>
+    <p class="note">Tipparadehistorie start bij 1967-W28. Nieuwe MP3's worden opgeslagen als <code>Genre / beginletter / Artiest - Titel.mp3</code>.</p>
+    <div class="organize-box"><div><b>Bestaande MP3's opnieuw ordenen</b><small>Alleen aanwezige bestanden worden verplaatst; SQLite blijft leidend.</small></div><form method="post" action="/organize"><button type="submit" class="secondary">MP3's ordenen</button></form></div>
+    <p class="note">Windows-share: <code>/opt/top40-archiver/setup-network-share.sh</code>. De database blijft op de interne SSD.</p>
+    <p class="note">Spotify-inloggegevens staan in <code>/etc/top40-archiver.env</code>. Na wijziging van dag of tijd: <code>/opt/top40-archiver/update-timer.sh</code>.</p>
+  </details>
+</main>
+
+<script src="/static/i18n.js?v=3"></script>
+<script src="/static/theme.js?v=1"></script>
+</body>
+</html>
