@@ -41,12 +41,13 @@ def test_install_and_update_enable_permanent_download_service():
     assert 'bash "$GENERATED"' in wrapper
 
 
-def test_auto_update_runs_two_minutes_after_boot_and_every_day():
+def test_auto_update_runs_two_minutes_after_activation_and_every_day():
     content = (
         ROOT / "systemd" / "top40-archiver-auto-update.timer"
     ).read_text(encoding="utf-8")
 
-    assert "OnBootSec=2min" in content
+    assert "OnActiveSec=2min" in content
+    assert "OnBootSec=2min" not in content
     assert "OnUnitActiveSec=24h" in content
     assert "Persistent=true" in content
 
