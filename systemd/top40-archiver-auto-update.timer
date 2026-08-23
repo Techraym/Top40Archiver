@@ -3,7 +3,7 @@ Description=Controleer Top40Archiver-updates twee minuten na opstarten en iedere
 
 [Timer]
 OnActiveSec=2min
-OnUnitActiveSec=24h
+OnUnitInactiveSec=24h
 Persistent=true
 AccuracySec=1min
 Unit=top40-archiver-auto-update.service

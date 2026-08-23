@@ -48,7 +48,8 @@ def test_auto_update_runs_two_minutes_after_activation_and_every_day():
 
     assert "OnActiveSec=2min" in content
     assert "OnBootSec=2min" not in content
-    assert "OnUnitActiveSec=24h" in content
+    assert "OnUnitInactiveSec=24h" in content
+    assert "OnUnitActiveSec=24h" not in content
     assert "Persistent=true" in content
 
 
