@@ -4,7 +4,8 @@ set -Eeuo pipefail
 APP="/opt/top40-archiver"
 DATA_DIR="/var/lib/top40-archiver"
 REMOTE="${TOP40_UPDATE_REMOTE:-origin}"
-BRANCH="${TOP40_UPDATE_BRANCH:-main}"
+REQUESTED_BRANCH="${TOP40_UPDATE_BRANCH:-}"
+BRANCH=""
 DB="$DATA_DIR/top40.sqlite3"
 BACKUP_ROOT="$DATA_DIR/backups"
 STAMP="$(date +%Y%m%d_%H%M%S)"
@@ -41,6 +42,37 @@ fi
 trap restore_git_ownership EXIT
 
 cd "$APP"
+
+resolve_update_branch() {
+  if [ -n "$REQUESTED_BRANCH" ]; then
+    BRANCH="$REQUESTED_BRANCH"
+  else
+    local upstream
+    upstream="$(
+      git rev-parse         --abbrev-ref         --symbolic-full-name         '@{u}'         2>/dev/null || true
+    )"
+
+    case "$upstream" in
+      "$REMOTE/"*)
+        BRANCH="${upstream#"$REMOTE/"}"
+        ;;
+      *)
+        echo "FOUT: geen expliciet TOP40_UPDATE_BRANCH en huidige productiebranch heeft geen upstream op remote $REMOTE; update afgebroken."
+        return 19
+        ;;
+    esac
+  fi
+
+  if ! git check-ref-format --branch "$BRANCH" >/dev/null 2>&1; then
+    echo "FOUT: ongeldig Top40Archiver-updatekanaal: $BRANCH"
+    return 19
+  fi
+
+  echo "Updatekanaal: $REMOTE/$BRANCH"
+}
+
+resolve_update_branch
+
 mkdir -p "$BACKUP"
 
 is_ai_managed_dirty() {

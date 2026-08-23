@@ -154,7 +154,10 @@ def test_safe_updater_keeps_live_checkout_on_old_sha_until_install_succeeds():
     install_call = updater.index('bash "$WORKTREE/update-existing.sh"')
     reset_target = updater.index('git reset --hard "$TARGET_SHA"')
     assert install_call < reset_target
-    assert 'BRANCH="${TOP40_UPDATE_BRANCH:-main}"' in updater
+    assert 'REQUESTED_BRANCH="${TOP40_UPDATE_BRANCH:-}"' in updater
+    assert 'BRANCH="${TOP40_UPDATE_BRANCH:-main}"' not in updater
+    assert "resolve_update_branch" in updater
+    assert "git check-ref-format --branch" in updater
     assert "git worktree add --detach" in updater
     assert "rollback" in updater
 
@@ -196,3 +199,33 @@ def test_github_writes_remain_disabled_for_development_assistant():
     installer = (ROOT / "install-1.16.0.sh").read_text(encoding="utf-8")
     assert "TOP40_AI_GITHUB_WRITE=0" in service
     assert "TOP40_AI_GITHUB_WRITE=0" in installer
+
+def test_update_channel_never_silently_falls_back_to_main():
+    safe = (ROOT / "scripts/safe-update.sh").read_text(encoding="utf-8")
+    legacy = (ROOT / "auto-update.sh").read_text(encoding="utf-8")
+
+    for updater in (safe, legacy):
+        assert 'REQUESTED_BRANCH="${TOP40_UPDATE_BRANCH:-}"' in updater
+        assert 'TOP40_UPDATE_BRANCH:-main' not in updater
+        assert 'BRANCH="main"' not in updater
+        assert "resolve_update_branch" in updater
+        assert "git check-ref-format --branch" in updater
+        assert "geen expliciet TOP40_UPDATE_BRANCH" in updater
+
+
+def test_safe_updater_derives_channel_from_current_upstream():
+    updater = (ROOT / "scripts/safe-update.sh").read_text(encoding="utf-8")
+
+    assert "--symbolic-full-name" in updater
+    assert "'@{u}'" in updater
+    assert '"$REMOTE/"*' in updater
+    assert 'BRANCH="${upstream#"$REMOTE/"}"' in updater
+
+
+def test_legacy_auto_updater_derives_channel_from_current_upstream():
+    updater = (ROOT / "auto-update.sh").read_text(encoding="utf-8")
+
+    assert '-c safe.directory="$APP_ROOT"' in updater
+    assert "--symbolic-full-name" in updater
+    assert "'@{u}'" in updater
+    assert '"$REMOTE/"*' in updater

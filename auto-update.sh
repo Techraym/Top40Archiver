@@ -7,8 +7,10 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 REPO="Techraym/Top40Archiver"
-BRANCH="main"
 APP_ROOT="/opt/top40-archiver"
+REMOTE="${TOP40_UPDATE_REMOTE:-origin}"
+REQUESTED_BRANCH="${TOP40_UPDATE_BRANCH:-}"
+BRANCH=""
 LOCAL_VERSION_FILE="$APP_ROOT/VERSION"
 STATE_DIR="/var/lib/top40-archiver/update-state"
 INSTALLED_SHA_FILE="$STATE_DIR/installed_commit_sha"
@@ -35,12 +37,42 @@ if ! flock -n 9; then
   exit 0
 fi
 
-for command in curl unzip python3 sha256sum; do
+for command in curl unzip python3 sha256sum git; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "FOUT: vereist commando ontbreekt: $command"
     exit 1
   fi
 done
+
+resolve_update_branch() {
+  if [ -n "$REQUESTED_BRANCH" ]; then
+    BRANCH="$REQUESTED_BRANCH"
+  else
+    local upstream
+    upstream="$(
+      git         -c safe.directory="$APP_ROOT"         -C "$APP_ROOT"         rev-parse         --abbrev-ref         --symbolic-full-name         '@{u}'         2>/dev/null || true
+    )"
+
+    case "$upstream" in
+      "$REMOTE/"*)
+        BRANCH="${upstream#"$REMOTE/"}"
+        ;;
+      *)
+        echo "FOUT: geen expliciet TOP40_UPDATE_BRANCH en huidige productiebranch heeft geen upstream op remote $REMOTE; update afgebroken."
+        return 19
+        ;;
+    esac
+  fi
+
+  if ! git check-ref-format --branch "$BRANCH" >/dev/null 2>&1; then
+    echo "FOUT: ongeldig Top40Archiver-updatekanaal: $BRANCH"
+    return 19
+  fi
+
+  echo "Updatekanaal: $REMOTE/$BRANCH"
+}
+
+resolve_update_branch
 
 printf '%s\n' "$(date -Is)" > "$LAST_CHECK_FILE"
 
