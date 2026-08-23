@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f7f7f5">
   <title>Top 40 Archiver</title>
   <link rel="stylesheet" href="/static/style.css?v=36">
-  <script src="/static/live.js?v=33" defer></script>
+  <script src="/static/live.js?v=34" defer></script>
 </head>
 <body>
 
@@ -149,8 +149,8 @@
     </article>
     <article class="metric-card warning-card">
       <span>Te verwerken</span>
-      <strong id="metric-queue-count">{{ status_counts.pending + status_counts.downloading }}</strong>
-      <small id="metric-queue-summary">{{ status_counts.pending }} wachtend · {{ status_counts.downloading }} bezig</small>
+      <strong id="metric-queue-count">{{ queue_state.total }}</strong>
+      <small id="metric-queue-summary">{{ queue_state.waiting }} wachtend · {{ queue_state.active }} bezig</small>
     </article>
     <article class="metric-card danger-card">
       <span>Aandacht nodig</span>

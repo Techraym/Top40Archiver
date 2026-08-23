@@ -186,11 +186,15 @@ document.addEventListener("DOMContentLoaded", () => {
     setText("metric-total-tracks", data.total ?? 0);
     setText("metric-downloaded-count", counts.downloaded ?? 0);
     setText("metric-downloaded-percent", `${data.download_chart?.downloaded_percent ?? 0}% geregistreerd`);
-    setText("metric-queue-count", (counts.pending ?? 0) + (counts.downloading ?? 0));
-    setText("metric-queue-summary", `${counts.pending ?? 0} wachtend · ${counts.downloading ?? 0} bezig`);
+    const queue = data.queue_state || {};
+    const queueTotal = queue.total ?? ((counts.pending ?? 0) + (counts.downloading ?? 0));
+    const queueActive = queue.active ?? (counts.downloading ?? 0);
+    const queueWaiting = queue.waiting ?? Math.max(0, queueTotal - queueActive);
+    setText("metric-queue-count", queueTotal);
+    setText("metric-queue-summary", `${queueWaiting} wachtend · ${queueActive} bezig`);
     setText("metric-failed-count", counts.failed ?? 0);
     setText("metric-failed-summary", `${counts.unavailable ?? 0} niet online beschikbaar`);
-    setText("queue-count", (counts.pending ?? 0) + (counts.downloading ?? 0));
+    setText("queue-count", queueTotal);
     setText("failed-count", counts.failed ?? 0);
     setText("unavailable-count", counts.unavailable ?? 0);
     setText("success-count", counts.downloaded ?? 0);

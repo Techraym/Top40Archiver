@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .cover_art_state import cover_dashboard_state
-from .dashboard import download_chart, history_progress, storage_status
+from .dashboard import download_chart, history_progress, queue_summary, storage_status
 from .download_api import router as download_router
 from .db import connect, get_settings, init_db, now_iso, set_settings
 from .service import (
@@ -158,6 +158,22 @@ def _dashboard_data(q: str = "") -> dict[str, Any]:
         ):
             status_counts[row["download_status"]] = row["c"]
 
+        active_job_count = 0
+        has_download_jobs = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='download_jobs'"
+        ).fetchone()
+        if has_download_jobs:
+            active_job_count = con.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM download_jobs
+                WHERE status IN ('searching','downloading','validating','processing')
+                  AND cancel_requested=0
+                """
+            ).fetchone()["c"]
+
+        queue_state = queue_summary(status_counts, active_job_count)
+
         spotify_counts = {key: 0 for key in SPOTIFY_STATUS_LABELS}
         for row in con.execute(
             "SELECT spotify_status,COUNT(*) AS c FROM tracks GROUP BY spotify_status"
@@ -200,6 +216,7 @@ def _dashboard_data(q: str = "") -> dict[str, Any]:
         "unavailable": unavailable,
         "activity": activity,
         "status_counts": status_counts,
+        "queue_state": queue_state,
         "status_labels": STATUS_LABELS,
         "spotify_status_labels": SPOTIFY_STATUS_LABELS,
         "spotify_counts": spotify_counts,
@@ -240,6 +257,7 @@ def _live_payload() -> dict[str, Any]:
         "unavailable": data["unavailable"],
         "activity": data["activity"],
         "status_counts": data["status_counts"],
+        "queue_state": data["queue_state"],
         "status_labels": STATUS_LABELS,
         "spotify_counts": data["spotify_counts"],
         "spotify_configured": data["spotify_configured"],

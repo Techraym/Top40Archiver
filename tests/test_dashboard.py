@@ -1,4 +1,4 @@
-from app.dashboard import download_chart, history_progress, percent
+from app.dashboard import download_chart, history_progress, percent, queue_summary
 
 
 def test_percent():
@@ -11,6 +11,18 @@ def test_download_chart():
     assert chart["total"] == 10
     assert chart["downloaded_percent"] == 50.0
     assert "conic-gradient" in chart["gradient"]
+
+
+def test_queue_summary_uses_active_download_jobs():
+    summary = queue_summary(
+        {"pending": 8065, "downloading": 0},
+        4,
+    )
+    assert summary == {
+        "total": 8065,
+        "waiting": 8061,
+        "active": 4,
+    }
 
 
 def test_completed_history_becomes_current():

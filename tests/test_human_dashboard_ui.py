@@ -10,7 +10,7 @@ def test_dashboard_loads_current_uncached_assets_and_human_copy():
     )
 
     assert "/static/style.css?v=36" in template
-    assert "/static/live.js?v=33" in template
+    assert "/static/live.js?v=34" in template
     assert "Een lokaal muziekarchief" in template
     assert "Mislukte downloads opnieuw proberen" in template
     assert "Niet online beschikbaar" in template

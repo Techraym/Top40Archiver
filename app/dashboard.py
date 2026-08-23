@@ -134,6 +134,24 @@ def storage_status(download_dir: str) -> dict[str, object]:
     return result
 
 
+
+def queue_summary(
+    status_counts: dict[str, int],
+    active_jobs: int,
+) -> dict[str, int]:
+    total = max(
+        0,
+        as_int(status_counts.get("pending"))
+        + as_int(status_counts.get("downloading")),
+    )
+    active = max(0, min(total, as_int(active_jobs)))
+    return {
+        "total": total,
+        "waiting": max(0, total - active),
+        "active": active,
+    }
+
+
 def download_chart(status_counts: dict[str, int]) -> dict[str, object]:
     total = sum(status_counts.values())
     downloaded = status_counts.get("downloaded", 0)
