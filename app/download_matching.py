@@ -215,6 +215,84 @@ def _candidate_title_core(
     return core or None
 
 
+def _legacy_title_key(value: object, *, strip_part: bool) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    # Album Version is geen andere uitvoering; live/remix/unplugged e.d.
+    # worden hier bewust NIET verwijderd.
+    raw = re.sub(
+        r"\s*[\[(]\s*album\s+version\s*[\])]\s*$",
+        "",
+        raw,
+        flags=re.I,
+    )
+
+    # Een feature-credit achter de titel verandert de titelidentiteit niet.
+    raw = re.sub(
+        r"\s*[\[(]\s*(?:feat\.?|featuring|ft\.?)\s+[^)\]]+[\])]\s*$",
+        "",
+        raw,
+        flags=re.I,
+    )
+    raw = re.sub(
+        r"\s+(?:feat\.?|featuring|ft\.?)\s+.+$",
+        "",
+        raw,
+        flags=re.I,
+    )
+
+    # Bij een charttitel zonder Part/Pt mag een provider dat suffix wel melden.
+    if strip_part:
+        raw = re.sub(
+            r"\s+(?:part|pt\.?)\s*(?:\d+|[ivx]+)\s*$",
+            "",
+            raw,
+            flags=re.I,
+        )
+
+    # Alleen schrijfwijze/spaties mogen verdwijnen.
+    return re.sub(r"\s+", "", _clean(raw))
+
+
+def _legacy_title_equivalent(
+    wanted_artist: object,
+    wanted_title: object,
+    found_title: object,
+) -> bool:
+    wanted_raw = str(wanted_title or "")
+    wanted_has_part = bool(
+        re.search(
+            r"\b(?:part|pt\.?)\s*(?:\d+|[ivx]+)\b",
+            wanted_raw,
+            flags=re.I,
+        )
+    )
+
+    wanted_key = _legacy_title_key(
+        wanted_title,
+        strip_part=False,
+    )
+    if not wanted_key:
+        return False
+
+    candidates = [found_title]
+    core = _candidate_title_core(wanted_artist, found_title)
+    if core:
+        candidates.append(core)
+
+    for candidate in candidates:
+        candidate_key = _legacy_title_key(
+            candidate,
+            strip_part=not wanted_has_part,
+        )
+        if candidate_key and candidate_key == wanted_key:
+            return True
+
+    return False
+
+
 def _title_ratio(wanted_artist: object, wanted_title: object, found_title: object) -> float:
     best = _ratio(wanted_title, found_title)
     found = _collaboration_clean(found_title)
@@ -407,12 +485,26 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
     # versie-strafpunten. ARTIST - TITLE wordt hierboven eerst provider-neutraal
     # genormaliseerd, zodat officiële YouTube-resultaten niet kunstmatig op 94%
     # titelgelijkheid blijven hangen.
+    collaboration_parts = _collaboration_parts(wanted_artist)
+    collaboration_identity_ok = (
+        not collaboration_parts
+        or _candidate_has_full_collaboration(wanted_artist, found_title)
+        or _ratio(wanted_artist, found_artist) >= 0.94
+    )
+
+    legacy_title_equivalent = _legacy_title_equivalent(
+        wanted_artist,
+        wanted_title,
+        found_title,
+    )
+
     strong_identity_without_reference_duration = (
         not expected_duration
         and not penalties
         and artist_ratio >= 0.94
-        and title_ratio >= 0.97
+        and (title_ratio >= 0.97 or legacy_title_equivalent)
         and total >= 96
+        and collaboration_identity_ok
     )
 
     if total >= 92 and duration_difference is not None and duration_difference <= 7:

@@ -197,3 +197,97 @@ def test_partial_collaboration_does_not_gain_title_core_acceptance():
     }
     decision = score_candidate(track, candidate)
     assert decision.accepted is False
+
+
+def test_legacy_teardrop_spacing_variant_is_accepted():
+    track = {
+        "artist": "Massive Attack",
+        "title": "Tear Drop",
+        "duration_ms": None,
+    }
+    candidate = {
+        "artist": "Massive Attack",
+        "title": "Teardrop",
+        "duration": 331,
+    }
+    decision = score_candidate(track, candidate)
+    assert decision.score >= 96
+    assert decision.accepted is True
+    assert decision.reason == "strong_identity_without_reference_duration"
+
+
+def test_legacy_no_no_no_title_variant_is_accepted():
+    track = {
+        "artist": "Destiny's Child",
+        "title": "No No No",
+        "duration_ms": None,
+    }
+    candidate = {
+        "artist": "Destiny's Child",
+        "title": "No, No, No, Pt. 1",
+        "duration": 248,
+    }
+    decision = score_candidate(track, candidate)
+    assert decision.score >= 96
+    assert decision.accepted is True
+    assert decision.reason == "strong_identity_without_reference_duration"
+
+
+def test_legacy_with_me_does_not_accept_dance_with_me():
+    track = {
+        "artist": "Destiny's Child",
+        "title": "With Me",
+        "duration_ms": None,
+    }
+    candidate = {
+        "artist": "Destiny's Child",
+        "title": "Destiny's Child - Dance With Me (Audio)",
+        "duration": 225,
+    }
+    decision = score_candidate(track, candidate)
+    assert decision.accepted is False
+
+
+def test_legacy_back_to_you_rejects_unplugged_version():
+    track = {
+        "artist": "Bryan Adams",
+        "title": "Back To You",
+        "duration_ms": None,
+    }
+    candidate = {
+        "artist": "Bryan Adams",
+        "title": "Back To You (MTV Unplugged)",
+        "duration": 271,
+    }
+    decision = score_candidate(track, candidate)
+    assert decision.accepted is False
+
+
+def test_legacy_back_to_you_rejects_late_show_performance():
+    track = {
+        "artist": "Bryan Adams",
+        "title": "Back To You",
+        "duration_ms": None,
+    }
+    candidate = {
+        "artist": "Bryan Adams",
+        "title": 'BRYAN ADAMS " BACK TO YOU " LATE SHOW WITH DAVID LETTERMAN 1997',
+        "duration": 303,
+    }
+    decision = score_candidate(track, candidate)
+    assert decision.accepted is False
+
+
+def test_legacy_no_no_no_rejects_432hz_variant():
+    track = {
+        "artist": "Destiny's Child",
+        "title": "No No No",
+        "duration_ms": None,
+    }
+    candidate = {
+        "artist": "Destiny's Child",
+        "title": "Destiny's Child - No, No, No, Pt. 1 (432Hz)",
+        "duration": 252,
+    }
+    decision = score_candidate(track, candidate)
+    assert decision.accepted is False

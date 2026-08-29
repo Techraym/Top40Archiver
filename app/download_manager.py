@@ -184,6 +184,11 @@ def _track_context(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _should_persist_rejection(reason: str) -> bool:
+    """Alleen harde kandidaatfouten permanent onthouden."""
+    return str(reason or "").strip() != "try_other_provider"
+
+
 def _search_provider(
     row: dict[str, Any],
     track: dict[str, Any],
@@ -226,18 +231,19 @@ def _search_provider(
         decision = score_candidate(track, candidate.as_match_dict())
         cache_candidate(track, provider_name, candidate.url, asdict(candidate), decision.score)
         if not decision.accepted:
-            reject_candidate(
-                int(track["track_id"]),
-                provider_name,
-                candidate.url,
-                decision.reason,
-                decision.score,
-                {
-                    "duration_difference": decision.duration_difference,
-                    "penalties": decision.penalties,
-                    "components": decision.components,
-                },
-            )
+            if _should_persist_rejection(decision.reason):
+                reject_candidate(
+                    int(track["track_id"]),
+                    provider_name,
+                    candidate.url,
+                    decision.reason,
+                    decision.score,
+                    {
+                        "duration_difference": decision.duration_difference,
+                        "penalties": decision.penalties,
+                        "components": decision.components,
+                    },
+                )
             continue
         scored.append({"candidate": candidate, "decision": decision})
 
@@ -774,21 +780,22 @@ def _top40_youtube_candidate(
         )
 
         if not decision.accepted:
-            reject_candidate(
-                int(track["track_id"]),
-                "youtube",
-                candidate.url,
-                "top40.nl fallback: " + decision.reason,
-                decision.score,
-                {
-                    "source": "top40.nl",
-                    "source_track_id": source_track_id,
-                    "detail_url": detail_url,
-                    "duration_difference": decision.duration_difference,
-                    "penalties": decision.penalties,
-                    "components": decision.components,
-                },
-            )
+            if _should_persist_rejection(decision.reason):
+                reject_candidate(
+                    int(track["track_id"]),
+                    "youtube",
+                    candidate.url,
+                    "top40.nl fallback: " + decision.reason,
+                    decision.score,
+                    {
+                        "source": "top40.nl",
+                        "source_track_id": source_track_id,
+                        "detail_url": detail_url,
+                        "duration_difference": decision.duration_difference,
+                        "penalties": decision.penalties,
+                        "components": decision.components,
+                    },
+                )
             continue
 
         result = {
