@@ -8,6 +8,7 @@ EXPECTED_BASE_COMMIT="609d299e8b5eb625f0c4ab6d5e67c1ca352befe2"
 STATE_DIR="/var/lib/top40-archiver/update-state"
 PATCH_SCRIPT="$ROOT/scripts/patch-library-quality-max-files.py"
 HOTFIX_SCRIPT="$ROOT/update-library-quality-1.16.23.2.sh"
+HOTFIX_1233_SCRIPT="$ROOT/update-library-quality-1.16.23.3.sh"
 VENV_PY="/opt/top40-archiver/venv/bin/python"
 
 [ "$(id -u)" -eq 0 ] || { echo "Voer uit met sudo/root."; exit 1; }
@@ -27,6 +28,7 @@ if [ "${#PARTS[@]}" -ne 13 ]; then
 fi
 [ -f "$PATCH_SCRIPT" ] || { echo "FOUT: veiligheids-patch ontbreekt: $PATCH_SCRIPT"; exit 1; }
 [ -f "$HOTFIX_SCRIPT" ] || { echo "FOUT: Library Quality 1.16.23.2 hotfix ontbreekt: $HOTFIX_SCRIPT"; exit 1; }
+[ -f "$HOTFIX_1233_SCRIPT" ] || { echo "FOUT: Library Quality 1.16.23.3 hotfix ontbreekt: $HOTFIX_1233_SCRIPT"; exit 1; }
 
 TMP="$(mktemp -d /tmp/top40-library-quality-github.XXXXXX)"
 cleanup(){ rm -rf "$TMP"; }
@@ -63,3 +65,7 @@ echo "Library Quality batchbegrenzing actief: --max-files"
 echo
 echo "=== Aanvullende Library Quality 1.16.23.2 hotfix ==="
 bash "$HOTFIX_SCRIPT"
+
+echo
+echo "=== Aanvullende Library Quality 1.16.23.3 Top40.nl cover bridge ==="
+bash "$HOTFIX_1233_SCRIPT"
