@@ -6,6 +6,8 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 EXPECTED_SHA256="1487c41ba019ddf8273063ef14bf9f5971dd2ae381e9dbe33d48db5c62d6f60c"
 EXPECTED_BASE_COMMIT="609d299e8b5eb625f0c4ab6d5e67c1ca352befe2"
 STATE_DIR="/var/lib/top40-archiver/update-state"
+PATCH_SCRIPT="$ROOT/scripts/patch-library-quality-max-files.py"
+VENV_PY="/opt/top40-archiver/venv/bin/python"
 
 [ "$(id -u)" -eq 0 ] || { echo "Voer uit met sudo/root."; exit 1; }
 
@@ -22,6 +24,7 @@ if [ "${#PARTS[@]}" -ne 13 ]; then
   echo "FOUT: verwacht 13 GitHub-payloaddelen, gevonden ${#PARTS[@]}."
   exit 1
 fi
+[ -f "$PATCH_SCRIPT" ] || { echo "FOUT: veiligheids-patch ontbreekt: $PATCH_SCRIPT"; exit 1; }
 
 TMP="$(mktemp -d /tmp/top40-library-quality-github.XXXXXX)"
 cleanup(){ rm -rf "$TMP"; }
@@ -44,4 +47,13 @@ PKG="$TMP/top40-library-quality-8085-1.16.23"
 
 echo "GitHub payload gecontroleerd: $ACTUAL_SHA256"
 echo "Geteste Top40Archiver-basis: $ACTIVE_COMMIT"
-exec bash "$PKG/install.sh"
+bash "$PKG/install.sh"
+
+# Extra veiligheidslaag voor gecontroleerde eerste productieruns.
+"$VENV_PY" "$PATCH_SCRIPT"
+"$VENV_PY" -m py_compile /opt/top40-archiver/app/library_quality.py
+PYTHONPATH=/opt/top40-archiver "$VENV_PY" -m app.library_quality scan --help | grep -q -- '--max-files'
+systemctl restart top40-library-quality.service
+curl -fsS --retry 10 --retry-delay 1 http://127.0.0.1:8085/healthz >/dev/null
+
+echo "Library Quality batchbegrenzing actief: --max-files"
