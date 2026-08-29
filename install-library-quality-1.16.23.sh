@@ -11,6 +11,7 @@ HOTFIX_SCRIPT="$ROOT/update-library-quality-1.16.23.2.sh"
 HOTFIX_1233_SCRIPT="$ROOT/update-library-quality-1.16.23.3.sh"
 HOTFIX_1234_SCRIPT="$ROOT/update-library-quality-1.16.23.4.sh"
 HOTFIX_1235_SCRIPT="$ROOT/update-library-quality-1.16.23.5.sh"
+HOTFIX_1236_SCRIPT="$ROOT/update-library-quality-1.16.23.6.sh"
 VENV_PY="/opt/top40-archiver/venv/bin/python"
 
 [ "$(id -u)" -eq 0 ] || { echo "Voer uit met sudo/root."; exit 1; }
@@ -33,6 +34,7 @@ fi
 [ -f "$HOTFIX_1233_SCRIPT" ] || { echo "FOUT: Library Quality 1.16.23.3 hotfix ontbreekt: $HOTFIX_1233_SCRIPT"; exit 1; }
 [ -f "$HOTFIX_1234_SCRIPT" ] || { echo "FOUT: Library Quality 1.16.23.4 hotfix ontbreekt: $HOTFIX_1234_SCRIPT"; exit 1; }
 [ -f "$HOTFIX_1235_SCRIPT" ] || { echo "FOUT: Library Quality 1.16.23.5 hotfix ontbreekt: $HOTFIX_1235_SCRIPT"; exit 1; }
+[ -f "$HOTFIX_1236_SCRIPT" ] || { echo "FOUT: Library Quality 1.16.23.6 hotfix ontbreekt: $HOTFIX_1236_SCRIPT"; exit 1; }
 
 TMP="$(mktemp -d /tmp/top40-library-quality-github.XXXXXX)"
 cleanup(){ rm -rf "$TMP"; }
@@ -81,3 +83,7 @@ bash "$HOTFIX_1234_SCRIPT"
 echo
 echo "=== Aanvullende Library Quality 1.16.23.5 cover performance ==="
 bash "$HOTFIX_1235_SCRIPT"
+
+echo
+echo "=== Aanvullende Library Quality 1.16.23.6 interrupt cleanup ==="
+bash "$HOTFIX_1236_SCRIPT"
