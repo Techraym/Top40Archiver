@@ -143,11 +143,17 @@ def _metadata_is_complex(track: dict[str, Any]) -> bool:
         " vs ",
     )
 
+    title_lowered = title.casefold()
+
     return (
         len(artist) >= 30
         or len(title) >= 40
         or any(marker in lowered for marker in markers)
         or any(char in artist for char in ("&", "/", "(", '"'))
+        or any(char in title for char in (";", "/", "|", "(", '"'))
+        or " ver." in f" {title_lowered}"
+        or " version" in f" {title_lowered}"
+        or " versie" in f" {title_lowered}"
     )
 
 

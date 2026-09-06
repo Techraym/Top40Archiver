@@ -1,0 +1,16 @@
+[Unit]
+Description=Top40Archiver strict duration-consensus recovery
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=top40archiver
+WorkingDirectory=/opt/top40-archiver
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/top40-archiver/venv/bin/python -m app.download_recovery_duration_worker
+Nice=10
+TimeoutStartSec=15min
+
+[Install]
+WantedBy=multi-user.target

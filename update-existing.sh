@@ -141,6 +141,7 @@ new_timers = "\n".join([
     "  top40-archiver-id3-cover.timer " + bs,
     "  top40-archiver-incident-scan.timer " + bs,
     "  top40-provider-ai.timer " + bs,
+    "  top40-duration-recovery.timer " + bs,
     "  top40-archiver-auto-update.timer " + bs,
 ]) + "\n"
 if old_timers not in text:
@@ -155,6 +156,7 @@ extra = (
     + "systemctl is-active --quiet top40-archiver-id3-cover.timer\n"
     + "systemctl is-active --quiet top40-archiver-incident-scan.timer\n"
     + "systemctl is-active --quiet top40-provider-ai.timer\n"
+    + "systemctl is-active --quiet top40-duration-recovery.timer\n"
     + "systemctl start --no-block top40-ai-recovery.service\n"
     + "systemctl start --no-block top40-archiver-freshness.service\n"
     + "systemctl enable --now top40-archiver-cover-art.service\n"

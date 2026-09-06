@@ -291,16 +291,32 @@ def claim_jobs_current_first(limit: int) -> list[dict[str, Any]]:
               END,
               j.updated_at,
               j.id
-            LIMIT 20
+            LIMIT 5000
             """
         ).fetchall()
 
         if rows:
-            selected_class = str(rows[0]["queue_class"])
-            rows = [
+            current_rows = [
                 row for row in rows
-                if str(row["queue_class"]) == selected_class
-            ][:wanted]
+                if str(row["queue_class"]) == "current"
+            ]
+            archive_rows = [
+                row for row in rows
+                if str(row["queue_class"]) == "archive"
+            ]
+
+            # Actuele Top40/Tipparade blijft dominant, maar de historische
+            # backlog mag niet onbeperkt verhongeren. Bij batches >= 2 wordt
+            # maximaal één slot voor een klaarstaande archive-job gereserveerd.
+            if current_rows and archive_rows and wanted >= 2:
+                rows = (
+                    current_rows[: wanted - 1]
+                    + archive_rows[:1]
+                )
+            elif current_rows:
+                rows = current_rows[:wanted]
+            else:
+                rows = archive_rows[:wanted]
 
         for row in rows:
             stamp = now_iso()

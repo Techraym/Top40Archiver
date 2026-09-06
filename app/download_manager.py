@@ -171,16 +171,48 @@ def _track_context(job: dict[str, Any]) -> dict[str, Any]:
     release = str(job.get("spotify_release_date") or "")
     if len(release) >= 4 and release[:4].isdigit():
         year = int(release[:4])
+
+    duration_ms = (
+        int(job["spotify_duration_ms"])
+        if job.get("spotify_duration_ms")
+        else None
+    )
+
+    recovery = None
+    if not duration_ms:
+        try:
+            from .download_recovery_duration import get_recovery_duration_evidence
+            recovery = get_recovery_duration_evidence(int(job["track_id"]))
+        except Exception:
+            recovery = None
+
+    duration_seconds = (
+        float(recovery["duration_seconds"])
+        if recovery
+        else None
+    )
+
     return {
         "track_id": int(job["track_id"]),
         "artist": str(job.get("spotify_artist") or job.get("artist") or "").strip(),
         "title": str(job.get("spotify_title") or job.get("title") or "").strip(),
         "album": str(job.get("spotify_album") or "").strip() or None,
-        "duration_ms": int(job["spotify_duration_ms"]) if job.get("spotify_duration_ms") else None,
+        "duration_ms": duration_ms,
+        "duration_seconds": duration_seconds,
+        "duration_source": (
+            "spotify"
+            if duration_ms
+            else (
+                str(recovery.get("source"))
+                if recovery
+                else None
+            )
+        ),
         "isrc": str(job.get("spotify_isrc") or "").strip() or None,
         "year": year,
         "custom_search_query": str(job.get("custom_search_query") or "").strip() or None,
         "source_track_id": str(job.get("source_track_id") or "").strip() or None,
+        "download_attempts": int(job.get("attempts") or 0),
     }
 
 
@@ -197,15 +229,52 @@ def _search_provider(
     provider = provider_from_row(row)
     runtime = _runtime(row)
     rejected = rejected_urls(int(track["track_id"]), provider_name)
+
+    consensus_allowed_urls = None
+
+    if track.get("duration_source") == "candidate_consensus":
+        try:
+            from .download_recovery_duration import allowed_consensus_urls
+
+            consensus_allowed_urls = allowed_consensus_urls(
+                int(track["track_id"])
+            )
+        except Exception:
+            # Recovery-evidence mag nooit tot ruimere acceptatie leiden.
+            # Bij iedere fout dus fail-closed.
+            consensus_allowed_urls = set()
+
     started = time.monotonic()
     candidates: list[ProviderCandidate] = []
     cache_hits = 0
 
-    for cached in cached_candidates(track, provider_name, limit=4):
+    cache_limit = (
+        10
+        if consensus_allowed_urls is not None
+        else 4
+    )
+
+    for cached in cached_candidates(
+        track,
+        provider_name,
+        limit=cache_limit,
+    ):
         candidate = _candidate_from_dict(provider_name, cached)
-        if candidate and candidate.url not in rejected:
-            candidates.append(candidate)
-            cache_hits += 1
+
+        if not candidate:
+            continue
+
+        if candidate.url in rejected:
+            continue
+
+        if (
+            consensus_allowed_urls is not None
+            and candidate.url not in consensus_allowed_urls
+        ):
+            continue
+
+        candidates.append(candidate)
+        cache_hits += 1
 
     network_error: ProviderError | None = None
     try:
@@ -213,10 +282,22 @@ def _search_provider(
             runtime.pace()
             found = provider.search(track, limit=6)
         known = {candidate.url for candidate in candidates}
+
         for candidate in found:
-            if candidate.url not in rejected and candidate.url not in known:
-                candidates.append(candidate)
-                known.add(candidate.url)
+            if candidate.url in rejected:
+                continue
+
+            if candidate.url in known:
+                continue
+
+            if (
+                consensus_allowed_urls is not None
+                and candidate.url not in consensus_allowed_urls
+            ):
+                continue
+
+            candidates.append(candidate)
+            known.add(candidate.url)
     except ProviderError as exc:
         network_error = exc
         update_provider_runtime(
@@ -327,12 +408,22 @@ def _validate_download(path: Path, track: dict[str, Any]) -> dict[str, Any]:
     if prefix.startswith(b"<!doctype html") or prefix.startswith(b"<html"):
         raise DownloadValidationError("Download bevat HTML in plaats van audio")
     info = _ffprobe(path)
-    expected_ms = track.get("duration_ms")
-    if expected_ms and info.get("duration"):
-        difference = abs(float(info["duration"]) - float(expected_ms) / 1000.0)
+
+    expected_seconds = track.get("duration_seconds")
+    if not expected_seconds and track.get("duration_ms"):
+        expected_seconds = float(track["duration_ms"]) / 1000.0
+
+    if expected_seconds and info.get("duration"):
+        difference = abs(
+            float(info["duration"])
+            - float(expected_seconds)
+        )
         if difference > 15:
-            raise DownloadValidationError(f"Gedownloade audio wijkt {difference:.1f}s af van verwachte speelduur")
+            raise DownloadValidationError(
+                f"Gedownloade audio wijkt {difference:.1f}s af van verwachte speelduur"
+            )
         info["duration_difference"] = round(difference, 2)
+
     return info
 
 

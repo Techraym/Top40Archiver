@@ -78,6 +78,7 @@ systemctl enable --now \
   top40-archiver-download.service \
   top40-archiver-history.timer \
   top40-archiver-check.timer \
+  top40-duration-recovery.timer \
   top40-archiver-auto-update.timer
 
 VERSION=$(tr -d '[:space:]' < /opt/top40-archiver/VERSION)

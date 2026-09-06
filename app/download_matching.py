@@ -30,6 +30,12 @@ VERSION_PENALTIES: tuple[tuple[str, int], ...] = (
 MIN_FULL_TRACK_SECONDS_WITHOUT_REFERENCE = 60.0
 MAX_FULL_TRACK_SECONDS_WITHOUT_REFERENCE = 15.0 * 60.0
 
+# Scores zijn over de beschikbare bewijsvelden genormaliseerd (0..100).
+# Verlaag uitsluitend de route zonder vergelijkbare duur, niet alle matching.
+MISSING_DURATION_MIN_SCORE = 90.0
+MISSING_DURATION_MIN_ARTIST_RATIO = 0.90
+MISSING_DURATION_MIN_TITLE_RATIO = 0.94
+
 
 @dataclass(frozen=True)
 class MatchDecision:
@@ -108,12 +114,13 @@ def _title_variants(value: object) -> list[str]:
 
     add(raw)
 
-    for part in re.split(r"\s*/\s*", raw):
+    for part in re.split(r"\s*(?:/|;|\|)\s*", raw):
         add(part)
 
         simplified = re.sub(
             r"\s*[-–—]?\s*\(?"
-            r"(?:remix|radio edit|original mix|edit|version)"
+            r"(?:['’]?\d{2,4}\s*)?"
+            r"(?:(?:new\s+)?(?:remix|radio edit|original mix|edit|version|versie|ver\.?))"
             r"[^)]*\)?\s*$",
             "",
             part,
@@ -175,7 +182,10 @@ def _candidate_has_full_collaboration(
 
     candidate = _clean(found_title)
 
-    return bool(candidate) and all(part in candidate for part in parts)
+    return bool(candidate) and all(
+        re.search(r"(?<!\w)" + re.escape(part) + r"(?!\w)", candidate)
+        for part in parts
+    )
 
 
 def _candidate_title_core(
@@ -316,6 +326,48 @@ def _title_ratio(wanted_artist: object, wanted_title: object, found_title: objec
             best = max(best, _ratio(wanted, title_core))
 
     return min(1.0, best)
+
+def _strict_identity_ratio(wanted: object, found: object) -> float:
+    """Geen 94%-bonus voor een substring bij de versoepelde toelating.
+
+    'One' en 'One Love', of 'Prince' en 'Princess', zijn geen betrouwbare
+    identiteit. Kleine spellingsverschillen in langere namen mogen wel.
+    """
+    left, right = _collaboration_clean(wanted), _collaboration_clean(found)
+    if not left or not right:
+        return 0.0
+    if left == right:
+        return 1.0
+    if min(len(left), len(right)) <= 6 or left in right or right in left:
+        return 0.0
+    return SequenceMatcher(None, left, right).ratio()
+
+
+def _relaxed_identity_matches(wanted_artist, wanted_title, found_artist, found_title) -> bool:
+    """Extra identiteitscontrole voor kandidaten die eerder werden uitgesteld."""
+    artist_evidence = [found_artist]
+    title_evidence = [found_title]
+    parts = re.split(r"\s+[-–—]\s+", str(found_title or ""), maxsplit=1)
+    if len(parts) == 2:
+        artist_evidence.append(parts[0])
+        if _strict_identity_ratio(wanted_artist, parts[0]) >= MISSING_DURATION_MIN_ARTIST_RATIO:
+            title_evidence.append(parts[1])
+    wanted = _collaboration_clean(wanted_artist)
+    found = _collaboration_clean(found_title)
+    if wanted and found.startswith(wanted + " "):
+        # Provider-titels kunnen ARTIST TITLE zonder scheidingsteken gebruiken.
+        title_evidence.append(found[len(wanted):].strip())
+        artist_evidence.append(wanted_artist)
+    artist_ok = any(
+        _strict_identity_ratio(wanted_artist, value) >= MISSING_DURATION_MIN_ARTIST_RATIO
+        for value in artist_evidence
+    )
+    title_ok = any(
+        _strict_identity_ratio(wanted_title, value) >= MISSING_DURATION_MIN_TITLE_RATIO
+        for value in title_evidence
+    ) or _legacy_title_equivalent(wanted_artist, wanted_title, found_title)
+    return artist_ok and title_ok
+
 
 def _duration_points(expected_seconds: float | None, found_seconds: float | None) -> tuple[float, float | None]:
     if not expected_seconds or not found_seconds:
@@ -489,7 +541,9 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
     collaboration_identity_ok = (
         not collaboration_parts
         or _candidate_has_full_collaboration(wanted_artist, found_title)
-        or _ratio(wanted_artist, found_artist) >= 0.94
+        # _ratio geeft ook 0.94 aan een ontbrekende feature-credit omdat de
+        # hoofdartiest een substring is. Dat is geen volledige samenwerking.
+        or _strict_identity_ratio(wanted_artist, found_artist) >= 0.94
     )
 
     legacy_title_equivalent = _legacy_title_equivalent(
@@ -505,6 +559,19 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
         and (title_ratio >= 0.97 or legacy_title_equivalent)
         and total >= 96
         and collaboration_identity_ok
+    )
+
+    # Historische titels krijgen een begrensde tweede toelatingsroute. Behoud
+    # alle bestaande duurafwijzingen, versiepenalties en samenwerkingcredits.
+    # De oorspronkelijke strenge routes hierboven blijven ongewijzigd.
+    identity_match_without_comparable_duration = (
+        duration_difference is None
+        and not penalties
+        and total >= MISSING_DURATION_MIN_SCORE
+        and artist_ratio >= MISSING_DURATION_MIN_ARTIST_RATIO
+        and (title_ratio >= MISSING_DURATION_MIN_TITLE_RATIO or legacy_title_equivalent)
+        and collaboration_identity_ok
+        and _relaxed_identity_matches(wanted_artist, wanted_title, found_artist, found_title)
     )
 
     if total >= 92 and duration_difference is not None and duration_difference <= 7:
@@ -523,6 +590,10 @@ def score_candidate(track: dict[str, Any], candidate: dict[str, Any]) -> MatchDe
         accepted = True
         excellent = False
         reason = "strong_identity_without_reference_duration"
+    elif identity_match_without_comparable_duration:
+        accepted = True
+        excellent = False
+        reason = "identity_match_verify_audio"
     elif total >= 75:
         accepted = False
         excellent = False

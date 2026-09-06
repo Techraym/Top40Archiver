@@ -129,6 +129,20 @@ CREATE TABLE IF NOT EXISTS download_recovery_ai_state (
   suggested_query TEXT,
   confidence REAL
 );
+
+CREATE TABLE IF NOT EXISTS download_recovery_duration_evidence (
+  track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+  duration_seconds REAL NOT NULL,
+  url_count INTEGER NOT NULL,
+  source_count INTEGER NOT NULL,
+  second_url_count INTEGER NOT NULL DEFAULT 0,
+  second_duration_seconds REAL,
+  algorithm_version TEXT NOT NULL,
+  source TEXT NOT NULL,
+  evidence_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 """
 
 

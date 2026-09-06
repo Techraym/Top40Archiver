@@ -22,6 +22,20 @@ _VERSION_RE = re.compile(
     re.I,
 )
 
+# Historische Top40-metadata bevat onder andere:
+#   Titel - '89 Ver..
+#   Titel - Version
+#   Titel - New Version
+# Dit verandert nooit de opgeslagen titel; het levert alleen extra zoekvarianten.
+_HISTORIC_SUFFIX_RE = re.compile(
+    r"\s*[-–—]\s*(?:['’]?\d{2,4}\s*)?"
+    r"(?:(?:new\s+)?(?:ver(?:sion|sie)?|edit|mix))\.*\s*$",
+    re.I,
+)
+
+# Top40-bronnen gebruiken zowel / als ; voor meerdere displaytitels.
+_TITLE_SPLIT_RE = re.compile(r"\s*(?:/|;|\|)\s*")
+
 
 def _spaces(value: object) -> str:
     return " ".join(str(value or "").replace("_", " ").split()).strip()
@@ -40,6 +54,12 @@ def _query_variants(track: dict[str, Any]) -> list[str]:
     title = _spaces(track.get("title"))
     custom = _spaces(track.get("custom_search_query"))
     clean_title = _spaces(_VERSION_RE.sub(" ", title)) or title
+    clean_title = _spaces(_HISTORIC_SUFFIX_RE.sub("", clean_title)) or clean_title
+
+    try:
+        previous_attempts = int(track.get("download_attempts") or 0)
+    except (TypeError, ValueError):
+        previous_attempts = 0
 
     variants: list[str] = []
 
@@ -51,6 +71,10 @@ def _query_variants(track: dict[str, Any]) -> list[str]:
     if custom:
         add(custom)
     add(f"{artist} {title}")
+
+    # Probeer ook een gecontroleerd opgeschoonde historische titel.
+    if clean_title.casefold() != title.casefold():
+        add(f"{artist} {clean_title}")
 
     # YouTube and chart metadata disagree most often on collaboration syntax.
     normalized_artist = _spaces(_CONNECTOR_RE.sub(" ", artist.replace("/", " ")))
@@ -66,9 +90,22 @@ def _query_variants(track: dict[str, Any]) -> list[str]:
     for part in [p.strip(" ,-/") for p in _CONNECTOR_RE.split(artist) if p.strip(" ,-/")]:
         add(f"{part} {clean_title}")
 
-    # A title can itself contain two chart-display variants separated by a slash.
-    for part in [p.strip() for p in title.split("/") if p.strip()]:
-        add(f"{normalized_artist or artist} {part}")
+    # Een titel kan meerdere chart-displayvarianten bevatten.
+    # Zoek ze afzonderlijk, maar wijzig nooit de originele databasewaarde.
+    for part in [p.strip() for p in _TITLE_SPLIT_RE.split(title) if p.strip()]:
+        clean_part = _spaces(_HISTORIC_SUFFIX_RE.sub("", part)) or part
+        add(f"{normalized_artist or artist} {clean_part}")
+
+    # Alleen de moeilijke staart krijgt één extra bron-gerichte zoekopdracht.
+    # Dit voorkomt extra YouTube-verkeer voor nieuwe/normale tracks. De kandidaat
+    # moet daarna nog steeds door exact dezelfde matcher en audiovalidatie.
+    if (
+        previous_attempts >= 3
+        and not custom
+        and artist
+        and clean_title
+    ):
+        add(f"{artist} {clean_title} official audio")
 
     return variants[:6]
 

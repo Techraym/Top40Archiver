@@ -1,0 +1,12 @@
+[Unit]
+Description=Top40Archiver duration-consensus recovery iedere 10 minuten
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=10min
+AccuracySec=30s
+RandomizedDelaySec=30s
+Unit=top40-duration-recovery.service
+
+[Install]
+WantedBy=timers.target
