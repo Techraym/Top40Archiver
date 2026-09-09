@@ -97,12 +97,18 @@ def test_current_lists_are_grouped_before_archive():
     assert "queue_class" in claim
 
 
-def test_claim_batch_never_mixes_archive_with_ready_current_chart_work():
+def test_claim_batch_keeps_current_dominant_with_one_archive_anti_starvation_slot():
     source = (ROOT / "app/download_policy.py").read_text(encoding="utf-8")
-    claim = source[source.index("def claim_jobs_current_first") : source.index("def apply_current_chart_fast_retry")]
-    assert 'selected_class = str(rows[0]["queue_class"])' in claim
-    assert 'if str(row["queue_class"]) == selected_class' in claim
-    assert "[:wanted]" in claim
+    claim = source[
+        source.index("def claim_jobs_current_first") :
+        source.index("def apply_current_chart_fast_retry")
+    ]
+    assert 'if str(row["queue_class"]) == "current"' in claim
+    assert 'if str(row["queue_class"]) == "archive"' in claim
+    assert "if current_rows and archive_rows and wanted >= 2:" in claim
+    assert "current_rows[: wanted - 1]" in claim
+    assert "archive_rows[:1]" in claim
+    assert "rows = current_rows[:wanted]" in claim
 
 
 def test_pending_enqueue_uses_same_current_list_priority():
@@ -141,7 +147,8 @@ def test_dynamic_manager_applies_fast_retry_to_real_process_job_result():
     assert "def _run_one_job" in source
     assert "result = download_manager.process_job(job)" in source
     assert "return apply_current_chart_fast_retry(job, result)" in source
-    assert '"single_queue_class_per_batch": True' in source
+    assert '"single_queue_class_per_batch": False' in source
+    assert '"archive_anti_starvation_slot": True' in source
     assert '"current_chart_fast_retry": True' in source
 
 
@@ -199,8 +206,14 @@ def test_provider_policy_migration_clears_old_transient_rejects_only():
     source = (ROOT / "app/download_policy.py").read_text(encoding="utf-8")
     assert 'PROVIDER_ORDER_POLICY = "youtube_first_v1"' in source
     assert "DELETE FROM rejected_candidates WHERE reason IN" in source
-    assert '"drm"' not in source[source.index("TRANSIENT_CANDIDATE_ERRORS") : source.index("def ensure_provider_order_policy")]
-    assert '"unavailable"' not in source[source.index("TRANSIENT_CANDIDATE_ERRORS") : source.index("def ensure_provider_order_policy")]
+    assert '"drm"' not in source[
+        source.index("TRANSIENT_CANDIDATE_ERRORS") :
+        source.index("def ensure_provider_order_policy")
+    ]
+    assert '"unavailable"' not in source[
+        source.index("TRANSIENT_CANDIDATE_ERRORS") :
+        source.index("def ensure_provider_order_policy")
+    ]
 
 
 def test_manager_installs_current_chart_and_retry_policy_before_processing():

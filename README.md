@@ -8,7 +8,9 @@
 
 Top40Archiver bouwt op Debian automatisch een lokaal muziekarchief op uit de Nederlandse **Top 40 en Tipparade**. SQLite blijft de leidende administratie: een track die eenmaal succesvol is verwerkt, wordt niet opnieuw gedownload alleen omdat het audiobestand later is verplaatst of verwijderd.
 
-**Huidige release: 1.16.22**
+**Huidige release: 1.16.23**
+
+Vanaf 1.16.23 gebruikt de NUC **CHARLY — Conversational Home Assistant Running Locally for You** als centrale AI-orchestrator. Bestaande Qwen/Ollama-taken blijven werken, maar Qwen is voortaan een lokale uitvoerder onder CHARLY. CHARLY kan per taak lokaal, online, hybride of via een externe AI-resource werken.
 
 ## Kernarchitectuur
 
@@ -34,6 +36,20 @@ definitieve audio-opslag
 cover-art verwerking
 ```
 
+AI-verwerking op de NUC loopt centraal via:
+
+```text
+Top40Archiver / AI workers / Operator Chat / overige NUC-services
+                         ↓
+                  CHARLY Gateway :11434
+                         ↓
+                    CHARLY Core
+                 ↙         ↓         ↘
+             lokaal      online     extern
+              Qwen      web/data      AI
+             :11435
+```
+
 De webapplicatie voert langdurige externe downloads niet zelf uit. Downloadwerk wordt persistent gequeued en verwerkt door de zelfstandige downloadmanager.
 
 ## Belangrijkste functies
@@ -54,7 +70,10 @@ De webapplicatie voert langdurige externe downloads niet zelf uit. Downloadwerk 
 - FastAPI-hoofdinterface op poort `8040`;
 - AI Control Room en Operator-functionaliteit op poort `8041`;
 - lokale Log & AI Control service op poort `8042`;
-- lokale Ollama/Qwen-integratie voor begrensde diagnose en beheer;
+- **CHARLY Core/API/gezicht op poort `8765`**;
+- **CHARLY Ollama-compatible gateway op poort `11434`**;
+- private lokale Ollama/Qwen-backend op poort `11435`;
+- automatische AI-routing met lokale en optionele externe resources;
 - automatische GitHub-updates met backup- en rollbackvoorzieningen;
 - externe muziekopslag via Samba.
 
@@ -64,7 +83,9 @@ De webapplicatie voert langdurige externe downloads niet zelf uit. Downloadwerk 
 8040  Top40Archiver hoofdapplicatie
 8041  AI Control Room / Operator Chat
 8042  lokale Log & AI Control service
-11434 Ollama, lokaal
+8765  CHARLY Core / API / gezicht
+11434 CHARLY Ollama-compatible AI gateway
+11435 Ollama/Qwen private backend
 ```
 
 Belangrijkste services:
@@ -75,6 +96,8 @@ systemctl status top40-archiver-ai.service --no-pager
 systemctl status top40-download-manager.service --no-pager
 systemctl status top40-log-reader.service --no-pager
 systemctl status top40-archiver-cover-art.service --no-pager
+systemctl status charly-core.service --no-pager
+systemctl status charly-ollama-gateway.service --no-pager
 systemctl status ollama.service --no-pager
 ```
 
@@ -82,6 +105,13 @@ Downloadmanager live volgen:
 
 ```bash
 journalctl -u top40-download-manager.service -f
+```
+
+CHARLY live volgen:
+
+```bash
+journalctl -u charly-core.service -f
+journalctl -u charly-ollama-gateway.service -f
 ```
 
 ## Opslag en database
@@ -92,10 +122,22 @@ Hoofddatabase:
 /var/lib/top40-archiver/top40.sqlite3
 ```
 
-AI-memory:
+Top40 AI-memory:
 
 ```text
 /var/lib/top40-archiver/ai_memory.sqlite
+```
+
+CHARLY runtime, geheugen en audit:
+
+```text
+/var/lib/charly
+```
+
+CHARLY-configuratie:
+
+```text
+/etc/charly
 ```
 
 Tijdelijke downloadbestanden:
@@ -131,6 +173,12 @@ Open daarna:
 http://<IP-VAN-DE-NUC>:8040
 ```
 
+Na installatie van 1.16.23 is CHARLY beschikbaar op:
+
+```text
+http://<IP-VAN-DE-NUC>:8765
+```
+
 ## Bestaande installatie updaten
 
 ```bash
@@ -142,13 +190,14 @@ chmod +x /tmp/update-top40-archiver.sh
 /tmp/update-top40-archiver.sh
 ```
 
-Release 1.16.22 bevat tevens:
+Release 1.16.23 bevat:
 
 ```text
-scripts/install-1.16.22.sh
+scripts/install-1.16.23.sh
+scripts/install-charly-top40.sh
 ```
 
-De bestaande database, instellingen, historische voortgang en muziekopslag blijven onderdeel van het update-/rollbackcontract.
+De bestaande database, instellingen, historische voortgang en muziekopslag blijven onderdeel van het update-/rollbackcontract. De CHARLY-installer maakt daarnaast vóór de Ollama-poortmigratie een eigen rollbackkopie.
 
 ## Downloadbeleid
 
@@ -164,15 +213,21 @@ Belangrijke veiligheidsgrenzen:
 - geen rate-limit-bypass;
 - kandidaatmatching en audiovalidatie blijven verplicht.
 
-## AI Operations
+## AI Operations en CHARLY
 
-De lokale AI-laag ondersteunt onder andere operationsdiagnose, servicebewaking, downloadanalyse, provideranalyse, chart freshness, coverbewaking, Operator Chat en begrensde herstelacties.
+De bestaande Top40Archiver AI-laag ondersteunt operationsdiagnose, servicebewaking, downloadanalyse, provideranalyse, chart freshness, coverbewaking, Operator Chat en begrensde herstelacties. Die domeinlogica en veiligheidsregels blijven bestaan.
 
-De AI heeft geen onbeperkte vrije shell. Harde veiligheidsgrenzen mogen niet autonoom worden versoepeld. De hoofdapplicatie op poort `8040` moet beschikbaar blijven wanneer de AI-laag een probleem heeft.
+CHARLY wordt daarboven de centrale AI-orchestrator. Bestaande calls naar `127.0.0.1:11434` blijven compatibel, maar inference wordt door CHARLY ontvangen. CHARLY kan daarna zelf bepalen of lokaal Qwen/Ollama, externe compute of een hybride route het meest geschikt is.
+
+CHARLY kent de taakklassen `REALTIME`, `HIGH`, `NORMAL` en `BATCH`, zodat interactieve taken voorrang kunnen krijgen op achtergrondwerk. Externe providers zijn optioneel; zonder cloudcredentials blijft lokale Qwen/Ollama beschikbaar.
+
+De AI heeft geen onbeperkte vrije shell. Harde veiligheidsgrenzen mogen niet autonoom worden versoepeld. Privacygevoelige inhoud blijft standaard lokaal en de hoofdapplicatie op poort `8040` moet beschikbaar blijven wanneer de AI-laag een probleem heeft.
+
+Zie [docs/CHARLY.md](docs/CHARLY.md) voor de volledige architectuur.
 
 ## Automatische updates
 
-De updater vergelijkt de lokaal geïnstalleerde commit met GitHub `main` en registreert update-state onder:
+De updater vergelijkt de lokaal geïnstalleerde commit met het ingestelde GitHub-updatekanaal en registreert update-state onder:
 
 ```text
 /var/lib/top40-archiver/update-state/
@@ -222,13 +277,14 @@ pip install pytest
 pytest
 ```
 
-Release **1.16.22** is gevalideerd met **257 geslaagde tests** en een Python-syntaxcontrole zonder fouten.
+De CHARLY-integratietest controleert daarnaast de vendored releasehashes, de gereconstrueerde bronarchive, installer-shellsyntax, gatewaypoorten en rollback-/audiobeschermingscontracten.
 
 ## Documentatie
 
 - [Architectuur](docs/ARCHITECTURE.md)
+- [CHARLY AI Orchestrator](docs/CHARLY.md)
 - [Updaten en Samba](docs/UPDATE_AND_SMB.md)
-- [Release 1.16.22](docs/RELEASE-1.16.22.md)
+- [Release 1.16.23](docs/RELEASE-1.16.23.md)
 - [Changelog](CHANGELOG.md)
 - [Bijdragen](CONTRIBUTING.md)
 - [Security](SECURITY.md)
