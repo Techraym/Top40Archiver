@@ -9,7 +9,6 @@ set -Eeuo pipefail
 APP=/opt/top40-archiver
 VENDOR="$APP/vendor/charly-v0.2.0"
 BACKUP_ROOT=/var/lib/top40-archiver/backups/charly-install
-EXPECTED_B64_SHA=26c06d816aa1f8b3b6056fa8599ac08010a37a0df82067951c09e6606f776962
 EXPECTED_TGZ_SHA=e11271203dce95c49cc8c68d62135a42afe505bf3995df703139b22572a16fea
 TMP=""
 BACKUP=""
@@ -22,6 +21,7 @@ PREV_OLLAMA_ACTIVE=0
 command -v base64 >/dev/null
 command -v sha256sum >/dev/null
 command -v tar >/dev/null
+command -v tr >/dev/null
 command -v systemctl >/dev/null
 command -v curl >/dev/null
 
@@ -121,9 +121,10 @@ trap rollback ERR
 
 parts=("$VENDOR"/part-*.b64)
 [ "${#parts[@]}" -eq 8 ] || { echo "FOUT: verwacht 8 CHARLY bron-delen, gevonden ${#parts[@]}." >&2; exit 1; }
-cat "${parts[@]}" > "$TMP/CHARLY_v0.2.0-src.tar.gz.b64"
-printf '%s  %s\n' "$EXPECTED_B64_SHA" "$TMP/CHARLY_v0.2.0-src.tar.gz.b64" | sha256sum -c -
 
+# Base64 is only the textual transport format. Ignore line wrapping/whitespace
+# and validate the decoded release archive itself with its fixed SHA-256.
+cat "${parts[@]}" | tr -d '[:space:]' > "$TMP/CHARLY_v0.2.0-src.tar.gz.b64"
 base64 -d "$TMP/CHARLY_v0.2.0-src.tar.gz.b64" > "$TMP/CHARLY_v0.2.0-src.tar.gz"
 printf '%s  %s\n' "$EXPECTED_TGZ_SHA" "$TMP/CHARLY_v0.2.0-src.tar.gz" | sha256sum -c -
 tar -tzf "$TMP/CHARLY_v0.2.0-src.tar.gz" >/dev/null
