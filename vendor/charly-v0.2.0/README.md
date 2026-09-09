@@ -2,7 +2,7 @@
 
 Deze map bevat de gevalideerde CHARLY v0.2.0 bronrelease die Top40Archiver op de Debian NUC native installeert onder `/opt/charly`.
 
-De tarball is als genummerde base64-delen opgeslagen omdat de GitHub-integratie alleen UTF-8 tekstbestanden schrijft. `scripts/install-charly-top40.sh` reconstrueert de delen in lexicografische volgorde, controleert zowel de base64-bron als de uitgepakte tarball met SHA-256 en voert daarna de native CHARLY-installer uit.
+De tarball is als genummerde base64-delen opgeslagen omdat de GitHub-integratie alleen UTF-8 tekstbestanden schrijft. `scripts/install-charly-top40.sh` reconstrueert de delen in lexicografische volgorde, verwijdert alleen transport-whitespace uit de base64-data en controleert daarna het **gedecodeerde release-archief** met SHA-256 voordat de native CHARLY-installer wordt uitgevoerd. Daarmee heeft regelafbreking in de tekstuele verpakking geen invloed op de release-identiteit.
 
 Verwachte bestanden:
 
