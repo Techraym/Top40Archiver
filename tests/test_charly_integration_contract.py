@@ -10,7 +10,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor" / "charly-v0.2.0"
-EXPECTED_B64_SHA = "26c06d816aa1f8b3b6056fa8599ac08010a37a0df82067951c09e6606f776962"
 EXPECTED_TGZ_SHA = "e11271203dce95c49cc8c68d62135a42afe505bf3995df703139b22572a16fea"
 
 
@@ -35,9 +34,12 @@ def test_vendored_charly_archive_is_exact_and_complete():
     parts = sorted(VENDOR.glob("part-*.b64"))
     assert [p.name for p in parts] == [f"part-{i:02d}.b64" for i in range(8)]
 
-    encoded = b"".join(p.read_bytes() for p in parts)
-    assert hashlib.sha256(encoded).hexdigest() == EXPECTED_B64_SHA
-
+    # Base64 is a textual transport encoding. Line wrapping or other ASCII
+    # whitespace must not alter release identity; the decoded archive hash does.
+    encoded = b"".join(
+        b"".join(part.read_bytes().split())
+        for part in parts
+    )
     archive = base64.b64decode(encoded, validate=True)
     assert hashlib.sha256(archive).hexdigest() == EXPECTED_TGZ_SHA
 
@@ -87,5 +89,5 @@ def test_charly_install_has_rollback_and_does_not_touch_audio_library():
 
 def test_vendored_checksums_are_documented():
     sums = (VENDOR / "SHA256SUMS").read_text(encoding="utf-8")
-    assert EXPECTED_B64_SHA in sums
     assert EXPECTED_TGZ_SHA in sums
+    assert "CHARLY_v0.2.0-src.tar.gz" in sums
