@@ -14,8 +14,8 @@ EXPECTED_TGZ_SHA = "e11271203dce95c49cc8c68d62135a42afe505bf3995df703139b22572a1
 
 
 def test_release_declares_charly_version():
-    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "1.16.23"
-    release_installer = ROOT / "scripts" / "install-1.16.23.sh"
+    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "1.16.24"
+    release_installer = ROOT / "scripts" / "install-1.16.24.sh"
     integration_installer = ROOT / "scripts" / "install-charly-top40.sh"
     assert release_installer.exists()
     assert integration_installer.exists()
@@ -24,7 +24,7 @@ def test_release_declares_charly_version():
 
 def test_charly_installers_have_valid_shell_syntax():
     for script in (
-        ROOT / "scripts" / "install-1.16.23.sh",
+        ROOT / "scripts" / "install-1.16.24.sh",
         ROOT / "scripts" / "install-charly-top40.sh",
     ):
         subprocess.run(["bash", "-n", str(script)], check=True)
@@ -34,8 +34,6 @@ def test_vendored_charly_archive_is_exact_and_complete():
     parts = sorted(VENDOR.glob("part-*.b64"))
     assert [p.name for p in parts] == [f"part-{i:02d}.b64" for i in range(8)]
 
-    # Base64 is a textual transport encoding. Line wrapping or other ASCII
-    # whitespace must not alter release identity; the decoded archive hash does.
     encoded = b"".join(
         b"".join(part.read_bytes().split())
         for part in parts
