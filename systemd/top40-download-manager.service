@@ -1,5 +1,5 @@
 [Unit]
-Description=Top40Archiver Multi Source Download Manager
+Description=Top40Archiver Multi Source Download Manager with CHARLY Control Layer
 After=network-online.target top40-archiver-web.service top40-bgutil-pot.service
 Wants=network-online.target
 Requires=top40-bgutil-pot.service
@@ -15,7 +15,7 @@ Environment=PYTHONPATH=/opt/top40-archiver
 Environment=HOME=/var/lib/top40-archiver
 Environment=DENO_DIR=/var/lib/top40-archiver/.cache/deno
 EnvironmentFile=-/etc/top40-archiver.env
-ExecStart=/opt/top40-archiver/venv/bin/python -m app.download_manager_dynamic_entry
+ExecStart=/opt/top40-archiver/venv/bin/python -m app.charly_download_manager_entry
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
