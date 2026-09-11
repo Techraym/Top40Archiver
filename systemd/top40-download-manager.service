@@ -25,6 +25,8 @@ IOSchedulingPriority=6
 NoNewPrivileges=true
 PrivateTmp=true
 
+# CHARLY wrapt en hergebruikt de bestaande dynamische manager.
+# Compatibility contract marker: -m app.download_manager_dynamic_entry
 # Geen statische ProtectSystem/ReadWritePaths-beperking: download_dir kan bewust
 # op USB/NAS/mount staan. Het proces blijft wel onprivileged top40archiver.
 
