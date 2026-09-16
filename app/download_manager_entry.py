@@ -16,7 +16,10 @@ LOGGER = logging.getLogger("top40.download_manager")
 INTERRUPTED_STATUSES = ("searching", "downloading", "validating", "processing")
 CANDIDATE_ONLY_ERRORS = {"drm", "unavailable"}
 GLOBAL_NETWORK_ERRORS = {"network"}
-SOFT_REJECTION_REASONS = {"try_other_provider"}
+SOFT_REJECTION_REASONS = {
+    "try_other_provider", "low_match",
+    "top40.nl fallback: try_other_provider", "top40.nl fallback: low_match",
+}
 NETWORK_PROBE_HOSTS = ("api-v2.soundcloud.com", "audiomack.com", "www.youtube.com")
 NETWORK_PROBE_TTL_SECONDS = 3.0
 NETWORK_MIN_REACHABLE = 2
@@ -235,16 +238,19 @@ def _validate_full_track_duration(info: dict[str, Any], track: dict[str, Any]) -
 def _rescorable_rejected_urls(track_id: int, provider: str) -> set[str]:
     """Only hard rejects are excluded from future provider searches.
 
-    `try_other_provider` was a ranking decision, not proof that the candidate was
-    wrong. 1.16.9 production data showed official candidates at 96-100 points in
-    this state, so they must be re-scoreable after policy improvements.
+    Scores are policy decisions, not permanent proof of wrong content. Re-score
+    low_match as well as ranking deferrals. The matcher still checks penalties
+    and duration each time. Hard duration/audio/DRM rejects remain excluded.
     """
     with connect() as con:
         rows = con.execute(
             """
             SELECT candidate_url
             FROM rejected_candidates
-            WHERE track_id=? AND provider=? AND reason NOT IN ('try_other_provider')
+            WHERE track_id=? AND provider=?
+              AND reason NOT IN ('try_other_provider','low_match',
+                                'top40.nl fallback: try_other_provider',
+                                'top40.nl fallback: low_match')
             """,
             (int(track_id), provider),
         ).fetchall()
@@ -260,7 +266,9 @@ def _clear_reaccepted_soft_rejects(track_id: int, provider: str, urls: list[str]
             f"""
             DELETE FROM rejected_candidates
             WHERE track_id=? AND provider=?
-              AND reason IN ('try_other_provider')
+              AND reason IN ('try_other_provider','low_match',
+                            'top40.nl fallback: try_other_provider',
+                            'top40.nl fallback: low_match')
               AND candidate_url IN ({placeholders})
             """,
             (int(track_id), provider, *urls),

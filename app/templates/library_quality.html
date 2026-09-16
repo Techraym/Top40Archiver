@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f6f7f5">
+  <title>Top40Archiver · Library Quality</title>
+  <link rel="stylesheet" href="/static-quality/library_quality.css?v=3">
+  <script src="/static-quality/library_quality.js?v=3" defer></script>
+</head>
+<body>
+<aside class="sidebar">
+  <a id="core-link" class="brand" href="#" title="Top40Archiver"><span>TOP</span><b>40</b></a>
+  <nav><a class="active" href="#top">Overzicht</a><a href="#tracks">Tracks</a><a href="#events">Activiteit</a></nav>
+  <div class="side-label">8085</div>
+</aside>
+<main id="top">
+  <div id="api-banner" class="api-banner hidden" role="status"></div>
+
+  <header>
+    <div>
+      <span class="eyebrow">Library Quality Engine · 8085</span>
+      <h1>Muziekbibliotheek</h1>
+      <p>Controleert metadata, artwork, technische audio en radio-cues. De audiostream wordt niet opnieuw gecodeerd.</p>
+    </div>
+    <div class="actions">
+      <label>Batch
+        <select id="scan-size">
+          <option value="25">25 tracks</option>
+          <option value="100">100 tracks</option>
+          <option value="500">500 tracks</option>
+          <option value="1000000">Volledige bibliotheek</option>
+        </select>
+      </label>
+      <button id="scan-button">Controle &amp; herstel</button>
+    </div>
+  </header>
+
+  <section class="metrics">
+    <article><span>Kwaliteit</span><strong id="score">—</strong><small>gemiddelde score</small></article>
+    <article><span>Bestanden</span><strong id="total">—</strong><small>geïndexeerd</small></article>
+    <article><span>Zonder cover</span><strong id="missing-cover">—</strong><small>artwork ontbreekt</small></article>
+    <article><span>Zonder genre</span><strong id="missing-genre">—</strong><small>normalisatie nodig</small></article>
+    <article><span>Radio-analyse</span><strong id="missing-radio">—</strong><small>nog te analyseren</small></article>
+    <article class="danger"><span>Audiofout</span><strong id="audio-corrupt">—</strong><small>handmatige aandacht</small></article>
+  </section>
+
+  <section class="panel progress-panel">
+    <div class="panel-head">
+      <div><span class="eyebrow">Incremental scan</span><h2 id="run-title">Status laden…</h2></div>
+      <span id="run-pill" class="pill">laden</span>
+    </div>
+    <div class="progress"><span id="progress-bar"></span></div>
+    <div class="run-grid">
+      <div><strong id="run-processed">0</strong><span>verwerkt</span></div>
+      <div><strong id="run-skipped">0</strong><span>overgeslagen</span></div>
+      <div><strong id="run-repaired">0</strong><span>hersteld</span></div>
+      <div><strong id="run-failed">0</strong><span>mislukt</span></div>
+    </div>
+    <p id="current-file" class="muted">Wachten op status…</p>
+    <p class="policy">Radio-cues worden pas naar het bestand geschreven vanaf <b id="radio-threshold">84%</b> confidence. Lagere waarden blijven uitsluitend in SQLite.</p>
+  </section>
+
+  <section class="panel layers">
+    <div class="panel-head"><div><span class="eyebrow">Analyseketen</span><h2>Zes kwaliteitslagen</h2></div></div>
+    <div class="layer-grid">
+      <div><b>1</b><span>Bestand &amp; FFprobe</span><small>duur · codec · bitrate · samplerate</small></div>
+      <div><b>2</b><span>Tags &amp; cover</span><small>artiest · titel · album · artwork</small></div>
+      <div><b>3</b><span>Metadata</span><small>genre · bron · vervuilingscontrole</small></div>
+      <div><b>4</b><span>Audioanalyse</span><small>BPM · key · LUFS · fingerprint</small></div>
+      <div><b>5</b><span>Radioanalyse</span><small>intro · outro · vocal · fade · mixpunt</small></div>
+      <div><b>6</b><span>Kwaliteitscontrole</span><small>status · retries · bescherming</small></div>
+    </div>
+  </section>
+
+  <section id="tracks" class="panel">
+    <div class="panel-head">
+      <div><span class="eyebrow">Bibliotheek</span><h2>Aandacht en resultaten</h2></div>
+      <div class="filters">
+        <input id="search" placeholder="Zoek artiest, titel of bestand">
+        <select id="status">
+          <option value="">Alle statussen</option>
+          <option value="complete">Compleet</option>
+          <option value="needs_metadata">Metadata nodig</option>
+          <option value="needs_cover">Cover nodig</option>
+          <option value="needs_genre">Genre nodig</option>
+          <option value="pending_analysis">Analyse wacht</option>
+          <option value="low_confidence">Lage confidence</option>
+          <option value="warning">Waarschuwing</option>
+          <option value="scan_error">Scanfout</option>
+          <option value="audio_corrupt">Audio beschadigd</option>
+        </select>
+        <button id="refresh-button" class="secondary">Vernieuwen</button>
+      </div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Artiest / titel</th><th>Status</th><th>Score</th><th>Cover</th><th>Genre</th><th>Intro</th><th>Outro / mix</th><th>LUFS / peak</th></tr></thead>
+      <tbody id="tracks-body"><tr><td colspan="8">Data laden…</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section id="events" class="panel">
+    <div class="panel-head"><div><span class="eyebrow">Activiteit</span><h2>Laatste Library Quality acties</h2></div></div>
+    <div id="events-list" class="events-list"><p class="muted">Activiteit laden…</p></div>
+  </section>
+
+  <section class="panel notes">
+    <span class="eyebrow">Vaste grenzen</span>
+    <p><b>Geen AerOn-koppeling:</b> 8085 pusht of exporteert niets naar AerOn. Ondersteunde metadata staat alleen in het audiobestand en Top40Archiver SQLite.</p>
+    <p><b>Geen hercodering:</b> metadata wordt op een kopie geschreven; vóór vervanging wordt de encoded audiostream gehasht en gecontroleerd.</p>
+  </section>
+</main>
+</body>
+</html>

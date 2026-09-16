@@ -144,8 +144,9 @@ def _persist_chart(chart: ChartEdition, force: bool = False) -> dict:
                         peak_position,last_position,processed_at,download_status,youtube_url,
                         source_track_id,updated_at,seen_top40,seen_tipparade,
                         top40_peak_position,top40_last_position,
-                        tipparade_peak_position,tipparade_last_position
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        tipparade_peak_position,tipparade_last_position,
+                        cover_url,cover_source
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         item.artist,

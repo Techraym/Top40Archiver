@@ -16,7 +16,7 @@ from .ai_control_room import (
     validate_control_room_html,
 )
 
-MODEL = os.getenv("TOP40_AI_MODEL", "qwen3:4b")
+MODEL = os.getenv("TOP40_AI_MODEL", "qwen3.5:4b")
 BACKUP_DIR = CONTROL_ROOM_DIR / "backups"
 
 MARKER_START = "/* AI_THEME_START */"
@@ -218,6 +218,17 @@ def inject_theme(html, css):
 
 
 def run():
+    # Operatorbeleid: AI mag 8041/8042 niet meer wijzigen.
+    return {
+        "ok": True,
+        "action": "disabled_by_operator_policy",
+        "mutation_allowed": False,
+        "reason": (
+            "Autonome AI-wijzigingen aan 8041 en 8042 "
+            "zijn uitgeschakeld door de operator."
+        ),
+    }
+
     state = load_state()
 
     state["last_attempt_at"] = now_iso()

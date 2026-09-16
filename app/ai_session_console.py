@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from . import ai_memory
 
 router = APIRouter()
-MODEL = os.getenv("TOP40_AI_MODEL", "qwen3:4b")
+MODEL = os.getenv("TOP40_AI_MODEL", "qwen3.5:4b")
 VALID_SCOPES = {
     "global",
     "operations",

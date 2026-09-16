@@ -140,7 +140,8 @@ def run_code_improvement(cycle_id: str) -> dict[str, Any]:
     # legacy worker also injects the same context into its model prompt.
     operator_context("code")
     candidate = _candidate()
-    _relax_cooldown_for_proven_ineffective_recovery(candidate)
+    # Bewezen ineffectieve recovery is juist geen reden om de
+    # normale code-improvement cooldown te verkorten.
     try:
         with model_slot("code-improvement", priority="background", wait_seconds=1.5):
             result = _legacy.run_code_improvement(cycle_id)

@@ -44,9 +44,9 @@ def _ollama() -> dict[str, object]:
     port = int(os.getenv("OLLAMA_PORT", "11434"))
     try:
         with socket.create_connection((host, port), timeout=1.5):
-            return {"reachable": True, "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b")}
+            return {"reachable": True, "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b")}
     except OSError:
-        return {"reachable": False, "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b")}
+        return {"reachable": False, "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b")}
 
 
 @app.get("/", response_class=HTMLResponse)

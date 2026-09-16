@@ -20,10 +20,10 @@ from .ai_control_room import (
     control_room_snapshot,
     validate_control_room_html,
 )
-from .ai_learning import complete_action, start_action
+from .ai_learning import action_allowed, complete_action, start_action
 
 BACKUP_DIR = CONTROL_ROOM_DIR / "backups"
-MODEL = os.getenv("TOP40_AI_MODEL", "qwen3:4b")
+MODEL = os.getenv("TOP40_AI_MODEL", "qwen3.5:4b")
 VERIFY_MINUTES = 10
 STABLE_OPTIMIZE_HOURS = 6
 ERROR_RETRY_MINUTES = 5
@@ -244,10 +244,10 @@ Lever ALLEEN het HTML-document.
             "options": {
                 "temperature": 0.18,
                 "num_ctx": 2048,
-                "num_predict": 700,
+                "num_predict": 650,
             },
         },
-        timeout=90,
+        timeout=120,
     )
     response.raise_for_status()
     return _extract_html(str(response.json().get("response") or ""))
@@ -354,6 +354,17 @@ def _reason_to_redesign(state: dict[str, Any], force: bool) -> str | None:
 
 
 def run_ui_designer(cycle_id: str, force: bool = False) -> dict[str, Any]:
+    # Operatorbeleid: AI mag 8041/8042 niet meer wijzigen.
+    return {
+        "ok": True,
+        "action": "disabled_by_operator_policy",
+        "mutation_allowed": False,
+        "reason": (
+            "Autonome AI-wijzigingen aan 8041 en 8042 "
+            "zijn uitgeschakeld door de operator."
+        ),
+    }
+
     state = _load_state()
     state.setdefault("revision", 0)
     state.setdefault("status", "fallback")
@@ -380,10 +391,26 @@ def run_ui_designer(cycle_id: str, force: bool = False) -> dict[str, Any]:
     current_html = _read_live()
     before_validation = validate_control_room_html(current_html) if current_html else {"ok": False, "structural_score": 0}
     next_revision = int(state.get("revision") or 0) + 1
+    learning_key = f"ui:control_room:model:{MODEL}"
+
+    allowed, learning_reason = action_allowed(
+        learning_key,
+        "generate_and_promote_control_room",
+    )
+
+    if not allowed:
+        return {
+            "ok": True,
+            "action": "learning_blocked",
+            "revision": int(state.get("revision") or 0),
+            "model": MODEL,
+            "reason": learning_reason,
+        }
+
     action_id = start_action(
         cycle_id=cycle_id,
         domain="ui",
-        problem_key="ui:control_room",
+        problem_key=learning_key,
         action="generate_and_promote_control_room",
         reason=reason,
         subject=f"ui-revision:{next_revision}",

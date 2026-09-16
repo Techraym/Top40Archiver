@@ -231,9 +231,9 @@ def _ollama() -> dict[str, Any]:
         response = requests.get(base + "/api/tags", timeout=3)
         response.raise_for_status()
         names = [str(x.get("name") or "") for x in response.json().get("models", [])]
-        return {"reachable": True, "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"), "models": names}
+        return {"reachable": True, "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b"), "models": names}
     except Exception as exc:
-        return {"reachable": False, "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"), "error": str(exc)[-500:]}
+        return {"reachable": False, "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b"), "error": str(exc)[-500:]}
 
 
 def _build_tasks(

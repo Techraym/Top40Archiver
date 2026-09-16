@@ -6,7 +6,7 @@ from typing import Any
 
 import requests
 
-from .ai_learning import complete_action, start_action
+from .ai_learning import action_allowed, complete_action, start_action
 from .ai_model_runtime import ModelBusy, model_slot
 from .ai_session_console import operator_context, scope_held
 from .download_concurrency import (
@@ -21,7 +21,7 @@ from .download_concurrency import (
 )
 from .download_metrics import provider_dashboard
 
-MODEL_TIMEOUT_SECONDS = 25
+MODEL_TIMEOUT_SECONDS = 60
 
 
 def _ask_qwen(
@@ -77,13 +77,13 @@ def _ask_qwen(
         response = requests.post(
             os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate"),
             json={
-                "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+                "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b"),
                 "prompt": prompt,
                 "stream": False,
                 "format": "json",
                 "keep_alive": "30m",
                 "think": False,
-                "options": {"temperature": 0.05, "num_predict": 160},
+                "options": {"temperature": 0.05, "num_predict": 100, "num_ctx": 4096},
             },
             timeout=MODEL_TIMEOUT_SECONDS,
         )
@@ -134,10 +134,35 @@ def run_download_concurrency_ai(cycle_id: str) -> dict[str, Any]:
             "system": system,
         }
 
+    model_name = os.getenv(
+        "TOP40_AI_MODEL",
+        "qwen3.5:4b",
+    )
+    learning_key = (
+        f"downloads:global_concurrency:model:{model_name}"
+    )
+
+    allowed, learning_reason = action_allowed(
+        learning_key,
+        "qwen_download_worker_tuning",
+    )
+
+    if not allowed:
+        return {
+            "ok": True,
+            "action": "learning_blocked",
+            "model": model_name,
+            "reason": learning_reason,
+            "workers": state,
+            "evidence_ceiling": evidence_ceiling,
+            "system_ceiling": system_ceiling,
+            "hard_ceiling": hard_ceiling,
+        }
+
     action_id = start_action(
         cycle_id=cycle_id,
         domain="downloads",
-        problem_key="downloads:global_concurrency",
+        problem_key=learning_key,
         action="qwen_download_worker_tuning",
         reason="Globale downloadconcurrency begrensd afstemmen op echte successen, backlog en hostbelasting.",
         before={
@@ -170,13 +195,31 @@ def run_download_concurrency_ai(cycle_id: str) -> dict[str, Any]:
                 "applied": applied,
                 "hard_ceiling": hard_ceiling,
             },
-            result={"reason": reason},
-            effect_score=0.2 if applied != int(state.get("effective") or 2) else 0.0,
+            result={
+                "reason": reason,
+                "model_response_ok": True,
+                "changed": (
+                    applied
+                    != int(
+                        state.get("effective")
+                        or DEFAULT_DOWNLOAD_WORKERS
+                    )
+                ),
+            },
+            effect_score=(
+                0.2
+                if applied
+                != int(
+                    state.get("effective")
+                    or DEFAULT_DOWNLOAD_WORKERS
+                )
+                else 0.0
+            ),
         )
         return {
             "ok": True,
             "action": "qwen_download_worker_tuning",
-            "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+            "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b"),
             "requested": requested,
             "applied": applied,
             "workers": after,

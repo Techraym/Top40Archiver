@@ -22,7 +22,7 @@ from .operations_center import cover_dashboard, database_dashboard, download_das
 from .service_watchdog import service_monitor
 
 router = APIRouter()
-MODEL = os.getenv("TOP40_AI_MODEL", "qwen3:4b")
+MODEL = os.getenv("TOP40_AI_MODEL", "qwen3.5:4b")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
 LOG_READER = os.getenv("TOP40_LOG_READER_URL", "http://127.0.0.1:8042")
 MAX_ACTIONS_PER_COMMAND = 6

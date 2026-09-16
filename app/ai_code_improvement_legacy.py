@@ -14,7 +14,7 @@ from .ai_code_repair import (
     _rollback_active,
     _safe_touched_files,
 )
-from .ai_learning import complete_action, start_action
+from .ai_learning import action_allowed, complete_action, start_action
 from .ai_session_console import operator_context
 from .config import APP_DIR, DATA_DIR
 from .dev_assistant import create_workspace, save_patch, validate_workspace, workspace_status
@@ -120,8 +120,22 @@ def _ask_model(candidate: dict) -> str:
     )
     response = requests.post(
         os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate"),
-        json={"model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"), "prompt": prompt, "stream": False, "keep_alive": "30m"},
-        timeout=120,
+        json={
+            "model": os.getenv(
+                "TOP40_AI_MODEL",
+                "qwen3.5:4b",
+            ),
+            "prompt": prompt,
+            "stream": False,
+            "think": False,
+            "keep_alive": "30m",
+            "options": {
+                "temperature": 0.1,
+                "num_predict": 512,
+                "num_ctx": 4096,
+            },
+        },
+        timeout=150,
     )
     response.raise_for_status()
     text = str(response.json().get("response") or "").strip()
@@ -212,10 +226,32 @@ def run_code_improvement(cycle_id: str) -> dict:
     state["last_attempts"][candidate["problem_key"]] = _now().isoformat()
     _save(state)
 
+    model_name = os.getenv(
+        "TOP40_AI_MODEL",
+        "qwen3.5:4b",
+    )
+    learning_key = (
+        f"improve:{candidate['problem_key']}:model:{model_name}"
+    )
+
+    allowed, learning_reason = action_allowed(
+        learning_key,
+        "analyze_repeated_recovery",
+    )
+
+    if not allowed:
+        return {
+            "ok": True,
+            "action": "learning_blocked",
+            "candidate": candidate,
+            "model": model_name,
+            "reason": learning_reason,
+        }
+
     analysis_id = start_action(
         cycle_id=cycle_id,
         domain="code_improvement",
-        problem_key=f"improve:{candidate['problem_key']}",
+        problem_key=learning_key,
         action="analyze_repeated_recovery",
         reason="Dezelfde herstelactie blijft vaak nodig; onderzoek een causale broncodeverbetering.",
         subject=candidate["problem_key"],
@@ -243,7 +279,7 @@ def run_code_improvement(cycle_id: str) -> dict:
         promote_id = start_action(
             cycle_id=cycle_id,
             domain="code_improvement",
-            problem_key=f"improve:{candidate['problem_key']}",
+            problem_key=learning_key,
             action="promote_measured_improvement",
             reason="Sandboxtests slagen; meet nu of het concrete herstelwerk minimaal 50% afneemt.",
             subject=candidate["problem_key"],

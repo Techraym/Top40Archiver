@@ -24,8 +24,10 @@ MODEL = _legacy.MODEL
 
 # UI work is deliberately evaluated more frequently than before, but it remains
 # below direct operator traffic in the shared model scheduler.
-_legacy.ERROR_RETRY_MINUTES = 3
-_legacy.STABLE_OPTIMIZE_HOURS = 0.5
+# UI wordt alleen automatisch herbouwd bij een aantoonbaar probleem.
+# Geen cosmetische redesigns iedere 30 minuten.
+_legacy.ERROR_RETRY_MINUTES = 20
+_legacy.STABLE_OPTIMIZE_HOURS = 24 * 365 * 10
 
 
 def _run_control_room(cycle_id: str, force: bool) -> dict[str, Any]:
@@ -61,6 +63,17 @@ def _active(value: object) -> bool:
 
 
 def run_ui_designer(cycle_id: str, force: bool = False) -> dict[str, Any]:
+    # Operatorbeleid: AI mag 8041/8042 niet meer wijzigen.
+    return {
+        "ok": True,
+        "action": "disabled_by_operator_policy",
+        "mutation_allowed": False,
+        "reason": (
+            "Autonome AI-wijzigingen aan 8041 en 8042 "
+            "zijn uitgeschakeld door de operator."
+        ),
+    }
+
     """Improve only 8041/8042 and always obey the human UI HOLD.
 
     A HOLD forbids every *new* AI UI mutation. Existing canaries are still sent

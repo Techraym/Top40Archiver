@@ -125,7 +125,7 @@ def _plain_title(value: str) -> str:
     return " ".join(title.split()).strip()
 
 
-def _repair_strategy(item: dict, recovery_count: int) -> tuple[str, str | None]:
+def _repair_strategy(item: dict, recovery_count: int) -> tuple[str | None, str | None]:
     category = item["category"]
     artist = str(item.get("artist") or "").strip()
     title = str(item.get("title") or "").strip()
@@ -140,6 +140,8 @@ def _repair_strategy(item: dict, recovery_count: int) -> tuple[str, str | None]:
             ["canonical_search", "simplified_artist", "title_first", "audio_fallback"],
             exploration_index=recovery_count,
         )
+        if strategy is None:
+            return None, None
         if strategy == "canonical_search":
             return strategy, None
         if strategy == "simplified_artist":
@@ -147,7 +149,14 @@ def _repair_strategy(item: dict, recovery_count: int) -> tuple[str, str | None]:
         if strategy == "title_first":
             return strategy, f"{plain_title} {primary_artist}".strip()
         return strategy, f"{primary_artist} {plain_title} audio".strip()
-    return "clean_retry", None
+    strategy = choose_action(
+        f"download:{category}",
+        ["clean_retry"],
+        exploration_index=recovery_count,
+    )
+    if strategy is None:
+        return None, None
+    return strategy, None
 
 
 def _failure_snapshot() -> tuple[list[dict], Counter]:
@@ -156,11 +165,41 @@ def _failure_snapshot() -> tuple[list[dict], Counter]:
             """
             SELECT t.id,t.artist,t.title,t.download_status,t.download_attempts,
                    t.custom_search_query,t.youtube_url,t.error_message,t.updated_at,
-                   j.id AS job_id,j.status AS job_status,j.next_attempt_at AS job_next_attempt_at,
-                   j.updated_at AS job_updated_at,j.error AS job_error
+                   j.id AS job_id,j.status AS job_status,
+                   j.attempts AS job_attempts,
+                   j.next_attempt_at AS job_next_attempt_at,
+                   j.updated_at AS job_updated_at,j.error AS job_error,
+                   CASE
+                     WHEN EXISTS (
+                       SELECT 1
+                       FROM chart_entries ce
+                       WHERE ce.track_id=t.id
+                         AND ce.edition_id=(
+                           SELECT id
+                           FROM editions
+                           ORDER BY year DESC,week DESC
+                           LIMIT 1
+                         )
+                     )
+                     OR EXISTS (
+                       SELECT 1
+                       FROM tipparade_entries te
+                       WHERE te.track_id=t.id
+                         AND te.edition_id=(
+                           SELECT id
+                           FROM tipparade_editions
+                           ORDER BY year DESC,week DESC
+                           LIMIT 1
+                         )
+                     )
+                     THEN 1 ELSE 0
+                   END AS in_current_chart
             FROM tracks t
             LEFT JOIN download_jobs j ON j.track_id=t.id
-            WHERE t.download_status IN ('failed','unavailable','downloading')
+            WHERE (
+                    t.download_status IN ('failed','unavailable','downloading')
+                    OR j.status='waiting_retry'
+              )
             ORDER BY CASE t.download_status WHEN 'failed' THEN 0 WHEN 'downloading' THEN 1 ELSE 2 END,
                      t.updated_at ASC
             LIMIT 1500
@@ -178,16 +217,36 @@ def _failure_snapshot() -> tuple[list[dict], Counter]:
     return failures, categories
 
 
-def _release_selected(selected: list[dict], state: dict) -> tuple[int, list[dict]]:
+def _release_selected(
+    selected: list[dict],
+    state: dict,
+) -> tuple[int, list[dict], list[dict]]:
     if not selected:
-        return 0, []
+        return 0, [], []
 
     released = 0
     details: list[dict] = []
+    learning_blocked: list[dict] = []
     for item in selected:
         record = _recovery_record(state, item)
         count_before = int(record.get("count", 0))
         strategy, query = _repair_strategy(item, count_before)
+
+        if strategy is None:
+            learning_blocked.append(
+                {
+                    "id": item["id"],
+                    "artist": item["artist"],
+                    "title": item["title"],
+                    "category": item["category"],
+                    "reason": (
+                        "Alle bekende herstelstrategieën zijn door "
+                        "action_learning als onvoldoende effectief beoordeeld."
+                    ),
+                }
+            )
+            continue
+
         queued = retry_job(int(item["id"]))
         if not queued:
             continue
@@ -226,7 +285,7 @@ def _release_selected(selected: list[dict], state: dict) -> tuple[int, list[dict
                 "manager_restart_requested": False,
             }
         )
-    return released, details
+    return released, details, learning_blocked
 
 
 def _batch_limit_for(item: dict) -> int:
@@ -264,11 +323,24 @@ def run_cycle() -> dict:
     manager_backoff: list[dict] = []
     skipped_permanent: list[dict] = []
     skipped_limit: list[dict] = []
+    skipped_long_retry: list[dict] = []
     stale_downloading: list[dict] = []
 
     stale_cutoff = _utcnow() - timedelta(minutes=30)
     for item in failures:
         category = item["category"]
+
+        job_attempts = int(item.get("job_attempts") or 0)
+        in_current_chart = bool(item.get("in_current_chart"))
+
+        # De downloadmanager beheert historische jobs vanaf 10 pogingen
+        # met een lange retry-cooldown. AI-recovery mag die cooldown niet
+        # meer omzeilen. Alleen een track in de actuele lijsten krijgt
+        # direct opnieuw prioriteit.
+        if job_attempts >= 10 and not in_current_chart:
+            skipped_long_retry.append(item)
+            continue
+
         if _is_stale_active(item, stale_cutoff):
             stale_downloading.append(item)
             continue
@@ -332,26 +404,83 @@ def run_cycle() -> dict:
                     continue
                 selected.append(item)
 
-            released, repair_details = _release_selected(selected, state)
-            action = {
-                "action": "retry_failed_downloads",
-                "released": released,
-                "selected": len(selected),
-                "manager_restart_requested": False,
-                "result": "gelukt" if released else "overgeslagen",
-                "repairs": repair_details[:50],
-            }
-            actions.append(action)
+            released, repair_details, learning_blocked = _release_selected(
+                selected,
+                state,
+            )
+
+            strategies = Counter(
+                x["strategy"]
+                for x in repair_details
+            )
+
+            if released:
+                action = {
+                    "action": "retry_failed_downloads",
+                    "released": released,
+                    "selected": len(selected),
+                    "learning_blocked": len(learning_blocked),
+                    "manager_restart_requested": False,
+                    "result": "gelukt",
+                    "repairs": repair_details[:50],
+                }
+                actions.append(action)
+
+                decision = {
+                    "status": "recover",
+                    "reason": (
+                        f"{released} downloads opnieuw ingepland in "
+                        f"download_jobs met {len(strategies)} "
+                        "herstelstrategie(ën); downloadmanager niet "
+                        "onderbroken."
+                    ),
+                    "confidence": 0.98,
+                }
+
+                recommendations.append(
+                    "De AI heeft alleen downloads opnieuw ingepland "
+                    "waarvoor nog een verdedigbare herstelstrategie bestaat."
+                )
+
+                if strategies:
+                    recommendations.append(
+                        "Gebruikte strategieën: "
+                        + ", ".join(
+                            f"{k}={v}"
+                            for k, v in strategies.items()
+                        )
+                        + "."
+                    )
+
+            elif learning_blocked:
+                decision = {
+                    "status": "learning_blocked",
+                    "reason": (
+                        f"{len(learning_blocked)} downloads zijn niet "
+                        "opnieuw ingepland omdat alle bekende "
+                        "herstelstrategieën aantoonbaar onvoldoende "
+                        "succesvol zijn."
+                    ),
+                    "confidence": 0.99,
+                }
+
+                recommendations.append(
+                    f"{len(learning_blocked)} downloads wachten op een "
+                    "nieuwe herstelstrategie; bekende ineffectieve "
+                    "strategieën worden niet opnieuw uitgevoerd."
+                )
+
+            else:
+                decision = {
+                    "status": "observe",
+                    "reason": (
+                        "Geen geselecteerde download kon veilig opnieuw "
+                        "worden ingepland."
+                    ),
+                    "confidence": 0.90,
+                }
+
             state["actions"]["retry_failed"] = _utcnow().isoformat()
-            strategies = Counter(x["strategy"] for x in repair_details)
-            decision = {
-                "status": "recover",
-                "reason": f"{released} downloads opnieuw ingepland in download_jobs met {len(strategies)} herstelstrategie(ën); downloadmanager niet onderbroken.",
-                "confidence": 0.98 if released else 0.8,
-            }
-            recommendations.append("De AI heeft mislukte downloads via de actuele download_jobs-architectuur opnieuw in de actieve wachtrij geplaatst.")
-            if strategies:
-                recommendations.append("Gebruikte strategieën: " + ", ".join(f"{k}={v}" for k, v in strategies.items()) + ".")
         elif retryable:
             decision = {
                 "status": "cooldown",
@@ -369,6 +498,15 @@ def run_cycle() -> dict:
         recommendations.append(
             f"{len(manager_backoff)} tijdelijke fouten blijven onder het eigen waiting_retry/backoffbeleid van top40-download-manager.service."
         )
+    if skipped_long_retry:
+        recommendations.append(
+            f"{len(skipped_long_retry)} historische downloadjobs hebben "
+            "10 of meer pogingen bereikt en blijven onder het lange "
+            "retrybeleid van de downloadmanager. AI-recovery geeft deze "
+            "jobs niet opnieuw vrij; actuele Top40/Tipparade-tracks zijn "
+            "hiervan uitgezonderd."
+        )
+
     if skipped_limit:
         recommendations.append(
             f"{len(skipped_limit)} tracks bereikten de limiet voor dezelfde fout. Bij een gewijzigde fout of na {RECOVERY_RESET_HOURS} uur worden ze automatisch opnieuw toegelaten."
@@ -396,6 +534,11 @@ def run_cycle() -> dict:
         "manager_backoff_count": len(manager_backoff),
         "permanent_count": len(skipped_permanent),
         "recovery_limit_count": len(skipped_limit),
+        "learning_blocked_count": (
+            len(learning_blocked)
+            if "learning_blocked" in locals()
+            else 0
+        ),
         "categories": dict(counts),
         "decision": decision,
         "actions": actions,
@@ -428,6 +571,11 @@ def run_cycle() -> dict:
                 {"id": x["id"], "artist": x["artist"], "title": x["title"], "category": x["category"]}
                 for x in skipped_limit[:20]
             ],
+            "learning_blocked": (
+                learning_blocked[:20]
+                if "learning_blocked" in locals()
+                else []
+            ),
         },
         "mode": "download-jobs-aware-bounded-autorecovery",
         "limits": {

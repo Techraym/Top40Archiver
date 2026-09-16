@@ -211,7 +211,10 @@ def _candidate_title_core(
         if not _candidate_has_full_collaboration(wanted_artist, raw):
             return None
     else:
-        if _ratio(wanted_artist, left) < 0.90:
+        if _ratio(
+            _collaboration_clean(wanted_artist),
+            _collaboration_clean(left),
+        ) < 0.90:
             return None
 
     right = re.sub(
@@ -221,9 +224,100 @@ def _candidate_title_core(
         flags=re.I,
     )
 
+    # Provider-/videopresentatie is geen onderdeel van de songtitel.
+    # Alleen expliciet veilige displaytails verwijderen.
+    right = re.sub(
+        r"\s*[•·]\s*TopPop\s*$",
+        "",
+        right,
+        flags=re.I,
+    )
+
+    # Bijvoorbeeld: "Beauty of the ritual (1989)"
+    right = re.sub(
+        r"\s*\(\s*(?:19|20)\d{2}\s*\)\s*$",
+        "",
+        right,
+        flags=re.I,
+    )
+
+    # Eerst een eventuele kwaliteitstag verwijderen zodat een historische
+    # parenthetische omschrijving aan het echte einde staat.
+    right = re.sub(
+        r"\s*\[\s*(?:HD|4K)\s*\]\s*$",
+        "",
+        right,
+        flags=re.I,
+    )
+
+    # Bijvoorbeeld:
+    # "Gloryland (1994 FIFA World Cup Official Song)"
+    right = re.sub(
+        r"\s*\(\s*(?:19|20)\d{2}[^)]*"
+        r"\b(?:official|theme)\s+(?:song|anthem)\b[^)]*\)\s*$",
+        "",
+        right,
+        flags=re.I,
+    )
+
     core = _clean(right)
     return core or None
 
+
+
+def _historical_title_aliases(value: object) -> list[str]:
+    """Begrensde aliassen voor bekende historische chart-notatie.
+
+    Deze aliassen wijzigen nooit de opgeslagen titel. Ze worden uitsluitend
+    gebruikt als extra identiteitsbewijs nadat artiest, penalties en overige
+    matchercontroles al zijn toegepast.
+    """
+    raw = str(value or "").strip()
+    result: list[str] = []
+
+    def add(item: str) -> None:
+        item = " ".join(str(item or "").split()).strip()
+        if item and item.casefold() not in {x.casefold() for x in result}:
+            result.append(item)
+
+    add(raw)
+
+    # Historische Nederlandse bronannotatie:
+    # "Paint It Black - Titelsong Tour Of Duty"
+    stripped = re.sub(
+        r"\s*[-–—]\s*(?:titel(?:song|muziek)|(?:(?:the\s+)?(?:official\s+)?)?theme(?:\s+song)?)(?:\s+.+)?$",
+        "",
+        raw,
+        flags=re.I,
+    )
+    add(stripped)
+
+    # Sommige oudere bronnen nemen een verduidelijkend "(For You)" op,
+    # terwijl officiële releases dit deel niet altijd vermelden.
+    stripped = re.sub(
+        r"\s*[\[(]\s*for\s+you\s*[\])]\s*$",
+        "",
+        raw,
+        flags=re.I,
+    )
+    add(stripped)
+
+    # Historische displayvelden kunnen pakket/EP en track met ':' combineren:
+    # "The Amsterdam EP : Sign O' The Times"
+    # "Crackers International : Stop!"
+    #
+    # Alleen toepassen bij exact één dubbele punt en een betekenisvolle
+    # rechterhelft. De normale artiest-, score-, collaboration- en
+    # versiecontroles blijven daarna verplicht.
+    if raw.count(":") == 1:
+        left, right = (part.strip() for part in raw.split(":", 1))
+        if (
+            len(_clean(left).replace(" ", "")) >= 4
+            and len(_clean(right).replace(" ", "")) >= 4
+        ):
+            add(right)
+
+    return result
 
 def _legacy_title_key(value: object, *, strip_part: bool) -> str:
     raw = str(value or "").strip()
@@ -271,37 +365,57 @@ def _legacy_title_equivalent(
     wanted_title: object,
     found_title: object,
 ) -> bool:
-    wanted_raw = str(wanted_title or "")
-    wanted_has_part = bool(
-        re.search(
-            r"\b(?:part|pt\.?)\s*(?:\d+|[ivx]+)\b",
-            wanted_raw,
-            flags=re.I,
-        )
-    )
-
-    wanted_key = _legacy_title_key(
-        wanted_title,
-        strip_part=False,
-    )
-    if not wanted_key:
-        return False
-
     candidates = [found_title]
     core = _candidate_title_core(wanted_artist, found_title)
+
     if core:
         candidates.append(core)
 
-    for candidate in candidates:
-        candidate_key = _legacy_title_key(
-            candidate,
-            strip_part=not wanted_has_part,
+    for wanted_variant in _historical_title_aliases(wanted_title):
+        wanted_has_part = bool(
+            re.search(
+                r"\b(?:part|pt\.?)\s*(?:\d+|[ivx]+)\b",
+                str(wanted_variant or ""),
+                flags=re.I,
+            )
         )
-        if candidate_key and candidate_key == wanted_key:
-            return True
+
+        wanted_key = _legacy_title_key(
+            wanted_variant,
+            strip_part=False,
+        )
+
+        if not wanted_key:
+            continue
+
+        for candidate in candidates:
+            candidate_key = _legacy_title_key(
+                candidate,
+                strip_part=not wanted_has_part,
+            )
+
+            if candidate_key and candidate_key == wanted_key:
+                return True
+
+            # Sommige historische Top40-displayvelden zijn letterlijk midden
+            # in de titel afgekapt met "..", bijvoorbeeld "I'll Be Mis..".
+            # Alleen zo'n expliciete truncatie mag als prefixbewijs dienen.
+            raw_variant = str(wanted_variant or "").strip()
+            if raw_variant.endswith(".."):
+                prefix_variant = raw_variant.rstrip(".").strip()
+                prefix_key = _legacy_title_key(
+                    prefix_variant,
+                    strip_part=False,
+                )
+
+                if (
+                    len(prefix_key) >= 8
+                    and candidate_key
+                    and candidate_key.startswith(prefix_key)
+                ):
+                    return True
 
     return False
-
 
 def _title_ratio(wanted_artist: object, wanted_title: object, found_title: object) -> float:
     best = _ratio(wanted_title, found_title)
@@ -315,14 +429,21 @@ def _title_ratio(wanted_artist: object, wanted_title: object, found_title: objec
         if artist and found.startswith(artist + " "):
             stripped_candidates.append(found[len(artist):].strip())
 
-    for wanted in _title_variants(wanted_title):
+    wanted_variants: list[str] = []
+
+    for historical in _historical_title_aliases(wanted_title):
+        for wanted in _title_variants(historical):
+            if wanted and wanted not in wanted_variants:
+                wanted_variants.append(wanted)
+
+    for wanted in wanted_variants:
         for candidate in stripped_candidates:
             best = max(best, _ratio(wanted, candidate))
 
     title_core = _candidate_title_core(wanted_artist, found_title)
 
     if title_core:
-        for wanted in _title_variants(wanted_title):
+        for wanted in wanted_variants:
             best = max(best, _ratio(wanted, title_core))
 
     return min(1.0, best)

@@ -16,7 +16,7 @@ from .service_watchdog import service_monitor, unhealthy_services
 STATE_FILE = DATA_DIR / "ai" / "service-recovery-state.json"
 REPORT_FILE = DATA_DIR / "ai" / "last-service-recovery-report.json"
 COOLDOWN_MINUTES = 10
-MODEL_TIMEOUT_SECONDS = 45
+MODEL_TIMEOUT_SECONDS = 90
 
 
 def _utcnow() -> datetime:
@@ -79,7 +79,7 @@ def _model_assessment(critical: list[dict]) -> dict:
             "summary": "Na de policy-acties zijn geen vereiste systemd-componenten meer defect; extra modeldiagnose is niet nodig.",
         }
 
-    model = os.getenv("TOP40_AI_MODEL", "qwen3:4b")
+    model = os.getenv("TOP40_AI_MODEL", "qwen3.5:4b")
     compact = [
         {
             "unit": item["unit"],
@@ -116,8 +116,13 @@ def _model_assessment(critical: list[dict]) -> dict:
                 "model": model,
                 "prompt": prompt,
                 "stream": False,
+                "think": False,
                 "keep_alive": "30m",
-                "options": {"temperature": 0.1, "num_predict": 180},
+                "options": {
+                    "temperature": 0.1,
+                    "num_predict": 120,
+                    "num_ctx": 4096,
+                },
             },
             timeout=MODEL_TIMEOUT_SECONDS,
         )

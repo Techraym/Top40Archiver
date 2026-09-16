@@ -19,7 +19,7 @@ from .service_watchdog import service_monitor
 
 STATE_FILE = DATA_DIR / "ai" / "operations-worker-state.json"
 REPORT_FILE = DATA_DIR / "ai" / "last-operations-worker-report.json"
-MODEL_TIMEOUT_SECONDS = 45
+MODEL_TIMEOUT_SECONDS = 90
 COOLDOWNS = {
     "run_cover_art": 5,
     "restart_cover_art": 30,
@@ -105,13 +105,13 @@ def _ollama_snapshot() -> dict[str, Any]:
         models = [str(x.get("name") or "") for x in response.json().get("models", [])]
         return {
             "reachable": True,
-            "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+            "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b"),
             "models": models[:20],
         }
     except Exception as exc:
         return {
             "reachable": False,
-            "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+            "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b"),
             "error": str(exc)[-500:],
         }
 
@@ -166,7 +166,13 @@ def _compact_model_snapshot(snapshot: dict) -> dict:
         },
         "covers": {
             key: covers.get(key)
-            for key in ("eligible_queue", "without_cover", "running", "updated_at")
+            for key in (
+                "eligible_queue",
+                "without_cover",
+                "processed_without_match",
+                "running",
+                "updated_at",
+            )
             if key in covers
         },
         "database": {
@@ -188,6 +194,46 @@ def _compact_model_snapshot(snapshot: dict) -> dict:
     }
 
 
+def _deterministic_health(snapshot: dict) -> dict:
+    services = snapshot.get("services") or {}
+    database = snapshot.get("database") or {}
+    disk = snapshot.get("disk") or {}
+    backup = snapshot.get("backup") or {}
+    covers = snapshot.get("covers") or {}
+
+    critical = list(services.get("critical") or [])
+    attention = list(services.get("attention") or [])
+
+    eligible = int(covers.get("eligible_queue") or 0)
+    without_cover = int(covers.get("without_cover") or 0)
+    processed_without_match = int(
+        covers.get("processed_without_match") or 0
+    )
+
+    covers_resolved = (
+        eligible == 0
+        and processed_without_match >= without_cover
+    )
+
+    healthy = bool(
+        not critical
+        and database.get("health") in {"ok", "missing"}
+        and float(disk.get("free_percent") or 0) >= 10
+        and bool(backup.get("ok"))
+        and eligible == 0
+    )
+
+    return {
+        "healthy": healthy,
+        "critical_services": critical,
+        "attention_services": attention,
+        "covers_resolved": covers_resolved,
+        "eligible_cover_queue": eligible,
+        "without_cover": without_cover,
+        "processed_without_match": processed_without_match,
+    }
+
+
 def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list[str]) -> dict:
     if not snapshot.get("ollama", {}).get("reachable"):
         return {
@@ -205,7 +251,10 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
             "next_check": "volgende autonome cyclus",
         }
 
+    policy_health = _deterministic_health(snapshot)
+
     compact = _compact_model_snapshot(snapshot) | {
+        "deterministic_policy_health": policy_health,
         "operator_guidance": operator_context("operations"),
         "learned_action_outcomes": learning_context(8),
         "actions_already_selected_by_policy": [
@@ -220,7 +269,15 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
         "als ervaring. Actieve menselijke operatorrichtlijnen hebben prioriteit als lokale voorkeur, maar "
         "mogen NOOIT harde veiligheidsregels, whitelists, backupregels of audio-bescherming versoepelen. "
         "Je mag GEEN shellcommando's, verwijderacties voor audio of nieuwe uitvoerbare acties verzinnen; "
-        "uitvoerbare acties worden uitsluitend door de policy-engine bepaald. Retourneer alleen compact JSON "
+        "uitvoerbare acties worden uitsluitend door de policy-engine bepaald. "
+        "BELANGRIJK VOOR RISICOBEOORDELING: een service in 'attention' is NIET hetzelfde als een kritieke "
+        "service. Een oneshot waarvan de vorige run mislukte maar waarvan de timer actief is, heeft een "
+        "geplande retry en is op zichzelf geen medium/high systeemrisico. Tracks zonder cover zijn geen "
+        "operationeel probleem wanneer eligible_queue=0 en processed_without_match>=without_cover; dat betekent "
+        "dat de coverpipeline volledig is afgehandeld zonder betrouwbare match. Oude provider-/YouTube-fouten "
+        "zijn geen actuele storing wanneer de downloadmanager functioneert en actuele tracks succesvol worden "
+        "verwerkt. Historische downloadretries kunnen bewust in een lange retry-cooldown staan. "
+        "Baseer medium/high uitsluitend op ACTUELE, concrete afwijkingen. Retourneer alleen compact JSON "
         "met summary, risk (low/medium/high), attention (array van korte Nederlandse teksten) en next_check.\n\n"
         + json.dumps(compact, ensure_ascii=False)
     )
@@ -228,12 +285,17 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
         response = requests.post(
             os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate"),
             json={
-                "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+                "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b"),
                 "prompt": prompt,
                 "stream": False,
                 "format": "json",
                 "keep_alive": "30m",
-                "options": {"temperature": 0.1, "num_predict": 320},
+                "think": False,
+                "options": {
+                    "temperature": 0.1,
+                    "num_predict": 220,
+                    "num_ctx": 4096,
+                },
             },
             timeout=MODEL_TIMEOUT_SECONDS,
         )
@@ -242,23 +304,41 @@ def _model_assessment(snapshot: dict, actions: list[dict], recommendations: list
         payload = json.loads(text)
         if not isinstance(payload, dict):
             raise ValueError("model gaf geen JSON-object")
+
+        raw_risk = str(
+            payload.get("risk") or "low"
+        ).strip().casefold()
+
+        # Qwen mag aanvullende observaties geven, maar een gezond
+        # deterministisch systeem niet zelfstandig opschalen naar
+        # medium/high wanneer er geen policy-actie of aanbeveling is.
+        if (
+            policy_health.get("healthy")
+            and not actions
+            and not recommendations
+            and raw_risk in {"medium", "high"}
+        ):
+            payload["model_risk_raw"] = raw_risk
+            payload["risk"] = "low"
+            payload["risk_bounded_by_policy"] = True
+
         return {
             "available": True,
-            "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+            "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b"),
             **payload,
         }
     except requests.Timeout as exc:
         return {
             "available": False,
             "timed_out": True,
-            "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+            "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b"),
             "summary": "Qwen bereikte de tijdslimiet; de policy-engine heeft de veilige controles en acties wel afgerond en de cyclus gaat verder.",
             "error": str(exc)[-500:],
         }
     except Exception as exc:
         return {
             "available": False,
-            "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+            "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b"),
             "summary": "Modelanalyse mislukt; policy-engine heeft de veilige controles wel uitgevoerd.",
             "error": str(exc)[-500:],
         }
@@ -312,9 +392,23 @@ def run_operations_worker() -> dict:
             })
             state["actions"]["restart_cover_art"] = _utcnow().isoformat()
 
-    if eligible == 0 and int(covers.get("without_cover") or 0) > 0:
+    # Tracks zonder cover zijn geen operationeel probleem wanneer de
+    # volledige actieve coverqueue al is verwerkt. processed_without_match
+    # betekent dat de worker geen betrouwbare cover kon vinden; dat is een
+    # geldige eindtoestand tot een latere retry opnieuw kansrijk wordt.
+    without_cover = int(covers.get("without_cover") or 0)
+    processed_without_match = int(
+        covers.get("processed_without_match") or 0
+    )
+
+    if (
+        eligible == 0
+        and without_cover > 0
+        and processed_without_match < without_cover
+    ):
         recommendations.append(
-            f"De actuele coverwachtrij is volledig verwerkt. {covers.get('without_cover')} tracks hebben nog geen match en worden volgens het retrybeleid later opnieuw gecontroleerd."
+            f"{without_cover - processed_without_match} tracks zonder cover "
+            "zijn nog niet volledig door de coverpipeline afgehandeld."
         )
 
     db = before["database"]

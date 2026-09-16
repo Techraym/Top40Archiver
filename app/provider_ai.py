@@ -7,7 +7,7 @@ from typing import Any
 
 import requests
 
-from .ai_learning import complete_action, start_action
+from .ai_learning import action_allowed, complete_action, start_action
 from .ai_model_runtime import ModelBusy, model_slot
 from .ai_session_console import operator_context, scope_held
 from .db import connect, now_iso
@@ -15,7 +15,7 @@ from .download_db import set_ai_provider_adjustment
 from .download_metrics import provider_dashboard
 from .providers import PROVIDER_CLASSES
 
-MODEL_TIMEOUT_SECONDS = 30
+MODEL_TIMEOUT_SECONDS = 90
 MAX_COOLDOWN_MINUTES = 120
 FIXED_FIRST_PROVIDER = "youtube"
 
@@ -121,13 +121,13 @@ def _ask_qwen(snapshot: dict[str, Any]) -> dict[str, Any]:
         response = requests.post(
             os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate"),
             json={
-                "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+                "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b"),
                 "prompt": prompt,
                 "stream": False,
                 "format": "json",
                 "keep_alive": "30m",
                 "think": False,
-                "options": {"temperature": 0.1, "num_predict": 420},
+                "options": {"temperature": 0.1, "num_predict": 220, "num_ctx": 4096},
             },
             timeout=MODEL_TIMEOUT_SECONDS,
         )
@@ -154,10 +154,32 @@ def run_provider_ai_tuning(cycle_id: str) -> dict[str, Any]:
             "snapshot": provider_dashboard(),
         }
 
+    model_name = os.getenv(
+        "TOP40_AI_MODEL",
+        "qwen3.5:4b",
+    )
+    learning_key = (
+        f"downloads:provider_mix:model:{model_name}"
+    )
+
+    allowed, learning_reason = action_allowed(
+        learning_key,
+        "qwen_provider_tuning",
+    )
+
+    if not allowed:
+        return {
+            "ok": True,
+            "action": "learning_blocked",
+            "model": model_name,
+            "reason": learning_reason,
+            "snapshot": snapshot,
+        }
+
     action_id = start_action(
         cycle_id=cycle_id,
         domain="downloads",
-        problem_key="downloads:provider_mix",
+        problem_key=learning_key,
         action="qwen_provider_tuning",
         reason="Fallbackproviders begrensd afstemmen terwijl YouTube vast de eerste downloadbron blijft.",
         before={"providers": snapshot.get("providers")},
@@ -208,12 +230,25 @@ def run_provider_ai_tuning(cycle_id: str) -> dict[str, Any]:
                 if cooldown and recent_problem
                 else None
             )
+            try:
+                current_adjustment = int(
+                    current.get("ai_priority_adjustment") or 0
+                )
+            except (TypeError, ValueError):
+                current_adjustment = 0
+
+            changed = (
+                adjustment != current_adjustment
+                or cooldown_until is not None
+            )
+
             applied.append(
                 {
                     "provider": provider,
                     "priority_adjustment": adjustment,
                     "cooldown_until": cooldown_until,
                     "reason": reason,
+                    "changed": changed,
                 }
             )
 
@@ -224,17 +259,27 @@ def run_provider_ai_tuning(cycle_id: str) -> dict[str, Any]:
             "YouTube is vaste eerste downloadbron",
         )
         after = provider_dashboard()
+        changed_count = sum(
+            1 for item in applied
+            if item.get("changed")
+        )
+
         complete_action(
             action_id,
             success=True,
             after={"providers": after.get("providers")},
-            result={"summary": suggestion.get("summary"), "applied": applied},
-            effect_score=0.2 if applied else 0.0,
+            result={
+                "summary": suggestion.get("summary"),
+                "applied": applied,
+                "model_response_ok": True,
+                "changed_count": changed_count,
+            },
+            effect_score=0.2 if changed_count else 0.0,
         )
         return {
             "ok": True,
             "action": "qwen_provider_tuning",
-            "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+            "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b"),
             "summary": str(suggestion.get("summary") or "")[:1500],
             "applied": applied,
             "snapshot": after,

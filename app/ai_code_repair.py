@@ -12,7 +12,7 @@ from pathlib import Path
 
 import requests
 
-from .ai_learning import complete_action, start_action
+from .ai_learning import action_allowed, complete_action, start_action
 from .ai_session_console import operator_context
 from .ai_ui_policy import assert_ai_source_mutation_allowed
 from .config import APP_DIR, DATA_DIR
@@ -63,7 +63,7 @@ EXCEPTION_RE = re.compile(
 SOURCE_RE = re.compile(r"/opt/top40-archiver/(app/[A-Za-z0-9_./-]+\.py)")
 VERIFY_MINUTES = 10
 REPAIR_COOLDOWN_MINUTES = 30
-MODEL_TIMEOUT_SECONDS = 60
+MODEL_TIMEOUT_SECONDS = 150
 MODEL_SOURCE_BUDGET = 32_000
 MODEL_SOURCE_FILE_LIMIT = 14_000
 MODEL_EVIDENCE_LIMIT = 16_000
@@ -159,11 +159,16 @@ def _ask_model(candidate: dict) -> str:
     response = requests.post(
         os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate"),
         json={
-            "model": os.getenv("TOP40_AI_MODEL", "qwen3:4b"),
+            "model": os.getenv("TOP40_AI_MODEL", "qwen3.5:4b"),
             "prompt": prompt,
             "stream": False,
+            "think": False,
             "keep_alive": "30m",
-            "options": {"temperature": 0.1, "num_predict": 768},
+            "options": {
+                "temperature": 0.1,
+                "num_predict": 512,
+                "num_ctx": 4096,
+            },
         },
         timeout=MODEL_TIMEOUT_SECONDS,
     )
@@ -354,10 +359,32 @@ def run_code_repair(cycle_id: str) -> dict:
         except ValueError:
             pass
 
+    model_name = os.getenv(
+        "TOP40_AI_MODEL",
+        "qwen3.5:4b",
+    )
+    learning_key = (
+        f"code:{candidate['fingerprint']}:model:{model_name}"
+    )
+
+    allowed, learning_reason = action_allowed(
+        learning_key,
+        "analyze_and_validate_patch",
+    )
+
+    if not allowed:
+        return {
+            "ok": True,
+            "action": "learning_blocked",
+            "candidate": candidate["fingerprint"],
+            "model": model_name,
+            "reason": learning_reason,
+        }
+
     analysis_id = start_action(
         cycle_id=cycle_id,
         domain="code",
-        problem_key=f"code:{candidate['fingerprint']}",
+        problem_key=learning_key,
         action="analyze_and_validate_patch",
         reason="Herhaalde runtimefout automatisch analyseren en in sandbox reproduceren/valideren.",
         subject=candidate["fingerprint"],

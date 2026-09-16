@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from .ai_session_console import operator_context, scope_held
 from .config import DATA_DIR
-from .db import connect, get_settings
+from .db import connect, get_settings, set_settings
 from .download_db import enqueue_track_ids
 from .service_common import _parse_edition_key, _persist_chart
 from .top40 import fetch_chart_from_website
@@ -138,6 +138,16 @@ def _fetch_target_week(
             continue
 
         persisted = _persist_chart(chart, False)
+
+        setting_key = (
+            "last_edition"
+            if chart_type == "top40"
+            else "last_tipparade_edition"
+        )
+        set_settings({
+            setting_key: chart.edition_key,
+        })
+
         ids = list(persisted.get("new_track_ids", []) or [])
         queued = enqueue_track_ids(ids) if ids else 0
         return {

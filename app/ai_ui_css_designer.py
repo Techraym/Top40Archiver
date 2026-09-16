@@ -17,7 +17,7 @@ from .ai_control_room import (
     validate_control_room_html,
 )
 
-MODEL = os.getenv("TOP40_AI_MODEL", "qwen3:4b")
+MODEL = os.getenv("TOP40_AI_MODEL", "qwen3.5:4b")
 BACKUP_DIR = CONTROL_ROOM_DIR / "backups"
 
 

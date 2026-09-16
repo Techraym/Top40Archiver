@@ -20,7 +20,6 @@ from .ai_learning_extras import record_recovery_side_effects
 from .ai_operations_worker import run_operations_worker
 from .ai_session_console import log_session_event, mark_guidance_applied, operator_context, scope_held
 from .ai_storage_recovery import run_storage_recovery
-from .ai_ui_designer import run_ui_designer
 from .chart_freshness import run_freshness_check
 from .service_recovery import run_service_recovery
 
@@ -203,20 +202,37 @@ def run_cycle() -> dict:
             }
         _result(cycle_id, "code", "Codeverbetering afgerond", improvement_report)
 
-    _sync_ui_operator_context()
-    ui_hold = scope_held("ui")
-    ui_active = _active_state(CONTROL_ROOM_STATE)
-    if ui_hold and not ui_active:
-        ui_report = {
-            "ok": True,
-            "action": "skipped_operator_hold",
-            "reason": "Menselijke operator heeft nieuwe autonome wijzigingen van de Control Room tijdelijk gepauzeerd.",
-        }
-        _result(cycle_id, "ui", "Control Room wijziging gepauzeerd", ui_report)
-    else:
-        _working(cycle_id, "ui", "Control Room beoordelen", "Ik beoordeel de 8041-layout en browsertelemetrie. Een bestaande UI-canary blijft onder toezicht; nieuwe revisies volgen operatorrichtlijnen.")
-        ui_report = run_ui_designer(cycle_id)
-        _result(cycle_id, "ui", "Control Room beoordeling afgerond", ui_report)
+    # Operatorbeleid:
+    # 8041 en 8042 worden niet meer autonoom door AI ontworpen,
+    # herschreven, gepromoveerd of geoptimaliseerd.
+    # De bestaande pagina's blijven beschikbaar zoals ze zijn.
+    ui_report = {
+        "ok": True,
+        "action": "disabled_by_operator_policy",
+        "reason": (
+            "Autonome AI-wijzigingen aan 8041 en 8042 zijn "
+            "permanent uitgeschakeld door de operator."
+        ),
+        "mutation_allowed": False,
+        "pages": {
+            "8041": {
+                "ok": True,
+                "action": "disabled_by_operator_policy",
+                "mutation_allowed": False,
+            },
+            "8042": {
+                "ok": True,
+                "action": "disabled_by_operator_policy",
+                "mutation_allowed": False,
+            },
+        },
+    }
+    _result(
+        cycle_id,
+        "ui",
+        "AI-UI wijzigingen uitgeschakeld",
+        ui_report,
+    )
 
     report["service_recovery"] = service_report
     report["storage_recovery"] = storage_report
@@ -237,6 +253,13 @@ def run_cycle() -> dict:
         bool(report.get("ok"))
         and bool(service_report.get("ok"))
         and bool(storage_report.get("ok"))
+        and bool(
+            (
+                freshness_report.get("after")
+                or freshness_report.get("before")
+                or {}
+            ).get("ok")
+        )
         and bool(operations_report.get("ok"))
         and bool(code_report.get("ok", True))
         and bool(improvement_report.get("ok", True))

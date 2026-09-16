@@ -11,15 +11,15 @@ from typing import Any
 import requests
 
 from . import ai_memory
-from .ai_learning import complete_action, start_action
+from .ai_learning import action_allowed, complete_action, start_action
 from .ai_log_control import BACKUP_DIR, LIVE_HTML, LOG_CONTROL_DIR, STATE_FILE, validate_log_control_html
 from .ai_session_console import operator_context
 
-MODEL = os.getenv("TOP40_AI_MODEL", "qwen3:4b")
+MODEL = os.getenv("TOP40_AI_MODEL", "qwen3.5:4b")
 VERIFY_MINUTES = 20
-STABLE_OPTIMIZE_HOURS = 3
+STABLE_OPTIMIZE_HOURS = 24 * 365 * 10
 ERROR_RETRY_MINUTES = 20
-MODEL_TIMEOUT_SECONDS = 75
+MODEL_TIMEOUT_SECONDS = 120
 
 
 def _now() -> datetime:
@@ -192,7 +192,7 @@ HUIDIGE HTML:
             "prompt": prompt,
             "stream": False,
             "keep_alive": "30m",
-            "options": {"temperature": 0.2, "num_predict": 1800},
+            "options": {"temperature": 0.2, "num_predict": 750, "num_ctx": 4096},
         },
         timeout=MODEL_TIMEOUT_SECONDS,
     )
@@ -212,6 +212,17 @@ HUIDIGE HTML:
 
 
 def run_log_ui_designer(cycle_id: str, force: bool = False) -> dict[str, Any]:
+    # Operatorbeleid: AI mag 8041/8042 niet meer wijzigen.
+    return {
+        "ok": True,
+        "action": "disabled_by_operator_policy",
+        "mutation_allowed": False,
+        "reason": (
+            "Autonome AI-wijzigingen aan 8041 en 8042 "
+            "zijn uitgeschakeld door de operator."
+        ),
+    }
+
     state = _load()
     state.setdefault("revision", 0)
     verification = _verify_active(state)
@@ -235,10 +246,27 @@ def run_log_ui_designer(cycle_id: str, force: bool = False) -> dict[str, Any]:
 
     current = _read_live()
     next_revision = int(state.get("revision") or 0) + 1
+    learning_key = f"ui:log_control_8042:model:{MODEL}"
+
+    allowed, learning_reason = action_allowed(
+        learning_key,
+        "generate_and_promote_log_control",
+    )
+
+    if not allowed:
+        return {
+            "ok": True,
+            "action": "learning_blocked",
+            "port": 8042,
+            "revision": int(state.get("revision") or 0),
+            "model": MODEL,
+            "reason": learning_reason,
+        }
+
     action_id = start_action(
         cycle_id=cycle_id,
         domain="ui",
-        problem_key="ui:log_control_8042",
+        problem_key=learning_key,
         action="generate_and_promote_log_control",
         reason=reason,
         subject=f"8042-ui-revision:{next_revision}",

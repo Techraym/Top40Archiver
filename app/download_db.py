@@ -336,35 +336,54 @@ def enqueue_track_ids(track_ids: Iterable[int]) -> int:
     ids = sorted({int(value) for value in track_ids if int(value) > 0})
     if not ids:
         return 0
+
     changed = 0
+
     with connect() as con:
         for track_id in ids:
             row = con.execute(
-                "SELECT id,download_status FROM tracks WHERE id=?", (track_id,)
+                "SELECT id,download_status FROM tracks WHERE id=?",
+                (track_id,),
             ).fetchone()
+
             if row is None or row["download_status"] in {"downloaded", "unavailable"}:
                 continue
+
             stamp = now_iso()
-            con.execute(
+
+            cur = con.execute(
                 """
                 INSERT INTO download_jobs(track_id,status,created_at,updated_at)
                 VALUES(?,'queued',?,?)
+
                 ON CONFLICT(track_id) DO UPDATE SET
-                  status=CASE WHEN download_jobs.status='completed' THEN 'queued'
-                              WHEN download_jobs.status='cancelled' THEN 'queued'
-                              ELSE download_jobs.status END,
-                  cancel_requested=0,
-                  updated_at=excluded.updated_at
+                    status='queued',
+                    cancel_requested=0,
+                    updated_at=excluded.updated_at
+
+                WHERE download_jobs.status IN ('completed','cancelled')
                 """,
                 (track_id, stamp, stamp),
             )
+
+            # Bestaande queued/waiting_retry/actieve jobs absoluut niet aanraken.
+            if cur.rowcount == 0:
+                continue
+
             con.execute(
-                "UPDATE tracks SET download_status='pending',updated_at=? WHERE id=? AND download_status!='downloaded'",
+                """
+                UPDATE tracks
+                SET download_status='pending',
+                    updated_at=?
+                WHERE id=?
+                  AND download_status!='downloaded'
+                """,
                 (stamp, track_id),
             )
-            changed += 1
-    return changed
 
+            changed += 1
+
+    return changed
 
 def enqueue_pending_tracks(limit: int = 500) -> int:
     init_download_db()
@@ -392,12 +411,18 @@ def claim_jobs(limit: int) -> list[dict[str, Any]]:
             FROM download_jobs j JOIN tracks t ON t.id=j.track_id
             WHERE j.cancel_requested=0
               AND (
-                j.status='queued'
-                OR (
-                    j.status='waiting_retry'
+                (
+                    j.status='queued'
                     AND (
-                        j.next_attempt_at IS NULL
-                        OR datetime(j.next_attempt_at)<=datetime('now')
+                        -- Nieuwe queued jobs mogen direct door.
+                        j.attempts < 10
+
+                        -- Oude/herstelde queued jobs krijgen dezelfde
+                        -- 30-dagenrust als waiting_retry.
+                        OR datetime(j.updated_at)
+                           <= datetime('now','-30 days')
+
+                        -- Actuele charttracks krijgen altijd prioriteit.
                         OR EXISTS (
                             SELECT 1
                             FROM chart_entries ce
@@ -417,6 +442,49 @@ def claim_jobs(limit: int) -> list[dict[str, Any]]:
                                 ORDER BY year DESC,week DESC
                                 LIMIT 1
                               )
+                        )
+                    )
+                )
+                OR (
+                    j.status='waiting_retry'
+                    AND (
+                        -- Een track in de actuele Top40/Tipparade krijgt
+                        -- altijd direct opnieuw prioriteit.
+                        EXISTS (
+                            SELECT 1
+                            FROM chart_entries ce
+                            WHERE ce.track_id=t.id
+                              AND ce.edition_id=(
+                                SELECT id FROM editions
+                                ORDER BY year DESC,week DESC
+                                LIMIT 1
+                              )
+                        )
+                        OR EXISTS (
+                            SELECT 1
+                            FROM tipparade_entries te
+                            WHERE te.track_id=t.id
+                              AND te.edition_id=(
+                                SELECT id FROM tipparade_editions
+                                ORDER BY year DESC,week DESC
+                                LIMIT 1
+                              )
+                        )
+
+                        -- Historische retries volgen eerst de normale
+                        -- next_attempt_at. Vanaf 10 mislukte pogingen
+                        -- wordt dezelfde track nog maximaal eens per
+                        -- 30 dagen opnieuw onderzocht.
+                        OR (
+                            (
+                                j.next_attempt_at IS NULL
+                                OR datetime(j.next_attempt_at)<=datetime('now')
+                            )
+                            AND (
+                                j.attempts < 10
+                                OR datetime(j.updated_at)
+                                   <= datetime('now','-30 days')
+                            )
                         )
                     )
                 )
@@ -563,13 +631,13 @@ def retry_job(track_id: int) -> bool:
             INSERT INTO download_jobs(track_id,status,created_at,updated_at)
             VALUES(?,'queued',?,?)
             ON CONFLICT(track_id) DO UPDATE SET
-              status='queued',attempts=0,providers_tried_json='[]',preferred_provider=NULL,
+              status='queued',providers_tried_json='[]',preferred_provider=NULL,
               next_attempt_at=NULL,error=NULL,cancel_requested=0,started_at=NULL,finished_at=NULL,updated_at=excluded.updated_at
             """,
             (int(track_id), stamp, stamp),
         )
         con.execute(
-            "UPDATE tracks SET download_status='pending',download_attempts=0,error_message=NULL,updated_at=? WHERE id=?",
+            "UPDATE tracks SET download_status='pending',error_message=NULL,updated_at=? WHERE id=?",
             (stamp, int(track_id)),
         )
         return True

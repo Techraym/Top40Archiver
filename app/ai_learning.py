@@ -260,29 +260,163 @@ def learned_actions(problem_key: str, candidates: Iterable[str] | None = None) -
     return [dict(row) for row in rows]
 
 
-def choose_action(problem_key: str, candidates: list[str], exploration_index: int = 0) -> str:
-    """Online learning: ieder resultaat beïnvloedt de eerstvolgende keuze."""
+def action_allowed(
+    problem_key: str,
+    action: str,
+) -> tuple[bool, str]:
+    """Bepaal of een eerder geleerde actie nog verantwoord is.
+
+    We blokkeren technische mislukkingen al vrij vroeg. Een actie die technisch
+    wel werkt maar na veel pogingen geen meetbaar effect heeft, wordt eveneens
+    gestopt om nutteloze modelcalls en configuratiewijzigingen te voorkomen.
+    """
+    rows = learned_actions(problem_key, [action])
+
+    if not rows:
+        return True, "nieuwe actie zonder eerdere leerdata"
+
+    item = rows[0]
+    evidence = int(item.get("evidence_count", 0))
+    successes = int(item.get("successes", 0))
+    success_rate = (
+        successes / evidence
+        if evidence > 0
+        else 0.0
+    )
+    average_effect = float(
+        item.get("average_effect", 0.0)
+    )
+
+    if evidence >= 5 and success_rate < 0.10:
+        return (
+            False,
+            f"geblokkeerd: {successes}/{evidence} technisch succesvol "
+            f"({success_rate:.1%})",
+        )
+
+    if evidence >= 20 and success_rate < 0.20:
+        return (
+            False,
+            f"geblokkeerd: slechts {success_rate:.1%} succes na "
+            f"{evidence} pogingen",
+        )
+
+    if evidence >= 20 and average_effect <= 0.02:
+        return (
+            False,
+            f"geblokkeerd: gemiddeld effect {average_effect:.3f} na "
+            f"{evidence} pogingen",
+        )
+
+    return (
+        True,
+        f"toegestaan: evidence={evidence}, "
+        f"succes={success_rate:.1%}, "
+        f"effect={average_effect:.3f}",
+    )
+
+
+def choose_action(
+    problem_key: str,
+    candidates: list[str],
+    exploration_index: int = 0,
+) -> str | None:
+    """Kies alleen uit strategieën die op basis van ervaring nog verantwoord zijn.
+
+    Nieuwe strategieën mogen worden verkend. Strategieën met voldoende bewijs
+    en een zeer lage succesratio worden uitgesloten. Als alle kandidaten
+    aantoonbaar slecht zijn, wordt None teruggegeven zodat de caller expliciet
+    kan besluiten géén herstelactie uit te voeren.
+    """
     if not candidates:
         raise ValueError("candidates mag niet leeg zijn")
-    stats = {str(x["action"]): x for x in learned_actions(problem_key, candidates)}
 
-    # Nog nooit gebruikte opties krijgen een beperkte exploratiebonus. Vanaf het
-    # eerste resultaat telt de gemeten effectiviteit meteen mee; er is geen fase
-    # waarin eerst dagen of een vast aantal acties afgewacht wordt.
+    stats = {
+        str(x["action"]): x
+        for x in learned_actions(problem_key, candidates)
+    }
+
+    def is_blocked(name: str) -> bool:
+        item = stats.get(name)
+        if not item:
+            # Nieuwe strategie: exploratie blijft toegestaan.
+            return False
+
+        evidence = int(item.get("evidence_count", 0))
+        successes = int(item.get("successes", 0))
+        success_rate = (
+            successes / evidence
+            if evidence > 0
+            else 0.0
+        )
+
+        # Vroege stop bij een vrijwel waardeloze strategie.
+        if evidence >= 5 and success_rate < 0.10:
+            return True
+
+        # Bij veel bewijs eisen we minimaal 20% werkelijk succes.
+        if evidence >= 20 and success_rate < 0.20:
+            return True
+
+        return False
+
+    eligible = [
+        name for name in candidates
+        if not is_blocked(name)
+    ]
+
+    if not eligible:
+        return None
+
+    # Nog nooit gebruikte opties krijgen een beperkte exploratiebonus.
+    # Vanaf het eerste resultaat telt de gemeten effectiviteit mee.
     def score(name: str) -> tuple[float, float, int]:
         item = stats.get(name, {})
         evidence = int(item.get("evidence_count", 0))
         successes = int(item.get("successes", 0))
         failures = int(item.get("failures", 0))
-        posterior = (successes + 1.0) / (successes + failures + 2.0)
-        effect = max(-1.0, min(1.0, float(item.get("average_effect", 0.0))))
-        recency_confidence = float(item.get("confidence", 0.5))
-        exploration = 0.22 / math.sqrt(evidence + 1.0)
-        jitter = (((exploration_index + candidates.index(name)) % max(1, len(candidates))) / max(1, len(candidates))) * 0.001
-        value = posterior * 0.58 + ((effect + 1.0) / 2.0) * 0.24 + recency_confidence * 0.18 + exploration + jitter
+
+        posterior = (
+            (successes + 1.0)
+            / (successes + failures + 2.0)
+        )
+
+        effect = max(
+            -1.0,
+            min(
+                1.0,
+                float(item.get("average_effect", 0.0)),
+            ),
+        )
+
+        recency_confidence = float(
+            item.get("confidence", 0.5)
+        )
+
+        exploration = 0.22 / math.sqrt(
+            evidence + 1.0
+        )
+
+        position = eligible.index(name)
+        jitter = (
+            (
+                (exploration_index + position)
+                % max(1, len(eligible))
+            )
+            / max(1, len(eligible))
+        ) * 0.001
+
+        value = (
+            posterior * 0.58
+            + ((effect + 1.0) / 2.0) * 0.24
+            + recency_confidence * 0.18
+            + exploration
+            + jitter
+        )
+
         return (value, posterior, evidence)
 
-    return max(candidates, key=score)
+    return max(eligible, key=score)
 
 
 def _service_item(items: list[dict], unit: str) -> dict:
