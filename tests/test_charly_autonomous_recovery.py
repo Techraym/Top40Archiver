@@ -62,3 +62,10 @@ def test_parking_is_not_terminal_and_reopens_without_operator_input():
     assert 'status="parked"' in source
     assert "_begin_new_cycle" in source
     assert 'last_action="cycle_reopened"' in source
+
+
+def test_cluster_guidance_is_injected_into_download_query_recovery():
+    source = (ROOT / "app/charly_download_control.py").read_text(encoding="utf-8")
+    assert 'operator_context("downloads")' in source
+    assert "CLUSTER/OPERATOR GUIDANCE" in source
+    assert "mag nooit de trackidentiteit wijzigen" in source
