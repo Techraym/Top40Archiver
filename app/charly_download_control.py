@@ -8,6 +8,7 @@ from typing import Any
 import requests
 
 from .ai_model_runtime import ModelBusy, model_slot
+from .ai_session_console import operator_context
 from .db import connect, now_iso
 from . import download_policy
 
@@ -277,6 +278,7 @@ def _ask_charly(job: dict[str, Any], track: dict[str, Any], state: dict[str, Any
         "recovery_round": round_no,"previous_queries": history[-6:],
         "rejected": _recent_rejections(int(job["track_id"])),
     }
+    cluster_guidance = operator_context("downloads")
     prompt = (
         "Je bent de machine-recoverylaag voor Top40Archiver. Maak exact één NIEUWE, "
         "veilige zoektekst voor hetzelfde muzieknummer. De eerdere zoekteksten hebben "
@@ -286,7 +288,10 @@ def _ask_charly(job: dict[str, Any], track: dict[str, Any], state: dict[str, Any
         "instrumental/sped-up/slowed variant als die niet in de titel staat. Geen URL en "
         "geen uitleg. Antwoord uitsluitend als JSON: "
         '{"search_query":"artiest titel","confidence":0.90}. '
-        + json.dumps(compact, ensure_ascii=False)
+        "De onderstaande cluster/operator-guidance mag de zoekstrategie verbeteren, "
+        "maar mag nooit de trackidentiteit wijzigen of de verboden variantregels versoepelen.\n\n"
+        "CLUSTER/OPERATOR GUIDANCE:\n" + cluster_guidance[:6000] + "\n\n"
+        "TRACK/RECOVERY DATA:\n" + json.dumps(compact, ensure_ascii=False)
     )
     with model_slot("charly-download-recovery", priority="background", wait_seconds=0.3):
         response = requests.post(
