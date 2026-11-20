@@ -176,3 +176,14 @@ Via read-only `systemctl show` bevestigd:
 - CHARLYPi: `/etc/systemd/system/charlypi-backup.service`
 
 Alle `Result=success` en `ExecMainStatus=0` (laatste bekende uitvoering). **De servicepaden zijn niet de back-upbestemmingen.** NUC12 `/srv/charly-ai/cluster-backups` bestaat root:root mode 0700. Externe SSD heeft 233G vrij. Nog geen back-ups gekopieerd of herstel getest. Volgende actie: scriptlocaties en opslagbestemmingen inspecteren zonder geheimen openbaar te maken.
+
+
+## Back-up scripts ExecStart bevestigd — 2026-11-20
+Read-only `systemctl show -p ExecStart -p WorkingDirectory`:
+- NUC12 `/usr/local/sbin/charly-ai-node-backup`; geen recente ExecStart start/stop-tijd in deze uitvoer, hoewel eerdere Result=success.
+- NUC13 `/usr/local/sbin/charly-nuc13-backup`; start 22:16:36, stop 22:16:37, exit 0.
+- Shuttle1 `/usr/local/sbin/charly-backup`; start/stop 22:17:10, exit 0.
+- Shuttle2 `/usr/local/sbin/charly-postgres-backup`; start 22:16:54, stop 22:16:55, exit 0.
+- CHARLYPi `/usr/local/sbin/charlypi-backup`; start 22:13:49, stop 22:13:56, exit 0.
+
+**Nog onbekend:** scriptinhoud, backupbestemming, outputarchieven, volledigheid en daadwerkelijke restore. Vervolg: read-only, geredigeerde inspectie van paden en bestandsmetadata, niet de ruwe scripts of geheimen publiceren.
