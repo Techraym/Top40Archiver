@@ -97,3 +97,19 @@ Uitvoer van read-only `systemctl list-timers`, `systemctl list-unit-files` en `d
 - CHARLYPi: root 15G / 4.7G / 9.0G.
 
 **Volgende controles (read-only):** `systemctl show` van vijf services met `Result`, `ExecMainStatus`, `ActiveEnterTimestamp`; afgeronde, geredigeerde journalregels; op locatie back-up-output zoeken zonder toegangstokens of gevoelige data te publiceren. Geen back-ups runnen of wijzigen tot bestemming en vrije capaciteit vaststaan.
+
+
+## Back-up execution status and temporary target — 2026-11-20
+
+All five host-specific backup services returned `Result=success`, `ExecMainCode=1` (normal exit) and `ExecMainStatus=0` on last recorded execution:
+- NUC12 `charly-ai-node-backup.service` — inactive 22:17:03 CET
+- NUC13 `charly-nuc13-backup.service` — inactive 22:16:37 CET
+- Shuttle1 `charly-backup.service` — inactive 22:17:10 CET
+- Shuttle2 `charly-postgres-backup.service` — inactive 22:16:55 CET
+- Pi `charlypi-backup.service` — inactive 22:13:56 CET
+
+**Interpretation:** success of the service process ONLY, not proof that archive contents are valid or recoverable.
+
+User approved considering extra disk mounted at NUC12 `/srv/charly-ai` as temporary centralized staging storage. Prior `df`: approx 234G filesystem, 21G used, 214G available. Proposed subdirectory `/srv/charly-ai/cluster-backups` is NOT yet created. Protect existing AI data and confirm source/device/contents/space prior to writing. Existing NUC12 local backups there are NOT an independent copy; obtain verified independent copy before destructive cleanup.
+
+Pending read-only check: `findmnt -T /srv/charly-ai`, `lsblk -o NAME,MODEL,TRAN,SIZE,FSTYPE,MOUNTPOINTS`, `du -h --max-depth=1 /srv/charly-ai`, available space, and backup output artifacts with credentials redacted.
