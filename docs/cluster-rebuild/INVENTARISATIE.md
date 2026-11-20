@@ -149,3 +149,18 @@ Veilige uitvoering:
 Gebruiker draaide het voorbereidingsscript op NUC12. rsync-kopie + checksumvergelijking gerapporteerd als geslaagd voor ornith, colibri en ollama, met bestemming `/var/backups/charly-models-20261120` (interne NVMe). `charly-ornith.service` en `ollama.service` zijn disabled/stopped. Het script stopte daarna met de melding **'STOP: fuser ontbreekt'**.
 
 **Daarom zijn de externe modelmappen nog niet verwijderd en is de centrale back-upmap nog niet aangemaakt.** Aanwijzing gegeven: `psmisc` installeren, exact de bronmount, inactieve services, rsync-inhoud en open bestanden opnieuw controleren, vervolgens alleen de drie modelmappen verwijderen en `cluster-backups` maken. Nog geen uitvoeringsresultaat ontvangen. Geen systeemmutaties door GitHub.
+
+
+## NUC12 modelverwijdering bevestigd — 2026-11-20
+
+Gebruiker bevestigt de werkelijke uitvoering op host NUC12WSH:
+- `psmisc` geïnstalleerd (fuser beschikbaar).
+- Externe SSD mount en inactive Ornith/Ollama gecontroleerd.
+- `rsync -aHcni --delete` bevestigd voor `ornith`, `colibri` en `ollama` tegenover interne herstelkopieën in `/var/backups/charly-models-20261120`.
+- `fuser`-controle zonder blokkade doorlopen.
+- De drie directories onder `/srv/charly-ai/models` verwijderd.
+- `/srv/charly-ai/cluster-backups` aangemaakt.
+- `df -h /srv/charly-ai`: 234G totaal, 1.6G gebruikt, 233G beschikbaar, 1%.
+- Uitvoer eindigde met `MODEL OPSCHONING AFGEROND`.
+
+Bestaande `runtime`, `cache`, andere data en root-installatie niet bewust verwijderd. De Ornith/Ollama-services op NUC12 staan uitgeschakeld. Mogelijke afhankelijke AI-routes zijn nog niet opnieuw geconfigureerd/gevalideerd. Herstelkopieën staan op interne NVMe, **geen tweede onafhankelijke kopie**. Volgende stap: specifieke outputlocaties en inhoud van bestaande back-upservices inventariseren alvorens kopiëren naar cluster-backups.
