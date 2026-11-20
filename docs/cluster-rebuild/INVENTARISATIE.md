@@ -262,3 +262,10 @@ Gebruikersuitvoer:
 - `/var/lib/top40-archiver` 37G, waarvan `backups` 32G, `download-temp` 520M. Historische update-/rollback-archieven voorlopig niet verwijderen. Overige unieke state van ca. 5G is **nog niet onafhankelijk veiliggesteld**.
 - NUC13 NVMe vrij 156G. Voor volledige herstelbaarheid nog onafhankelijk kopiëren naar externe NUC12 USB SSD en hersteltest uitvoeren. Top40-services blijven doorlopen.
 
+
+
+## NUC13→NUC12 overdracht — permissieblokkade, nog niet voltooid (2026-11-20)
+
+De initiële SSH-overdracht mislukte met `tar: /srv/charly-ai/cluster-backups/nuc13: Functie open() is mislukt: Toegang geweigerd`. De directory `/srv/charly-ai/cluster-backups` was root:root mode 0700 en `/nuc13` werd als raymond aangemaakt, waardoor raymond de bovenliggende map niet kon traverseren. Geen data is verwijderd; staged NUC13 bestanden intact. **Geen succesvolle off-host kopie bevestigd.**
+
+Voorgestelde remediatie, nog door gebruiker uit te voeren: root-owned parent `chgrp raymond`, `chmod 0710` (alleen group-execute, anderen geen toegang); behoud root-only voor overige archieven. Daarna NUC13 applicatiearchief plus SHA256 en twee consistent geback-upte SQLite-DBs overzetten en doelchecks uitvoeren. Geen `chmod 777`, geen root passwordless.
