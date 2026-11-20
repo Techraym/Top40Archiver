@@ -73,3 +73,27 @@ Bron: uitlezende Bash-uitvoer via CHARLYPi, aangeleverd in de chat. Dit is een m
 
 ### Volgende stap
 Back-upbronnen, bestaande backup-timers, app-afhankelijkheden en SSH/WOL zonder systeemwijzigingen uitzoeken. Back-ups zelf alleen op onafhankelijke opslaglocaties, nooit in Git.
+
+
+## Back-uptimerinventarisatie — 2026-11-20 ca. 22:23 CET
+
+Uitvoer van read-only `systemctl list-timers`, `systemctl list-unit-files` en `df -hT` op alle hosts. Alle vijf hebben een **enabled** hostspecifieke back-uptimer en recent ingevulde LAST-timestamp. **Succes, doelpad, volledigheid, tweede kopie en herstelproef zijn niet geverifieerd.**
+
+| Host | Timer / service | Eerstvolgende geplande start (CET, 21 nov) | Laatste geregistreerde trigger (20 nov) | Status |
+| --- | --- | --- | --- | --- |
+| NUC12 | charly-ai-node-backup | 03:39:51 | 22:17:02 | Timer enabled; back-upresultaat onbekend |
+| NUC13 | charly-nuc13-backup | 03:49:26 | 22:16:36 | Timer enabled; back-upresultaat onbekend |
+| Shuttle1 | charly-backup | 03:17:29 | 22:17:10 | Timer enabled; back-upresultaat onbekend |
+| Shuttle2 | charly-postgres-backup | 03:59:07 | 22:16:54 | Timer enabled; databaseconsistentie/herstel onbekend |
+| CHARLYPi | charlypi-backup | 03:26:05 | 22:13:49 | Timer enabled; back-upresultaat onbekend |
+
+`dpkg-db-backup.timer` draait daarnaast op alle systemen, maar is géén volledige applicatie-/systeemback-up. Shuttle2 heeft tevens uitgeschakelde `pg_basebackup@.timer`-template.
+
+### Schijfruimte (afgeronde gerapporteerde filesystems)
+- NUC12: systeem-root 442G totaal / 15G gebruikt / 404G beschikbaar; /srv/charly-ai 234G / 21G / 214G.
+- NUC13: root 226G / 57G / 158G. Externe 2TB niet aangesloten/gemount: onderzoek uitgesteld.
+- Shuttle1: root 106G / 9.4G / 91G.
+- Shuttle2: root 106G / 2.7G / 98G.
+- CHARLYPi: root 15G / 4.7G / 9.0G.
+
+**Volgende controles (read-only):** `systemctl show` van vijf services met `Result`, `ExecMainStatus`, `ActiveEnterTimestamp`; afgeronde, geredigeerde journalregels; op locatie back-up-output zoeken zonder toegangstokens of gevoelige data te publiceren. Geen back-ups runnen of wijzigen tot bestemming en vrije capaciteit vaststaan.
