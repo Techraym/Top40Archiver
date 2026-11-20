@@ -220,3 +220,17 @@ Read-only directorygroottes vastgesteld vanuit NUC12:
 - externe SSD `/srv/charly-ai`: 234G totaal, 1.6G gebruikt, 233G beschikbaar.
 
 Let op: door `du -x /srv` is het afzonderlijk gemounte `/srv/charly-ai` niet meegerekend. Het betreft nog géén bewijs dat alle NUC12-applicaties/database-/VM-data elders afgedekt zijn. Volgende stap: gerichte backup van gekozen applicatie- en configuratiepaden op SSD, met tar/sha256 en later tweede onafhankelijk opslagmedium en restore-test. Geen wijzigingen aan de host uitgevoerd door GitHub.
+
+
+## NUC12 eerste gerichte applicatieback-up geslaagd — 2026-11-20 22:38 CET
+
+Gebruikersuitvoer op NUC12:
+- Bestand: `/srv/charly-ai/cluster-backups/nuc12-apps-20261120-223836.tar.gz` (39 MB, root-only).
+- `gzip -t` en `tar -tzf` geslaagd.
+- `sha256sum -c`: `nuc12-apps-20261120-223836.tar.gz: goed`.
+- Externe USB SSD `/dev/sda1`: 234G totaal, 1.6G gebruikt, 233G vrij (afgerond).
+- Opgenomen: `/opt`, `/usr/local/bin`, `/usr/local/sbin`, `/etc/systemd/system`, `/etc/ssh`, `/etc/network`, `/etc/fstab`, specifieke CHARLY-/mini-rack-directory's onder `/var/lib` en `/home/raymond`.
+- GEEN volledige systeemimage, geen geslaagde hersteltest en geen onafhankelijk tweede opslagmedium bevestigd. Actieve databases en VM's niet automatisch meegenomen.
+- Losse Ornith/Colibri/Ollama-modellen staan nog als kopie op interne NVMe `/var/backups/charly-models-20261120`, niet in dit archief.
+
+Volgende stap: NUC13-backupinventarisatie en bron/target-controles zonder downloader of uploader stil te zetten; daarna consistente back-up naar NUC12 en second-copy/restore-aanpak.
