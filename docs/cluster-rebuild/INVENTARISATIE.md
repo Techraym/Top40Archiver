@@ -164,3 +164,15 @@ Gebruiker bevestigt de werkelijke uitvoering op host NUC12WSH:
 - Uitvoer eindigde met `MODEL OPSCHONING AFGEROND`.
 
 Bestaande `runtime`, `cache`, andere data en root-installatie niet bewust verwijderd. De Ornith/Ollama-services op NUC12 staan uitgeschakeld. Mogelijke afhankelijke AI-routes zijn nog niet opnieuw geconfigureerd/gevalideerd. Herstelkopieën staan op interne NVMe, **geen tweede onafhankelijke kopie**. Volgende stap: specifieke outputlocaties en inhoud van bestaande back-upservices inventariseren alvorens kopiëren naar cluster-backups.
+
+
+## Back-upservicepaden en staging gereed — 2026-11-20
+
+Via read-only `systemctl show` bevestigd:
+- NUC12: `/etc/systemd/system/charly-ai-node-backup.service`
+- NUC13: `/etc/systemd/system/charly-nuc13-backup.service`
+- Shuttle1: `/etc/systemd/system/charly-backup.service`
+- Shuttle2: `/etc/systemd/system/charly-postgres-backup.service`
+- CHARLYPi: `/etc/systemd/system/charlypi-backup.service`
+
+Alle `Result=success` en `ExecMainStatus=0` (laatste bekende uitvoering). **De servicepaden zijn niet de back-upbestemmingen.** NUC12 `/srv/charly-ai/cluster-backups` bestaat root:root mode 0700. Externe SSD heeft 233G vrij. Nog geen back-ups gekopieerd of herstel getest. Volgende actie: scriptlocaties en opslagbestemmingen inspecteren zonder geheimen openbaar te maken.
