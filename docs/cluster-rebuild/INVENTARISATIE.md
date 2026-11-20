@@ -187,3 +187,7 @@ Read-only `systemctl show -p ExecStart -p WorkingDirectory`:
 - CHARLYPi `/usr/local/sbin/charlypi-backup`; start 22:13:49, stop 22:13:56, exit 0.
 
 **Nog onbekend:** scriptinhoud, backupbestemming, outputarchieven, volledigheid en daadwerkelijke restore. Vervolg: read-only, geredigeerde inspectie van paden en bestandsmetadata, niet de ruwe scripts of geheimen publiceren.
+
+## NUC12 back-upscript opslagpad — 2026-11-20
+
+Gebruiker heeft op NUC12 met `sudo grep` in `/usr/local/sbin/charly-ai-node-backup` vastgesteld: regel 4 `ROOT=/var/backups/charly`, regel 8 begint met `tar`. De concrete archiefbestanden, inhoud, frequentie, integriteit en restore zijn **nog niet gecontroleerd**. Volgende stap: root-owned directory read-only tonen en `tar`-argumenten gericht inspecteren; geen geheimen in Git. De externe tijdelijke opslag op `/srv/charly-ai/cluster-backups` blijft ongewijzigd.
