@@ -143,3 +143,9 @@ Veilige uitvoering:
 - Ornith en Ollama kunnen nog in gebruik zijn. Eerst service-configuraties en afhankelijkheden beoordelen; pas stoppen/disable indien de gebruiker deze diensten op NUC12 niet meer nodig heeft. Belangrijk: dit kan huidige CHARLY AI-routing beïnvloeden.
 - Bij gedeeld opslagpad beslist geen brede `rm -rf /srv/charly-ai` en geen formattering uitvoeren.
 - Na veilige opschoning aparte back-updirectory voorbereiden; controleer effectieve capaciteit en backupbestemmingen, verificatie en tweede locatie voor destructieve clusteropschoning.
+
+
+## NUC12 gedeeltelijke modelopschoning — 2026-11-20
+Gebruiker draaide het voorbereidingsscript op NUC12. rsync-kopie + checksumvergelijking gerapporteerd als geslaagd voor ornith, colibri en ollama, met bestemming `/var/backups/charly-models-20261120` (interne NVMe). `charly-ornith.service` en `ollama.service` zijn disabled/stopped. Het script stopte daarna met de melding **'STOP: fuser ontbreekt'**.
+
+**Daarom zijn de externe modelmappen nog niet verwijderd en is de centrale back-upmap nog niet aangemaakt.** Aanwijzing gegeven: `psmisc` installeren, exact de bronmount, inactieve services, rsync-inhoud en open bestanden opnieuw controleren, vervolgens alleen de drie modelmappen verwijderen en `cluster-backups` maken. Nog geen uitvoeringsresultaat ontvangen. Geen systeemmutaties door GitHub.
