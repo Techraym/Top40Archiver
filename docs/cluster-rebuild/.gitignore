@@ -1,0 +1,20 @@
+# Geen secrets of ruwe inventaris/backup in de repository
+*.log
+*.bak
+*.backup
+*.sql
+*.sqlite
+*.db
+*.qcow2
+*.vmdk
+*.img
+*.iso
+*.tar
+*.tar.gz
+*.zip
+*.key
+*.pem
+*.env
+inventory-raw/
+backups/
+secrets/
