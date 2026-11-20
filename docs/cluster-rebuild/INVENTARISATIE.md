@@ -191,3 +191,19 @@ Read-only `systemctl show -p ExecStart -p WorkingDirectory`:
 ## NUC12 back-upscript opslagpad — 2026-11-20
 
 Gebruiker heeft op NUC12 met `sudo grep` in `/usr/local/sbin/charly-ai-node-backup` vastgesteld: regel 4 `ROOT=/var/backups/charly`, regel 8 begint met `tar`. De concrete archiefbestanden, inhoud, frequentie, integriteit en restore zijn **nog niet gecontroleerd**. Volgende stap: root-owned directory read-only tonen en `tar`-argumenten gericht inspecteren; geen geheimen in Git. De externe tijdelijke opslag op `/srv/charly-ai/cluster-backups` blijft ongewijzigd.
+
+
+## Kritieke bevinding: NUC12-back-up dekt slechts Ollama-ingress — 2026-11-20
+
+Gebruiker inspecteerde op NUC12 `/usr/local/sbin/charly-ai-node-backup` en `/var/backups/charly`:
+- 14 gerapporteerde archieven, elk ca. 1,7K (met .sha256-bestand), totaal 116K.
+- `ROOT=/var/backups/charly`.
+- `tar --ignore-failed-read -czf "$FILE"` omvat uitsluitend:
+  - `/etc/systemd/system/ollama.service.d`
+  - `/etc/systemd/system/charly-ollama-ingress.service`
+  - `/usr/local/sbin/charly-ollama-ingress.py`
+- Hashbestand wordt aangemaakt, archieven ouder dan 14 dagen worden verwijderd.
+
+**Risico:** geen complete host-/applicatieback-up; `--ignore-failed-read` kan ontbreken van bronbestanden maskeren. Status "success" is alleen geslaagde uitvoering van dit beperkte script. Losse modelkopieën op interne NVMe bestaan, maar zijn niet onafhankelijk van NUC12. Tot herstelgeteste applicatie-/data- en off-host-kopieën beschikbaar zijn: NUC12, VMs en andere kritieke diensten niet verder verwijderen.
+
+Volgende controle: geredigeerde inventaris van directorystructuur/DB's/configs inclusief symlinks; vervolgens staged back-up op de externe SSD én onafhankelijke kopie op ander apparaat/medium met checksum en hersteltest. Scripts en secrets niet naar GitHub pushen.
