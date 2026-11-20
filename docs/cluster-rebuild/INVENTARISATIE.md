@@ -54,3 +54,22 @@ Bron: uitlezende Bash-uitvoer via CHARLYPi, aangeleverd in de chat. Dit is een m
 8. **Back-ups:** bestaande `charly-ai-node-backup.timer`, `charly-nuc13-backup.timer`, `charly-backup.timer`, `charly-postgres-backup.timer` zijn zichtbaar, maar succesvolle uitvoering, tweede kopie en herstelbaarheid zijn niet aangetoond.
 
 **Geen wijzigingen uitgevoerd op hosts, en nog geen back-ups geverifieerd.**
+
+
+## Aanvullende controle — CHARLYPi en NUC13 2TB (2026-11-20)
+
+### CHARLYPi (geobserveerd)
+- Debian 13 (Trixie), 4x ARM Cortex-A53, 905 MiB RAM, 411 MiB available ten tijde van meting.
+- SD: 15G device, root ca. 14.5G, 9.0G vrije ruimte.
+- Doelrol: lichtgewicht 24/7 CHARLY scheduler, SSH/Wake-on-LAN coördinator, statusbewaking. Zware AI, TTS, databases, grote metrics-opslag niet op Pi.
+- Werkelijke lopende diensten op Pi blijven nog te inventariseren; het eerdere `local.txt` is nog niet inhoudelijk overgenomen.
+
+### NUC13 muziekarchief (geobserveerd)
+- Alleen interne NVMe zichtbaar in `lsblk -f`.
+- `findmnt /mnt/top40-music`: **systemd autofs placeholder**; dit bewijst niet dat de daadwerkelijke USB-schijf gemount is.
+- `mountpoint -q /mnt/top40-music`: negatief; `lsusb` toont geen externe opslag.
+- Gebruikersbesluit: **2 TB externe muziekschijf later onderzoeken**. Niets aan mountconfiguratie, partitietabel of data wijzigen.
+- Risicobeheersing: downloader/uploader niet naar interne root laten terugvallen als muziek-mount ontbreekt; queue en outputpad eerst controleren.
+
+### Volgende stap
+Back-upbronnen, bestaande backup-timers, app-afhankelijkheden en SSH/WOL zonder systeemwijzigingen uitzoeken. Back-ups zelf alleen op onafhankelijke opslaglocaties, nooit in Git.
