@@ -253,3 +253,12 @@ Gebruikersuitvoer:
 - Opgenomen: `/opt`, `/usr/local/bin`, `/usr/local/sbin`, `/etc/systemd/system`, `/etc/ssh`, `/etc/network`, `/etc/fstab`, `/var/lib/top40-studio-upload`, `/var/lib/charly-autonomy`, `/home/top40`. Actieve `/var/lib/top40-archiver` nog niet opgenomen.
 - Actieve databasebestanden: `/var/lib/top40-archiver/top40.sqlite3` 548794368 bytes en `ai_memory.sqlite` 757252096 bytes. Vele historische `/var/lib/top40-archiver/backups/update_*/top40.sqlite3` cumulatief onderdeel van 37G, niet zomaar verwijderen.
 - Nog uit te voeren: online-consistente SQLite backup via Python `sqlite3.Connection.backup`, `PRAGMA integrity_check` en SHA256, gevolgd door `du`-inventarisatie van andere Top40-data. Vóór migratie die backups overbrengen naar NUC12 externe USB SSD met controle. NUC13-services blijven operationeel.
+
+## NUC13 consistente SQLite-back-ups geslaagd — 2026-11-20 22:43 CET
+Gebruikersuitvoer:
+- `/var/backups/charly-cluster-stage/nuc13-databases-20261120-224300`.
+- Via Python sqlite3 online-backup: `top40.sqlite3` (548798464 bytes) en `ai_memory.sqlite` (757252096 bytes). Beide `PRAGMA integrity_check` OK en `sha256sum -c SHA256SUMS` OK.
+- Databasestage 1.3G; eerder NUC13 applicatiearchief 471M met SHA256 OK.
+- `/var/lib/top40-archiver` 37G, waarvan `backups` 32G, `download-temp` 520M. Historische update-/rollback-archieven voorlopig niet verwijderen. Overige unieke state van ca. 5G is **nog niet onafhankelijk veiliggesteld**.
+- NUC13 NVMe vrij 156G. Voor volledige herstelbaarheid nog onafhankelijk kopiëren naar externe NUC12 USB SSD en hersteltest uitvoeren. Top40-services blijven doorlopen.
+
