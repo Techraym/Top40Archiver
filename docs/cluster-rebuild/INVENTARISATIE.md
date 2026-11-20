@@ -207,3 +207,16 @@ Gebruiker inspecteerde op NUC12 `/usr/local/sbin/charly-ai-node-backup` en `/var
 **Risico:** geen complete host-/applicatieback-up; `--ignore-failed-read` kan ontbreken van bronbestanden maskeren. Status "success" is alleen geslaagde uitvoering van dit beperkte script. Losse modelkopieën op interne NVMe bestaan, maar zijn niet onafhankelijk van NUC12. Tot herstelgeteste applicatie-/data- en off-host-kopieën beschikbaar zijn: NUC12, VMs en andere kritieke diensten niet verder verwijderen.
 
 Volgende controle: geredigeerde inventaris van directorystructuur/DB's/configs inclusief symlinks; vervolgens staged back-up op de externe SSD én onafhankelijke kopie op ander apparaat/medium met checksum en hersteltest. Scripts en secrets niet naar GitHub pushen.
+
+
+## NUC12 applicatiepaden en omvang — 2026-11-20
+Read-only directorygroottes vastgesteld vanuit NUC12:
+- `/opt` 54M (waarvan `/opt/charly-video` 54M, `/opt/mini-rack` 136K)
+- `/usr/local/bin` 27M; `/usr/local/sbin` 88K
+- `/etc/systemd/system` 244K
+- `/var/lib` 197M; waaronder `charly-autonomy` 24K, `mini-rack-automation` 24K, `mini-rack` 400K en `mini-rack-agent` 608K
+- `/home/raymond` 12M
+- `/var/backups/charly`: recente archives circa 1719 bytes elk, dus slechts Ollama-ingress-configuratiebackup
+- externe SSD `/srv/charly-ai`: 234G totaal, 1.6G gebruikt, 233G beschikbaar.
+
+Let op: door `du -x /srv` is het afzonderlijk gemounte `/srv/charly-ai` niet meegerekend. Het betreft nog géén bewijs dat alle NUC12-applicaties/database-/VM-data elders afgedekt zijn. Volgende stap: gerichte backup van gekozen applicatie- en configuratiepaden op SSD, met tar/sha256 en later tweede onafhankelijk opslagmedium en restore-test. Geen wijzigingen aan de host uitgevoerd door GitHub.
