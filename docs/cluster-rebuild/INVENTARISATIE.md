@@ -131,3 +131,15 @@ Read-only inspectie vanaf CHARLYPi via `ssh nuc12`. Device: Samsung MZVL2256HCHQ
 Grootste `ornith` bestand: `models/ornith/Ornith-1.5-9B-Q4_K_M.gguf` circa 5.38 GiB. `models/colibri` bevat meerdere safetensors van olmoe-1b-7b-instruct. Er staan ook llama.cpp- en Python-runtimebestanden.
 
 **Besluit:** AI-data eerst behouden. De SSD kan dienen als tijdelijke cluster-back-upstaging in nieuwe geïsoleerde directory `/srv/charly-ai/cluster-backups`, nog niet aangemaakt. Niet claimen als tweede onafhankelijke kopie van NUC12-data of deze SSD. Voor bestanden verplaatst/verwijderd worden: ander fysiek opslagmedium en herstelcontrole; back-upomvang inclusief datastore, database en applicatiestatus nog bepalen. Inventariseren welke AI-diensten de SSD actief gebruiken.
+
+
+## Besluit gebruiker — NUC12 externe SSD opschonen (2026-11-20)
+
+Gebruiker heeft expliciet opdracht gegeven om AI-modellen onder `/srv/charly-ai/models` van de USB-SSD van NUC12 te verwijderen en daarna cluster-back-upwerk te hervatten. Betreft `ornith` (5.4G), `colibri` (7.0G), `ollama` (6.3G), circa 18.7G totaal. **Geen hostdelete vanuit GitHub uitgevoerd.**
+
+Veilige uitvoering:
+- Controleer dat mount daadwerkelijk de externe Samsung SSD is; root van NUC12 is andere fysieke NVMe.
+- Archiveer/repliceer modellen naar andere fysieke media met volledige verificatie of noteer dat deze bewust niet herstelbaar zullen zijn. Bestaande runtime, cache, workspaces en backups ongemoeid laten.
+- Ornith en Ollama kunnen nog in gebruik zijn. Eerst service-configuraties en afhankelijkheden beoordelen; pas stoppen/disable indien de gebruiker deze diensten op NUC12 niet meer nodig heeft. Belangrijk: dit kan huidige CHARLY AI-routing beïnvloeden.
+- Bij gedeeld opslagpad beslist geen brede `rm -rf /srv/charly-ai` en geen formattering uitvoeren.
+- Na veilige opschoning aparte back-updirectory voorbereiden; controleer effectieve capaciteit en backupbestemmingen, verificatie en tweede locatie voor destructieve clusteropschoning.
