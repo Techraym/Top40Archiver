@@ -234,3 +234,14 @@ Gebruikersuitvoer op NUC12:
 - Losse Ornith/Colibri/Ollama-modellen staan nog als kopie op interne NVMe `/var/backups/charly-models-20261120`, niet in dit archief.
 
 Volgende stap: NUC13-backupinventarisatie en bron/target-controles zonder downloader of uploader stil te zetten; daarna consistente back-up naar NUC12 en second-copy/restore-aanpak.
+
+## NUC13 inventarisatie en versnelde backupaanpak — 2026-11-20
+
+Gecontroleerde gebruikersuitvoer (alleen uitlezen):
+- Oud script `/usr/local/sbin/charly-nuc13-backup` archiveert uitsluitend Ollama/CHARLY-ingress en Top40 auto-update services/scripts; `--ignore-failed-read` en 14-dagenretentie. De dagelijkse ~5.5 KB archieven zijn **geen Top40-databack-up**.
+- `/opt/top40-archiver` ~1.1G, `/opt/top40-studio-upload` 168K, `/opt/top40-archiver_backup_20260806_233654` 7.1M.
+- `/var/lib/top40-archiver` ~37G en `/var/lib/top40-studio-upload` ~42M.
+- `/home/top40` ~597M, `/usr/local/bin` ~27M; `/etc/systemd/system` ~392K.
+- Root filesystem 226G totaal, 57G gebruikt, 158G beschikbaar; ontbrekende externe 2TB-muziekschijf blijft uitgesteld.
+- Gebruiker wil sneller: voortaan per host één gecombineerde backup-/verificatieronde, zonder losse iteraties.
+- Voorgestelde eerstvolgende lokale opdracht (nog geen resultaat): stage-applicatiearchief onder `/var/backups/charly-cluster-stage` op NUC13, controleer gzip/tar/SHA256, inventariseer databasepaden. Daarna **consistente databasebackup** en doorzetten naar NUC12 USB SSD met externe herstelcontrole. Downloadmanager en uploader niet stopzetten. Geen hostbestanden op GitHub plaatsen.
