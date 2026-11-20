@@ -113,3 +113,21 @@ All five host-specific backup services returned `Result=success`, `ExecMainCode=
 User approved considering extra disk mounted at NUC12 `/srv/charly-ai` as temporary centralized staging storage. Prior `df`: approx 234G filesystem, 21G used, 214G available. Proposed subdirectory `/srv/charly-ai/cluster-backups` is NOT yet created. Protect existing AI data and confirm source/device/contents/space prior to writing. Existing NUC12 local backups there are NOT an independent copy; obtain verified independent copy before destructive cleanup.
 
 Pending read-only check: `findmnt -T /srv/charly-ai`, `lsblk -o NAME,MODEL,TRAN,SIZE,FSTYPE,MOUNTPOINTS`, `du -h --max-depth=1 /srv/charly-ai`, available space, and backup output artifacts with credentials redacted.
+
+
+## NUC12 externe USB-SSD inhoud — 2026-11-20
+
+Read-only inspectie vanaf CHARLYPi via `ssh nuc12`. Device: Samsung MZVL2256HCHQ-00B00, USB SSD, `/dev/sda1`, ext4, `/srv/charly-ai`. `df`: 234G filesystem, 21G gebruikt, 214G vrij. **Geen files gewijzigd.**
+
+| Onderdeel | Omvang (du, afgerond) |
+| --- | --- |
+| `models/colibri` | 7.0G |
+| `models/ollama` | 6.3G |
+| `models/ornith` | 5.4G |
+| `runtime` | 1.4G |
+| `cache` | 227M |
+| overige | gering |
+
+Grootste `ornith` bestand: `models/ornith/Ornith-1.5-9B-Q4_K_M.gguf` circa 5.38 GiB. `models/colibri` bevat meerdere safetensors van olmoe-1b-7b-instruct. Er staan ook llama.cpp- en Python-runtimebestanden.
+
+**Besluit:** AI-data eerst behouden. De SSD kan dienen als tijdelijke cluster-back-upstaging in nieuwe geïsoleerde directory `/srv/charly-ai/cluster-backups`, nog niet aangemaakt. Niet claimen als tweede onafhankelijke kopie van NUC12-data of deze SSD. Voor bestanden verplaatst/verwijderd worden: ander fysiek opslagmedium en herstelcontrole; back-upomvang inclusief datastore, database en applicatiestatus nog bepalen. Inventariseren welke AI-diensten de SSD actief gebruiken.
