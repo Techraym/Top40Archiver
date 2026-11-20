@@ -245,3 +245,11 @@ Gecontroleerde gebruikersuitvoer (alleen uitlezen):
 - Root filesystem 226G totaal, 57G gebruikt, 158G beschikbaar; ontbrekende externe 2TB-muziekschijf blijft uitgesteld.
 - Gebruiker wil sneller: voortaan per host één gecombineerde backup-/verificatieronde, zonder losse iteraties.
 - Voorgestelde eerstvolgende lokale opdracht (nog geen resultaat): stage-applicatiearchief onder `/var/backups/charly-cluster-stage` op NUC13, controleer gzip/tar/SHA256, inventariseer databasepaden. Daarna **consistente databasebackup** en doorzetten naar NUC12 USB SSD met externe herstelcontrole. Downloadmanager en uploader niet stopzetten. Geen hostbestanden op GitHub plaatsen.
+
+
+## NUC13 staged applicatieback-up geslaagd; SQLite vastgesteld — 2026-11-20 22:41 CET
+Gebruikersuitvoer:
+- `/var/backups/charly-cluster-stage/nuc13-apps-20261120-224031.tar.gz` aangemaakt, 471M; `gzip -t`, `tar -tzf` en SHA256 geslaagd.
+- Opgenomen: `/opt`, `/usr/local/bin`, `/usr/local/sbin`, `/etc/systemd/system`, `/etc/ssh`, `/etc/network`, `/etc/fstab`, `/var/lib/top40-studio-upload`, `/var/lib/charly-autonomy`, `/home/top40`. Actieve `/var/lib/top40-archiver` nog niet opgenomen.
+- Actieve databasebestanden: `/var/lib/top40-archiver/top40.sqlite3` 548794368 bytes en `ai_memory.sqlite` 757252096 bytes. Vele historische `/var/lib/top40-archiver/backups/update_*/top40.sqlite3` cumulatief onderdeel van 37G, niet zomaar verwijderen.
+- Nog uit te voeren: online-consistente SQLite backup via Python `sqlite3.Connection.backup`, `PRAGMA integrity_check` en SHA256, gevolgd door `du`-inventarisatie van andere Top40-data. Vóór migratie die backups overbrengen naar NUC12 externe USB SSD met controle. NUC13-services blijven operationeel.
